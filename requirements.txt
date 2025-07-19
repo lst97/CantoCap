@@ -1,0 +1,21 @@
+# Core dependencies for CantoSub Phase 1
+typer[all]>=0.16.0
+transformers>=4.53.2
+torch>=2.7.1
+torchaudio>=2.7.1
+srt>=3.5.3
+ffmpeg-python>=0.2.0
+
+# Phase 2 dependencies
+openai>=1.97.0
+google-generativeai>=0.8.5
+python-dotenv>=1.1.1
+pyannote.audio>=3.3.2
+opencc-python-reimplemented>=0.1.7
+librosa>=0.11.0
+accelerate>=1.9.0
+
+# Phase 3 dependencies - Professional UX and Enhancement
+rich>=14.0.0
+
+# Development dependencies will be in requirements-dev.txt
