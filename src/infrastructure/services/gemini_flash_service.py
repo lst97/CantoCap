@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Optional, Dict, Any
 import json
 import re
+import time
 
 try:
     import google.generativeai as genai
@@ -60,21 +61,47 @@ Example: {"speaker_count": 2, "confidence": 0.95, "analysis_notes": "Two distinc
         
         style_instructions = {
             "written": """formal written Cantonese following these specific guidelines:
-- Use formal vocabulary and sentence structures typical of written Chinese
-- Replace spoken particles like 啦 (laa1), 喎 (wo3), 咖 (gaa3), 㗎 (gaa4) with appropriate punctuation or remove them
-- Convert spoken expressions to their written equivalents (e.g., 點解 → 為什麼, 乜嘢 → 什麼, 邊個 → 誰)
-- Use standard written Chinese sentence patterns and formal grammar
-- Maintain clarity and readability suitable for subtitle viewing
-- Avoid overly casual expressions and slang terms
-- Use proper punctuation and formal tone throughout""",
+1. Primary Objective
+    Your goal is to convert spoken Cantonese audio into a perfectly synchronized SRT subtitle file using Standard Written Chinese (書面語).
+2. Core Principles
+    Audio is Truth: The Cantonese audio is the definitive source. The provided text is only a reference.
+    Context is Key: Before transcribing, analyze the video to understand the situation, emotions, and character relationships. This context must inform your choice of words and phrasing.
+    Meaning Over Literal Translation: Focus on conveying the speaker's true meaning and intent. Rephrase sentences to sound natural and grammatically correct in formal written Chinese.
+3. Execution Checklist: Conversion from Colloquial to Written
+    Vocabulary & Characters: You must convert Cantonese-specific words to their Standard Written Chinese equivalents.
+        佢 (keoi5) → 他 / 她
+        哋 (dei6) → 們 (e.g., 佢哋 → 他們)
+        喺 (hai2) → 在
+        係 (hai6) → 是
+        唔 (m4) → 不
+        冇 (mou5) → 沒有
+        嘅 (ge3) → 的
+        咗 (zo2) → 了
+        啲 (di1) → 些 / 一點
+        乜 / 咩 (mat1 / me1) → 什麼
+    Grammar & Sentence Structure: Restructure entire sentences to follow formal written grammar.
+        Example: Spoken "你食咗飯未呀?" becomes Written "你吃飯了嗎？"
+    Proper Nouns: Retain original proper nouns, such as character names (e.g., "荷媽") or specific locations.
+""",
             "colloquial": """natural spoken Cantonese preserving authentic conversational elements:
-- Keep all spoken particles like 啦 (laa1), 喎 (wo3), 咖 (gaa3), 㗎 (gaa4), 吖 (aa1)
-- Preserve colloquial vocabulary and expressions (點解, 乜嘢, 邁個, 咩事, 做咩)
-- Maintain natural speech rhythm and informal sentence structures
-- Keep contractions and casual grammar patterns
-- Preserve emotional tone markers and conversational fillers
-- Use Cantonese-specific expressions and idioms as spoken
-- Maintain the authentic feel of natural conversation"""
+1. Primary Objective
+    Your goal is to accurately transcribe spoken Cantonese audio into a perfectly synchronized SRT subtitle file using Written Colloquial Cantonese (口語).
+2. Core Principles
+    Audio is Truth: The Cantonese audio is the definitive source. The provided text is only a reference.
+    Context is Key: Before transcribing, analyze the video to understand the situation, emotions, and character relationships. This is crucial for interpreting slang, tone, and intent.
+    Reflect Natural Speech: The final text must match how the characters actually talk, including their specific phrasing and expressions.
+3. Execution Checklist: Accurate Colloquial Transcription
+    Use Cantonese-Specific Characters: You must use characters that represent spoken Cantonese.
+        係 (hai6)
+        嘅 (ge3)
+        喺 (hai2)
+        佢 (keoi5)
+        冇 (mou5)
+        啲 (di1)
+        唔 (m4)
+        咗 (zo2)
+    Correct Phonetic/Typing Errors: Replace incorrect or phonetic approximations in the original text with the correct characters based on the audio (e.g., correct "ho ma" to "荷媽" or "ge" to "嘅").
+    Match Cantonese Grammar: Ensure the sentence structure aligns with natural, spoken Cantonese, not formal written Chinese."""
         }
         
         speaker_instructions = (
@@ -91,23 +118,16 @@ Example: {"speaker_count": 2, "confidence": 0.95, "analysis_notes": "Two distinc
 You are an expert AI agent specializing in Cantonese linguistics and transcription. You are the final judge of the output's accuracy. Your primary objective is to analyze a media file (video or audio) and its provided text, then produce a perfectly accurate, contextually appropriate, and precisely synchronized Cantonese subtitle file.
 
 2. Phase 1: Contextual Analysis (Mandatory First Step)
-
 Before any transcription, you must first analyze the entire video to create a brief internal summary. This summary should include:
-
     Overall Situation: What is happening in the scene? (e.g., a family argument, a dramatic confession, a comedic misunderstanding).
-
     Emotional Tone: What are the dominant emotions? (e.g., anger, grief, sarcasm, joy).
-
     Character Dynamics: What is the relationship between the speakers? (e.g., mother and daughter in conflict, lovers arguing).
-
+    
 This contextual understanding is critical and must inform all subsequent transcription decisions to ensure the final text reflects the true meaning and intent of the speakers.
 
 3. Phase 2: Core Principles
-
     The Audio is the Single Source of Truth: The provided audio is the definitive source. The initial text is only a rough guide. If there is any discrepancy, you must prioritize the spoken words in the audio.
-
     Language Style (CRITICAL REQUIREMENT): The final output must strictly follow {style_instructions[language_style]}. This is a non-negotiable requirement that affects every single line of text. Use the context from your summary to interpret slang, tone, and intent correctly while maintaining the specified language style throughout.
-
     Meaning Over Literal Interpretation: Use your contextual summary to resolve ambiguities. If a word sounds like it could be multiple things, choose the one that makes the most sense in the emotional and narrative context of the scene.
 
 4. Phase 3: Execution and Correction
@@ -117,11 +137,6 @@ This contextual understanding is critical and must inform all subsequent transcr
         {style_instructions[language_style]}
         
         Review each subtitle line and ensure it follows the style requirements exactly. This is your primary responsibility.
-
-    Character Usage:
-        You must use Cantonese-specific characters.
-        Examples: 係 (hai6), 嘅 (ge3), 喺 (hai2), 佢 (keoi5), 冇 (mou5), 啲 (di1), 唔 (m4), 咗 (zo2).
-        Identify and replace phonetic approximations with the correct characters based on the audio and context.
 
     Handling Errors in the Original Document:
         Invalid Content: Delete any words or sentences from the original text that are not spoken in the audio.
@@ -162,14 +177,13 @@ Return the complete corrected SRT file content.
         
         # Configure model with low temperature for more deterministic, instruction-following behavior
         generation_config = genai.types.GenerationConfig(
-            temperature=0.3,  # Low temperature for accuracy and instruction-following
-            top_p=0.8,        # Focused sampling
-            max_output_tokens=8192,  # Adequate for SRT files
+            temperature=1, 
+            top_p=1.0,        # Focused sampling
         )
         
         self.model = genai.GenerativeModel(
             model_name='gemini-2.5-flash',
-            generation_config=generation_config
+            generation_config=generation_config,
         )
         self.api_key = api_key
     
@@ -186,6 +200,7 @@ Return the complete corrected SRT file content.
         try:
             # Upload video file
             video_file = genai.upload_file(str(video_path.path))
+            time.sleep(1) # Wait for file to become active
             
             # Generate response
             response = self.model.generate_content([
@@ -221,18 +236,13 @@ Return the complete corrected SRT file content.
                 except Exception:
                     pass  # File cleanup failure shouldn't break the flow
     
-    def refine_transcription(
-        self,
-        video_path: FilePath,
-        whisper_srt: str,
-        language_style: str = "colloquial"
-    ) -> TranscriptionRefinementResult:
+    def refine_transcription(self, video_path: FilePath, whisper_srt: str, language_style: str) -> TranscriptionRefinementResult:
         """
-        Refine transcription using Gemini Flash analysis.
+        Refine transcription using Gemini Flash.
         
         Args:
-            video_path: Path to original video file
-            whisper_srt: Original SRT content from Whisper + diarization
+            video_path: Path to video file
+            whisper_srt: Original SRT content from Whisper
             language_style: "colloquial" or "written" style preference
             
         Returns:
@@ -241,6 +251,7 @@ Return the complete corrected SRT file content.
         try:
             # Upload video file
             video_file = genai.upload_file(str(video_path.path))
+            time.sleep(1) # Wait for file to become active
             
             # Detect if speaker tags are present in the original SRT
             has_speaker_tags = bool(re.search(r'\[SPEAKER_\d+\]', whisper_srt))
@@ -257,12 +268,19 @@ Return the complete corrected SRT file content.
             
             # Generate refined transcription
             response = self.model.generate_content(content)
+            
+            if response.candidates and response.candidates[0].finish_reason == "MAX_TOKENS":
+                raise RuntimeError("Input too large for single refinement. Use 'refine_transcription_chunked' for larger files.")
+            
+            if not response.parts:
+                raise RuntimeError(f"Gemini Flash returned no parts. Full response: {response}")
+
             refined_srt = response.text.strip()
             
             # Verify speaker tags are preserved if they existed
             if has_speaker_tags:
-                original_speaker_count = len(re.findall(r'\[SPEAKER_\d+\]', whisper_srt))
-                refined_speaker_count = len(re.findall(r'\[SPEAKER_\d+\]', refined_srt))
+                original_speaker_count = len(re.findall(r'[SPEAKER_\d+]', whisper_srt))
+                refined_speaker_count = len(re.findall(r'[SPEAKER_\d+]', refined_srt))
                 if refined_speaker_count == 0 and original_speaker_count > 0:
                     # Fallback: If Gemini stripped all speaker tags, use original with basic cleanup
                     print("Warning: Gemini removed speaker tags. Using fallback refinement.")
@@ -278,7 +296,7 @@ Return the complete corrected SRT file content.
             
             processing_notes = "Gemini Flash refinement completed"
             if has_speaker_tags:
-                speaker_count_preserved = len(re.findall(r'\[SPEAKER_\d+\]', refined_srt))
+                speaker_count_preserved = len(re.findall(r'[SPEAKER_\d+]', refined_srt))
                 processing_notes += f" with {speaker_count_preserved} speaker tags preserved"
             
             return TranscriptionRefinementResult(

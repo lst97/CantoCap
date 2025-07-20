@@ -27,6 +27,7 @@ class GenerateSubtitlesCommand:
     gemini_api_key: Optional[str] = None
     video_compression_quality: str = "360p"  # For LLM processing
     max_chunk_duration_minutes: int = 15  # Maximum chunk duration
+    hf_token: Optional[str] = None # Hugging Face token for gated models
     
     def __post_init__(self) -> None:
         """Validate command parameters."""

@@ -198,10 +198,12 @@ class Container:
             )
         return self._generate_subtitles_use_case
     
-    def get_speaker_diarization_service(self) -> SpeakerDiarizationService:
+    def get_speaker_diarization_service(self, hf_token: Optional[str] = None) -> SpeakerDiarizationService:
         """Get speaker diarization service instance."""
         if self._speaker_diarization_service is None:
             self._speaker_diarization_service = SpeakerDiarizationService()
+            if not self._speaker_diarization_service.load_model(hf_token=hf_token):
+                raise RuntimeError("Failed to load speaker diarization model.")
         return self._speaker_diarization_service
     
     # LLM service factory removed - using Gemini Flash service directly

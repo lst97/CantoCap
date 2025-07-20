@@ -54,10 +54,6 @@ class SpeakerDiarizationService:
             if hf_token is None:
                 hf_token = self._get_hf_token_from_env()
             
-            print(f"Using HF token: {'Yes' if hf_token else 'No'}")
-            if hf_token:
-                print(f"Token starts with: {hf_token[:10]}...")
-            
             # Suppress some warnings for cleaner output
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")

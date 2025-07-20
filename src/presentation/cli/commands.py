@@ -88,6 +88,11 @@ def generate_command(
         "--gemini-key",
         help="Google Gemini API key (overrides .env file and environment variables)"
     ),
+    hf_token: Optional[str] = typer.Option(
+        None,
+        "--hf-token",
+        help="Hugging Face API token for gated models (e.g., pyannote/speaker-diarization-3.1)"
+    ),
     
     disable_gemini_refinement: bool = typer.Option(
         False,
@@ -210,7 +215,8 @@ def generate_command(
                 enable_gemini_refinement=not actual_disable_refinement,
                 gemini_api_key=resolved_gemini_key if is_valid else None,
                 video_compression_quality=video_quality,
-                max_chunk_duration_minutes=max_chunk_duration
+                max_chunk_duration_minutes=max_chunk_duration,
+                hf_token=hf_token
             )
         
         command = safe_execute(

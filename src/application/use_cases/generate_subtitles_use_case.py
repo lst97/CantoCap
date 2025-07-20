@@ -139,7 +139,7 @@ class GenerateSubtitlesUseCase:
             speaker_diarization = None
             if command.enable_speakers and self.speaker_diarization_service:
                 speaker_diarization = self._perform_enhanced_speaker_diarization(
-                    temp_audio, detected_speaker_count
+                    temp_audio, detected_speaker_count, command.hf_token
                 )
             
             # Step 8: Music detection (existing logic)
@@ -588,7 +588,8 @@ class GenerateSubtitlesUseCase:
     def _perform_enhanced_speaker_diarization(
         self, 
         audio_stream: AudioStream, 
-        detected_speaker_count: Optional[int]
+        detected_speaker_count: Optional[int],
+        hf_token: Optional[str]
     ):
         """Enhanced speaker diarization with auto-detected speaker count."""
         if not self.speaker_diarization_service:
