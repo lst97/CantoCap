@@ -6,6 +6,7 @@ from pathlib import Path
 from rich.console import Console
 
 from .commands import generate_command
+from .hardware_command import hardware_command
 from ...infrastructure.error_handling import validate_file_path, ValidationError, handle_error
 
 console = Console()
@@ -20,6 +21,9 @@ app = typer.Typer(
 
 # Add the generate command as the default command
 app.command(name="generate")(generate_command)
+
+# Add the hardware capabilities command
+app.command(name="hardware")(hardware_command)
 
 # Also make it available without the "generate" subcommand for convenience
 @app.callback(invoke_without_command=True)
@@ -41,11 +45,17 @@ def main(
         "-l",
         help="Language code for transcription (default: zh for Chinese)"
     ),
-    model: str = typer.Option(
-        "openai/whisper-large-v3",
+    model: Optional[str] = typer.Option(
+        None,
         "--model",
         "-m",
-        help="Whisper model to use for transcription"
+        help="Whisper model to use (auto-selects optimal model if not specified)"
+    ),
+    priority: str = typer.Option(
+        "balanced",
+        "--priority",
+        "-p",
+        help="Model selection priority: 'speed', 'quality', or 'balanced'"
     ),
     # Phase 2 features
     speakers: bool = typer.Option(
@@ -76,33 +86,31 @@ def main(
     )
 ) -> None:
     """
-    CantoSub - Generate Cantonese subtitles from audio/video files.
+    CantoSub - Generate Cantonese subtitles with intelligent model selection.
     
-    This tool extracts audio from video/audio files and generates accurate
+    This tool automatically selects the optimal Whisper model based on your hardware
+    capabilities and extracts audio from video/audio files to generate accurate
     Cantonese subtitles using OpenAI Whisper speech recognition.
-    
-    Phase 2 features include speaker diarization, music detection, 
-    LLM-based style conversion, and character set conversion.
     
     Examples:
     
-        # Basic usage
+        # Basic usage (auto-selects optimal model)
         cantosub video.mp4
         
-        # Specify output file
-        cantosub video.mp4 --output subtitles.srt
+        # Prioritize speed over quality
+        cantosub video.mp4 --priority speed
         
-        # Enable speaker identification
-        cantosub interview.mp4 --speakers
+        # Prioritize quality over speed  
+        cantosub video.mp4 --priority quality
         
-        # Convert to written style with simplified characters
-        cantosub podcast.wav --written --charset simplified
+        # Override with specific model
+        cantosub video.mp4 --model openai/whisper-medium
         
-        # Full Phase 2 features
-        cantosub movie.mkv --speakers --written --music --charset traditional
+        # Check hardware capabilities
+        cantosub hardware
         
-        # Use different Whisper model
-        cantosub video.mkv --model openai/whisper-medium
+        # Phase 2 features
+        cantosub movie.mkv --speakers --written --music
     """
     if version:
         from ... import __version__
@@ -132,6 +140,7 @@ def main(
             output_file=output_file,
             language=language,
             model=model,
+            priority=priority,
             speakers=speakers,
             written=written,
             music=music,

@@ -86,10 +86,22 @@ class Container:
         # Fallback to system PATH
         return None
     
-    def get_whisper_service(self) -> WhisperService:
-        """Get Whisper service instance."""
+    def get_whisper_service(self, model_name: Optional[str] = None, priority: str = "balanced") -> WhisperService:
+        """
+        Get Whisper service instance with intelligent model selection.
+        
+        Args:
+            model_name: Specific model to use (overrides auto-selection)
+            priority: "speed", "quality", or "balanced" for auto-selection
+        """
         if self._whisper_service is None:
-            self._whisper_service = WhisperService("openai/whisper-large-v3")
+            # Enable auto-selection by default, allow manual override
+            auto_select = model_name is None
+            self._whisper_service = WhisperService(
+                model_name=model_name,
+                auto_select_model=auto_select,
+                priority=priority
+            )
         return self._whisper_service
     
     def get_audio_repository(self) -> FFmpegAudioRepository:
@@ -139,14 +151,29 @@ class Container:
         return self._subtitle_formatting_service
     
     def get_generate_subtitles_use_case(self) -> GenerateSubtitlesUseCase:
-        """Get generate subtitles use case instance."""
+        """Get generate subtitles use case instance with Phase 2 services."""
         if self._generate_subtitles_use_case is None:
+            # Get Phase 2 services if available
+            speaker_service = None
+            music_service = None
+            
+            if _PHASE2_AVAILABLE:
+                try:
+                    speaker_service = self.get_speaker_diarization_service()
+                    music_service = self.get_music_detection_service()
+                except Exception:
+                    # Phase 2 services optional - continue without them
+                    pass
+            
             self._generate_subtitles_use_case = GenerateSubtitlesUseCase(
                 audio_repository=self.get_audio_repository(),
                 transcription_repository=self.get_transcription_repository(),
                 subtitle_repository=self.get_subtitle_repository(),
                 media_file_validator=self.get_media_file_validator(),
-                subtitle_formatting_service=self.get_subtitle_formatting_service()
+                subtitle_formatting_service=self.get_subtitle_formatting_service(),
+                # Phase 2 services (optional)
+                speaker_diarization_service=speaker_service,
+                music_detection_service=music_service
             )
         return self._generate_subtitles_use_case
     
@@ -217,7 +244,6 @@ class Container:
         # Cleanup Phase 2 services
         if self._speaker_diarization_service is not None:
             self._speaker_diarization_service.cleanup()
-        if self._music_detection_service is not None:
-            self._music_detection_service.cleanup()
+        # Note: Music detection service doesn't need cleanup (no model loading)
         if self._charset_conversion_service is not None:
             self._charset_conversion_service.cleanup()

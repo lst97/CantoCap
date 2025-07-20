@@ -13,7 +13,7 @@ class GenerateSubtitlesCommand:
     input_file_path: str
     output_file_path: Optional[str] = None
     language: str = "zh"  # Chinese
-    model_name: str = "openai/whisper-large-v3"
+    model_name: Optional[str] = "openai/whisper-large-v3"  # None enables auto-selection
     
     # Phase 2 features
     enable_speakers: bool = False
@@ -32,8 +32,8 @@ class GenerateSubtitlesCommand:
         if not self.language.strip():
             raise ValueError("Language cannot be empty")
         
-        if not self.model_name.strip():
-            raise ValueError("Model name cannot be empty")
+        if self.model_name is not None and not self.model_name.strip():
+            raise ValueError("Model name cannot be empty string")
         
         if not self.charset.strip():
             raise ValueError("Charset cannot be empty")

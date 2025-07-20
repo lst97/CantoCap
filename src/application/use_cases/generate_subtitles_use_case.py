@@ -1,7 +1,7 @@
 """Use case for generating subtitles from media files."""
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Dict, Any
 import time
 
 from ...domain import (
@@ -69,7 +69,10 @@ class GenerateSubtitlesUseCase:
         transcription_repository: ITranscriptionRepository,
         subtitle_repository: ISubtitleRepository,
         media_file_validator: MediaFileValidator,
-        subtitle_formatting_service: SubtitleFormattingService
+        subtitle_formatting_service: SubtitleFormattingService,
+        # Phase 2 dependencies (optional)
+        speaker_diarization_service=None,
+        music_detection_service=None
     ):
         """Initialize use case with dependencies."""
         self.audio_repository = audio_repository
@@ -77,6 +80,10 @@ class GenerateSubtitlesUseCase:
         self.subtitle_repository = subtitle_repository
         self.media_file_validator = media_file_validator
         self.subtitle_formatting_service = subtitle_formatting_service
+        
+        # Phase 2 services (optional)
+        self.speaker_diarization_service = speaker_diarization_service
+        self.music_detection_service = music_detection_service
     
     def execute(self, command: GenerateSubtitlesCommand) -> SubtitleGenerationResult:
         """
@@ -107,16 +114,31 @@ class GenerateSubtitlesUseCase:
             # Step 5: Transcribe audio
             transcription = self._transcribe_audio(temp_audio, command.language)
             
-            # Step 6: Generate subtitle document
+            # Step 6: Phase 2 features (optional)
+            speaker_diarization = None
+            music_detection = None
+            
+            if command.has_phase2_features():
+                # Speaker diarization if enabled
+                if command.enable_speakers and self.speaker_diarization_service:
+                    speaker_diarization = self._perform_speaker_diarization(temp_audio)
+                
+                # Music detection if enabled
+                if command.enable_music_detection and self.music_detection_service:
+                    music_detection = self._perform_music_detection(transcription, temp_audio)
+            
+            # Step 7: Generate subtitle document with Phase 2 enhancements
             subtitle_document = self._generate_subtitle_document(
                 transcription, 
-                command.input_file_path
+                command.input_file_path,
+                speaker_diarization=speaker_diarization,
+                music_detection=music_detection
             )
             
-            # Step 7: Save subtitle file
+            # Step 8: Save subtitle file
             output_path = self._save_subtitle_file(subtitle_document, command)
             
-            # Step 8: Generate statistics
+            # Step 9: Generate statistics
             statistics = self._generate_statistics(subtitle_document)
             
             processing_time = time.time() - start_time
@@ -175,12 +197,13 @@ class GenerateSubtitlesUseCase:
         
         return audio_stream
     
-    def _load_transcription_model(self, model_name: str) -> None:
+    def _load_transcription_model(self, model_name: Optional[str]) -> None:
         """Load the transcription model."""
         if not self.transcription_repository.is_model_loaded():
             success = self.transcription_repository.load_model(model_name)
             if not success:
-                raise RuntimeError(f"Failed to load transcription model: {model_name}")
+                model_desc = model_name if model_name else "auto-selected model"
+                raise RuntimeError(f"Failed to load transcription model: {model_desc}")
     
     def _transcribe_audio(self, audio_stream: AudioStream, language: str):
         """Transcribe audio to text with timestamps."""
@@ -198,13 +221,23 @@ class GenerateSubtitlesUseCase:
     def _generate_subtitle_document(
         self, 
         transcription, 
-        source_file_path: str
+        source_file_path: str,
+        speaker_diarization=None,
+        music_detection=None
     ) -> SubtitleDocument:
-        """Generate optimized subtitle document."""
+        """Generate optimized subtitle document with Phase 2 enhancements."""
         subtitle_document = self.subtitle_formatting_service.create_subtitle_document_from_transcription(
             transcription=transcription,
             source_file_path=source_file_path
         )
+        
+        # Apply Phase 2 enhancements if available
+        if speaker_diarization or music_detection:
+            subtitle_document = self._apply_phase2_enhancements(
+                subtitle_document, 
+                speaker_diarization, 
+                music_detection
+            )
         
         # Validate generated document
         quality_issues = subtitle_document.get_quality_issues()
@@ -249,3 +282,130 @@ class GenerateSubtitlesUseCase:
             **basic_stats,
             "formatting": formatting_stats
         }
+    
+    def _perform_speaker_diarization(self, audio_stream) -> Optional[any]:
+        """Perform speaker diarization on audio stream."""
+        try:
+            if not self.speaker_diarization_service:
+                return None
+            
+            # Check if service is ready
+            if not self.speaker_diarization_service.is_model_loaded():
+                # Try to load the model
+                success = self.speaker_diarization_service.load_model()
+                if not success:
+                    return None
+            
+            # Perform diarization
+            diarization_result = self.speaker_diarization_service.diarize_audio_file(
+                audio_file_path=audio_stream.get_file_path().path
+            )
+            
+            # Create domain entity
+            return self.speaker_diarization_service.create_diarization_entity(diarization_result)
+            
+        except Exception as e:
+            # Log error but don't fail the entire process
+            print(f"Warning: Speaker diarization failed: {e}")
+            return None
+    
+    def _perform_music_detection(self, transcription, audio_stream) -> Optional[any]:
+        """Perform music detection using Whisper transcription analysis."""
+        try:
+            if not self.music_detection_service:
+                return None
+            
+            # Get raw whisper result from transcription
+            # We'll need to get this from the transcription repository
+            raw_whisper_result = self._get_raw_whisper_result(transcription)
+            
+            # Get audio duration
+            audio_duration = audio_stream.get_duration_seconds() if audio_stream else None
+            
+            # Perform music detection
+            detection_result = self.music_detection_service.detect_music_from_whisper_result(
+                whisper_result=raw_whisper_result,
+                audio_duration=audio_duration
+            )
+            
+            # Create domain entity
+            return self.music_detection_service.create_music_detection_entity(detection_result)
+            
+        except Exception as e:
+            # Log error but don't fail the entire process
+            print(f"Warning: Music detection failed: {e}")
+            return None
+    
+    def _get_raw_whisper_result(self, transcription) -> Dict[str, Any]:
+        """Extract raw Whisper result from transcription entity."""
+        # Convert transcription back to whisper result format
+        chunks = []
+        for chunk in transcription.chunks:
+            chunks.append({
+                "text": chunk.text,
+                "timestamp": [chunk.start_time.seconds, chunk.end_time.seconds]
+            })
+        
+        return {
+            "text": " ".join(chunk.text for chunk in transcription.chunks),
+            "chunks": chunks,
+            "language": transcription.language
+        }
+    
+    def _apply_phase2_enhancements(
+        self, 
+        subtitle_document, 
+        speaker_diarization=None, 
+        music_detection=None
+    ):
+        """Apply Phase 2 enhancements to subtitle document."""
+        from ...domain.entities import Subtitle
+        
+        enhanced_subtitles = []
+        
+        for subtitle in subtitle_document.get_subtitles():
+            enhanced_content = subtitle.get_content()
+            
+            # Add speaker labels if diarization available
+            if speaker_diarization:
+                speaker_id = speaker_diarization.get_speaker_for_timespan(
+                    subtitle.get_start_time(), 
+                    subtitle.get_end_time()
+                )
+                if speaker_id:
+                    enhanced_content = f"[{speaker_id}] {enhanced_content}"
+            
+            # Add music labels if music detection available
+            if music_detection:
+                music_segments = music_detection.get_music_for_timespan(
+                    subtitle.get_start_time(), 
+                    subtitle.get_end_time()
+                )
+                if music_segments:
+                    # Add music labels for overlapping segments
+                    music_labels = []
+                    for segment in music_segments:
+                        music_labels.append(segment.get_music_label())
+                    
+                    if music_labels:
+                        # Add unique music labels
+                        unique_labels = list(set(music_labels))
+                        label_text = " ".join(unique_labels)
+                        enhanced_content = f"{label_text} {enhanced_content}"
+            
+            # Create enhanced subtitle
+            enhanced_subtitle = Subtitle(
+                index=subtitle.get_index(),
+                start_time=subtitle.get_start_time(),
+                end_time=subtitle.get_end_time(),
+                content=enhanced_content
+            )
+            enhanced_subtitles.append(enhanced_subtitle)
+        
+        # Create new document with enhanced subtitles
+        from ...domain.entities import SubtitleDocument
+        return SubtitleDocument.create(
+            subtitles=enhanced_subtitles,
+            source_file=subtitle_document.get_source_file(),
+            language=subtitle_document.get_language()
+        )

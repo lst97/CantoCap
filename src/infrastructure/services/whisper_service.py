@@ -2,25 +2,29 @@
 
 import torch
 from transformers import pipeline, Pipeline
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Callable
 import warnings
 import os
 import platform
 from pathlib import Path
+from .hardware_detector import HardwareDetector, ModelSize
 
 try:
     from rich.console import Console
     _console = Console()
-    def _print(message: str, style: Optional[str] = None) -> None:
+    def _print(message: str, style: Optional[str] = None, quiet: bool = False) -> None:
         """Print using Rich if available, fallback to standard print."""
+        if quiet:
+            return  # Suppress output in quiet mode
         if style:
             _console.print(message, style=style)
         else:
             _console.print(message)
 except ImportError:
-    def _print(message: str, style: Optional[str] = None) -> None:
+    def _print(message: str, style: Optional[str] = None, quiet: bool = False) -> None:
         """Fallback to standard print if Rich not available."""
-        print(message)
+        if not quiet:
+            print(message)
 
 from ...domain.value_objects import FilePath
 from ...domain.entities import Transcription
@@ -29,14 +33,35 @@ from ...domain.entities import Transcription
 class WhisperService:
     """Service for Whisper speech-to-text operations."""
     
-    def __init__(self, model_name: str = "openai/whisper-base"):
+    def __init__(self, model_name: Optional[str] = None, auto_select_model: bool = True, priority: str = "balanced"):
         """
         Initialize Whisper service.
         
         Args:
-            model_name: Hugging Face model name/path (default: base model for compatibility)
+            model_name: Specific model name to use (overrides auto-selection)
+            auto_select_model: Whether to automatically select optimal model
+            priority: "speed", "quality", or "balanced" for auto-selection
         """
-        self.model_name = model_name
+        self._hardware_detector = HardwareDetector()
+        self._auto_select_model = auto_select_model
+        self._priority = priority
+        self._progress_callback: Optional[Callable] = None
+        self._quiet_mode = False
+        
+        # Initialize model and device
+        if model_name:
+            # User specified model
+            self.model_name = model_name
+            self._auto_select_model = False  # Disable auto-selection
+        elif auto_select_model:
+            # Auto-select optimal model
+            recommended_model, self._recommendation_details = self._hardware_detector.recommend_model(priority)
+            self.model_name = recommended_model.value
+            self._log_model_recommendation()
+        else:
+            # Fallback to base model
+            self.model_name = "openai/whisper-base"
+        
         self.pipeline: Optional[Pipeline] = None
         self._device = self._get_optimal_device()
         
@@ -182,31 +207,68 @@ class WhisperService:
             _print(f"⚠️ Tokenizer configuration warning: {e}", "yellow")
             return False
     
-    def get_recommended_model(self) -> str:
+    def _log_model_recommendation(self) -> None:
+        """Log the model recommendation details."""
+        if hasattr(self, '_recommendation_details') and not self._quiet_mode:
+            details = self._recommendation_details
+            _print(f"🤖 Intelligent model selection: {self.model_name}", "cyan", self._quiet_mode)
+            _print(f"📊 Reason: {details['reason']}", "blue", self._quiet_mode)
+            
+            # Show hardware summary
+            hw = details['hardware_profile']
+            _print(f"💻 Hardware: {hw['device']} | {hw['vram_gb']:.1f}GB VRAM | {hw['cpu_cores']} cores", "blue", self._quiet_mode)
+            
+            # Show performance estimate
+            if details.get('estimated_processing_time_minutes'):
+                _print(f"⏱️ Estimated speed: {details['estimated_processing_time_minutes']:.1f}min per audio minute", "blue", self._quiet_mode)
+    
+    def get_recommended_model(self, priority: str = "balanced", audio_duration_minutes: Optional[float] = None) -> str:
         """
         Get recommended model based on available hardware.
+        
+        Args:
+            priority: "speed", "quality", or "balanced"
+            audio_duration_minutes: Expected audio duration for optimization
         
         Returns:
             str: Recommended model name
         """
-        if self._device.startswith("cuda"):
-            # For GPU, check memory
-            try:
-                memory_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
-                if memory_gb >= 10:
-                    return "openai/whisper-large-v3"
-                elif memory_gb >= 6:
-                    return "openai/whisper-medium" 
-                else:
-                    return "openai/whisper-base"
-            except:
-                return "openai/whisper-base"
-        elif self._device == "mps":
-            # Apple Silicon - medium models work well
-            return "openai/whisper-medium"
-        else:
-            # CPU - use smaller models
-            return "openai/whisper-base"
+        recommended_model, _ = self._hardware_detector.recommend_model(priority, audio_duration_minutes)
+        return recommended_model.value
+    
+    def get_hardware_capabilities(self) -> Dict[str, Any]:
+        """Get detailed hardware capabilities and recommendations."""
+        return self._hardware_detector.get_hardware_summary()
+    
+    def update_model_selection(self, priority: str = "balanced", audio_duration_minutes: Optional[float] = None) -> str:
+        """
+        Update model selection based on new parameters.
+        
+        Args:
+            priority: "speed", "quality", or "balanced"
+            audio_duration_minutes: Expected audio duration
+            
+        Returns:
+            str: New recommended model
+        """
+        if not self._auto_select_model:
+            return self.model_name  # Don't change user-specified model
+        
+        old_model = self.model_name
+        recommended_model, self._recommendation_details = self._hardware_detector.recommend_model(
+            priority, audio_duration_minutes
+        )
+        self.model_name = recommended_model.value
+        
+        if old_model != self.model_name:
+            _print(f"🔄 Model updated: {old_model} → {self.model_name}", "yellow", self._quiet_mode)
+            _print(f"📊 Reason: {self._recommendation_details['reason']}", "blue", self._quiet_mode)
+            
+            # Force reload if pipeline was already loaded
+            if self.pipeline is not None:
+                self.pipeline = None
+        
+        return self.model_name
     
     def load_model(self, model_name: Optional[str] = None, force_gpu: bool = False) -> bool:
         """
@@ -466,7 +528,8 @@ class WhisperService:
                         chunk_length_s=30,
                         stride_length_s=5,  # Overlap between chunks for better continuity
                         max_new_tokens=448,  # Ensure complete generation
-                        attention_mask=attention_mask.unsqueeze(0),
+                        attention_mask=attention_mask,
+                        pad_token_id=self.pipeline.tokenizer.eos_token_id
                     )
                 except Exception as kwargs_error:
                     _print(f"⚠️ Generate kwargs failed: {kwargs_error}", "yellow")

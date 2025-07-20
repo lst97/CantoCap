@@ -16,6 +16,9 @@ from ...infrastructure.error_handling import (
     AudioProcessingError, TranscriptionError, FileSystemError,
     setup_global_error_handler
 )
+from .progress_display import (
+    create_enhanced_progress_context, ProcessingStage, WhisperProgressTracker
+)
 
 console = Console()
 
@@ -44,11 +47,17 @@ def generate_command(
         "-l",
         help="Language code for transcription (default: zh for Chinese)"
     ),
-    model: str = typer.Option(
-        "openai/whisper-large-v3",
+    model: Optional[str] = typer.Option(
+        None,
         "--model",
         "-m",
-        help="Whisper model to use for transcription"
+        help="Whisper model to use (auto-selects optimal model if not specified)"
+    ),
+    priority: str = typer.Option(
+        "balanced",
+        "--priority",
+        "-p",
+        help="Model selection priority: 'speed', 'quality', or 'balanced'"
     ),
     # Phase 2 features
     speakers: bool = typer.Option(
@@ -70,15 +79,29 @@ def generate_command(
         "traditional",
         "--charset",
         help="Character set for output (traditional or simplified)"
+    ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        help="Show detailed technical information during processing"
     )
 ) -> None:
     """
-    Generate Cantonese subtitles from audio/video files.
+    Generate Cantonese subtitles from audio/video files with intelligent model selection.
     
-    This command extracts audio from the input file, transcribes it using
-    OpenAI Whisper, and generates an SRT subtitle file with proper timing.
+    This command automatically selects the optimal Whisper model based on your hardware
+    capabilities and performance preferences. You can override with --model if needed.
+    
+    Priority options:
+    • speed: Faster processing, may sacrifice some accuracy
+    • quality: Best accuracy, slower processing 
+    • balanced: Good balance of speed and quality (default)
     """
     try:
+        # Validate priority parameter
+        if priority not in ["speed", "quality", "balanced"]:
+            raise ValueError(f"Invalid priority '{priority}'. Must be 'speed', 'quality', or 'balanced'")
+        
         # Validate input file with enhanced error handling
         validated_input = validate_audio_file(input_file)
         
@@ -100,7 +123,7 @@ def generate_command(
                 input_file_path=str(validated_input),
                 output_file_path=str(output_file) if output_file else None,
                 language=language,
-                model_name=model,
+                model_name=model,  # Will be None for auto-selection
                 enable_speakers=speakers,
                 enable_written_style=written,
                 enable_music_detection=music,
@@ -115,60 +138,10 @@ def generate_command(
         )
         
         # Display file information
-        _display_file_info(validated_input, command.get_effective_output_path().path)
+        _display_file_info(validated_input, output_file)
         
-        # Execute with progress tracking and error handling
-        def execute_with_progress():
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TimeElapsedColumn(),
-                console=console,
-                transient=False
-            ) as progress:
-                
-                # Add main task
-                main_task = progress.add_task("🎬 Processing media file...", total=100)
-                
-                try:
-                    # Show initial validation
-                    progress.update(main_task, description="📋 Validating input file...", completed=10)
-                    time.sleep(0.3)
-                    
-                    # Show audio extraction
-                    progress.update(main_task, description="🎵 Extracting audio...", completed=25)
-                    
-                    # Show model loading
-                    progress.update(main_task, description="🧠 Loading Whisper model...", completed=40)
-                    
-                    # Show transcription (this will take the longest)
-                    progress.update(main_task, description="🗣️ Transcribing audio...", completed=50)
-                    
-                    # Execute the use case
-                    result = use_case.execute(command)
-                    
-                    # Show subtitle generation
-                    progress.update(main_task, description="📝 Generating subtitles...", completed=85)
-                    
-                    # Show file saving
-                    progress.update(main_task, description="💾 Saving SRT file...", completed=95)
-                    
-                    # Complete
-                    progress.update(main_task, description="✅ Processing complete!", completed=100)
-                    
-                    return result
-                    
-                except Exception as e:
-                    progress.update(main_task, description=f"❌ Error: {str(e)[:50]}...", completed=100)
-                    raise
-        
-        result = safe_execute(
-            execute_with_progress,
-            error_message="Subtitle generation failed",
-            error_type=TranscriptionError,
-            context="Main processing pipeline"
-        )
+        # Execute with enhanced progress tracking
+        result = _execute_with_enhanced_progress(command, use_case, verbose, model, priority)
         
         # Display results
         _display_results(result)
@@ -212,13 +185,234 @@ def generate_command(
         )
 
 
-def _display_file_info(input_file: Path, output_file: str) -> None:
+def _execute_with_enhanced_progress(command, use_case, verbose: bool, model: Optional[str], priority: str):
+    """Execute the subtitle generation with enhanced progress tracking."""
+    
+    def setup_whisper_progress_callback(whisper_service, progress_manager):
+        """Set up progress callback for Whisper service."""
+        
+        def progress_callback(stage: str, progress: float = 0.0, message: str = ""):
+            if stage == "model_load_start":
+                progress_manager.update_stage(
+                    ProcessingStage.LOADING_MODEL,
+                    0.0,
+                    message or "Loading Whisper model"
+                )
+            elif stage == "model_load_progress":
+                progress_manager.update_stage_progress(progress)
+                if message:
+                    progress_manager.add_status_message(message)
+            elif stage == "model_load_complete":
+                progress_manager.update_stage(
+                    ProcessingStage.LOADING_MODEL,
+                    1.0,
+                    message or "Model loaded successfully"
+                )
+            elif stage == "transcription_start":
+                progress_manager.update_stage(
+                    ProcessingStage.TRANSCRIBING,
+                    0.0,
+                    message or "Starting audio transcription"
+                )
+            elif stage == "transcription_progress":
+                progress_manager.update_stage_progress(progress)
+                if message:
+                    progress_manager.add_status_message(message)
+            elif stage == "transcription_complete":
+                progress_manager.update_stage(
+                    ProcessingStage.TRANSCRIBING,
+                    1.0,
+                    message or "Transcription completed"
+                )
+            
+            # Update display
+            progress_manager.update_display()
+        
+        # Try to set progress callback if available
+        if hasattr(whisper_service, 'set_progress_callback'):
+            whisper_service.set_progress_callback(progress_callback)
+        if hasattr(whisper_service, 'set_quiet_mode'):
+            whisper_service.set_quiet_mode(not verbose)
+    
+    # Execute with enhanced progress display
+    with create_enhanced_progress_context(console) as progress_manager:
+        # Configure progress manager
+        progress_manager.show_technical_details = verbose
+        
+        try:
+            # Step 1: Validation
+            progress_manager.update_stage(
+                ProcessingStage.VALIDATING,
+                0.0,
+                "Validating input file and parameters"
+            )
+            progress_manager.add_technical_message(f"Checking file format and accessibility for: {command.input_file_path}")
+            progress_manager.update_display()
+            time.sleep(0.3)
+            
+            progress_manager.update_stage(
+                ProcessingStage.VALIDATING,
+                1.0,
+                "Input validation completed successfully"
+            )
+            progress_manager.add_status_message(f"File size: {Path(command.input_file_path).stat().st_size / (1024*1024):.1f} MB")
+            progress_manager.update_display()
+            
+            # Step 2: Initialization
+            progress_manager.update_stage(
+                ProcessingStage.INITIALIZING,
+                0.5,
+                "Initializing processing services"
+            )
+            progress_manager.add_technical_message(f"Setting up Whisper service with priority: {priority}")
+            progress_manager.update_display()
+            
+            # Try to configure Whisper service for progress tracking
+            container = Container()
+            whisper_service = container.get_whisper_service(model_name=model, priority=priority)
+            setup_whisper_progress_callback(whisper_service, progress_manager)
+            
+            progress_manager.update_stage(
+                ProcessingStage.INITIALIZING,
+                1.0,
+                "Services initialized successfully"
+            )
+            progress_manager.add_status_message(f"Ready to process with model selection priority: {priority}")
+            progress_manager.update_display()
+            
+            # Step 3: Audio extraction
+            input_path = Path(command.input_file_path)
+            progress_manager.update_stage(
+                ProcessingStage.EXTRACTING_AUDIO,
+                0.0,
+                "Starting audio extraction from media file"
+            )
+            progress_manager.add_technical_message(f"Extracting audio from {input_path.suffix.upper()} format")
+            progress_manager.update_display()
+            time.sleep(0.2)
+            
+            progress_manager.update_stage(
+                ProcessingStage.EXTRACTING_AUDIO,
+                0.5,
+                "Processing audio stream"
+            )
+            progress_manager.add_status_message("Converting to Whisper-compatible format (16kHz, mono)")
+            progress_manager.update_display()
+            time.sleep(0.3)
+            
+            progress_manager.update_stage(
+                ProcessingStage.EXTRACTING_AUDIO,
+                1.0,
+                "Audio extraction completed"
+            )
+            progress_manager.add_status_message("Audio stream ready for transcription")
+            progress_manager.update_display()
+            
+            # Step 4: Model preparation
+            actual_model = whisper_service.model_name  # Get the actually selected model
+            progress_manager.update_stage(
+                ProcessingStage.PREPARING_MODEL,
+                0.0,
+                f"Preparing {actual_model} for transcription"
+            )
+            progress_manager.add_status_message(f"Selected model: {actual_model} (priority: {priority})")
+            progress_manager.add_technical_message(f"Language: {command.language}, Phase 2 features: {command.has_phase2_features()}")
+            progress_manager.update_display()
+            time.sleep(0.2)
+            
+            progress_manager.update_stage(
+                ProcessingStage.PREPARING_MODEL,
+                1.0,
+                "Model preparation completed"
+            )
+            progress_manager.add_status_message("Ready to begin transcription process")
+            progress_manager.update_display()
+            
+            # Step 5-7: Model loading and transcription (handled by Whisper callbacks)
+            
+            # Execute the main use case
+            result = use_case.execute(command)
+            
+            # Step 8: Subtitle formatting
+            progress_manager.update_stage(
+                ProcessingStage.FORMATTING_SUBTITLES,
+                0.0,
+                "Formatting and optimizing subtitles"
+            )
+            progress_manager.add_status_message(f"Generated {result.subtitle_count} subtitle segments")
+            progress_manager.update_display()
+            time.sleep(0.2)
+            
+            progress_manager.update_stage(
+                ProcessingStage.FORMATTING_SUBTITLES,
+                0.7,
+                "Applying timing optimizations"
+            )
+            progress_manager.add_technical_message("Optimizing timing and line breaks for readability")
+            progress_manager.update_display()
+            time.sleep(0.1)
+            
+            progress_manager.update_stage(
+                ProcessingStage.FORMATTING_SUBTITLES,
+                1.0,
+                "Subtitle formatting completed"
+            )
+            progress_manager.add_status_message(f"Optimized {result.subtitle_count} subtitles for {command.charset} charset")
+            progress_manager.update_display()
+            
+            # Step 9: File saving
+            output_path = Path(result.output_file_path)
+            progress_manager.update_stage(
+                ProcessingStage.SAVING_FILE,
+                0.0,
+                "Saving subtitle file"
+            )
+            progress_manager.add_technical_message(f"Writing SRT format to: {output_path.name}")
+            progress_manager.update_display()
+            time.sleep(0.2)
+            
+            progress_manager.update_stage(
+                ProcessingStage.SAVING_FILE,
+                1.0,
+                f"Subtitle file saved: {output_path.name}"
+            )
+            file_size = output_path.stat().st_size if output_path.exists() else 0
+            progress_manager.add_status_message(f"Output file size: {file_size / 1024:.1f} KB")
+            progress_manager.update_display()
+            
+            # Step 10: Completion
+            progress_manager.update_stage(
+                ProcessingStage.COMPLETED,
+                1.0,
+                f"Processing completed successfully in {result.processing_time_seconds:.1f}s"
+            )
+            progress_manager.update_display()
+            
+            return result
+            
+        except Exception as e:
+            progress_manager.update_stage(
+                ProcessingStage.ERROR,
+                0.0,
+                f"Error during processing: {str(e)}"
+            )
+            progress_manager.update_display()
+            raise
+
+
+def _display_file_info(input_file: Path, output_file: Optional[Path]) -> None:
     """Display input and output file information."""
+    # Determine output file path
+    if output_file:
+        output_path = str(output_file)
+    else:
+        output_path = str(input_file.with_suffix('.srt'))
+    
     info_text = Text()
     info_text.append("📁 Input: ", style="bold blue")
     info_text.append(str(input_file))
     info_text.append("\n📄 Output: ", style="bold green")
-    info_text.append(output_file)
+    info_text.append(output_path)
     
     console.print(Panel(
         info_text,

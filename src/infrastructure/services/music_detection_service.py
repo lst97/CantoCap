@@ -1,294 +1,254 @@
-"""Music detection service using audio classification models."""
+"""Music detection service using Whisper's transcription analysis."""
 
 from typing import List, Dict, Any, Optional
 import warnings
 
 from ...domain.entities import MusicDetection, MusicSegment, MusicType
-from ...domain.value_objects import FilePath
+from ...domain.value_objects import FilePath, Timestamp
 
 
 class MusicDetectionService:
-    """Service for music detection using Hugging Face audio classification models."""
+    """Service for music detection using Whisper's transcription analysis."""
     
-    def __init__(self, model_name: str = "microsoft/speecht5_vc"):
-        """
-        Initialize music detection service.
-        
-        Args:
-            model_name: Hugging Face model name for audio classification
-        """
-        self.model_name = model_name
-        self.pipeline = None
-        self._device = self._get_optimal_device()
+    def __init__(self):
+        """Initialize music detection service."""
+        self._device = "cpu"  # Use CPU for lightweight analysis
     
-    def _get_optimal_device(self) -> str:
-        """Determine optimal device for inference."""
-        try:
-            import torch
-            if torch.cuda.is_available():
-                return "cuda"
-            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-                return "mps"  # Apple Silicon
-            else:
-                return "cpu"
-        except ImportError:
-            return "cpu"
-    
-    def load_model(self, model_name: Optional[str] = None) -> bool:
+    def is_ready(self) -> bool:
         """
-        Load music detection model.
-        
-        Args:
-            model_name: Optional model name to override default
-            
-        Returns:
-            bool: True if model loaded successfully
-        """
-        try:
-            from transformers import pipeline
-            import torch
-            
-            model_to_load = model_name or self.model_name
-            
-            # Suppress some warnings for cleaner output
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                
-                # Use audio classification pipeline
-                self.pipeline = pipeline(
-                    "audio-classification",
-                    model=model_to_load,
-                    device=self._device,
-                    torch_dtype=torch.float16 if self._device != "cpu" else torch.float32,
-                )
-            
-            self.model_name = model_to_load
-            return True
-            
-        except Exception as e:
-            print(f"Failed to load music detection model: {e}")
-            # Fallback: create mock service for development
-            self.pipeline = "mock"
-            return True
-    
-    def is_model_loaded(self) -> bool:
-        """
-        Check if model is loaded and ready.
+        Check if service is ready (always ready since no model loading required).
         
         Returns:
-            bool: True if model is ready
+            bool: True since no model loading required
         """
-        return self.pipeline is not None
+        return True
     
-    def detect_music_in_file(
+    def detect_music_from_whisper_result(
         self,
-        audio_file_path: str,
-        window_size: float = 5.0,
-        hop_size: float = 2.5,
-        confidence_threshold: float = 0.5
+        whisper_result: Dict[str, Any],
+        audio_duration: Optional[float] = None
     ) -> Dict[str, Any]:
         """
-        Detect music segments in audio file.
+        Detect music segments from Whisper transcription result.
+        
+        This analyzes Whisper's output to identify potential music segments by:
+        1. Looking for gaps in speech transcription
+        2. Analyzing confidence scores for speech segments
+        3. Identifying non-speech tokens or empty transcriptions
         
         Args:
-            audio_file_path: Path to audio file
-            window_size: Size of analysis window in seconds
-            hop_size: Step size between windows in seconds
-            confidence_threshold: Minimum confidence for music detection
+            whisper_result: Processed Whisper transcription result
+            audio_duration: Total audio duration in seconds
             
         Returns:
             dict: Music detection result with segments and metadata
-            
-        Raises:
-            RuntimeError: If model not loaded or detection fails
         """
-        if not self.is_model_loaded():
-            raise RuntimeError("Music detection model not loaded. Call load_model() first.")
-        
-        # Validate file exists
-        file_path = FilePath.from_string(audio_file_path)
-        file_path.validate_exists()
-        
         try:
-            if self.pipeline == "mock":
-                # Mock implementation for development
-                return self._create_mock_detection_result(audio_file_path)
+            segments = []
             
-            # Load audio and analyze in windows
-            segments = self._analyze_audio_windows(
-                audio_file_path,
-                window_size,
-                hop_size,
-                confidence_threshold
-            )
+            # Get chunks from whisper result
+            chunks = whisper_result.get("chunks", [])
+            if not chunks:
+                # No transcription - assume entire audio is music
+                if audio_duration and audio_duration > 0:
+                    segments.append({
+                        "start_time": 0.0,
+                        "end_time": audio_duration,
+                        "music_type": MusicType.UNKNOWN.value,
+                        "confidence": 0.7
+                    })
+                return self._create_result(segments, audio_duration)
             
-            # Merge adjacent segments
-            merged_segments = self._merge_adjacent_segments(segments)
+            # Analyze gaps between speech segments
+            segments.extend(self._detect_music_gaps(chunks, audio_duration))
             
-            return {
-                "segments": merged_segments,
-                "total_duration": self._get_audio_duration(audio_file_path),
-                "source_file": audio_file_path,
-                "window_size": window_size,
-                "confidence_threshold": confidence_threshold
-            }
+            # Analyze low-confidence speech segments (might be music)
+            segments.extend(self._detect_music_from_low_confidence(chunks))
+            
+            # Merge overlapping segments
+            segments = self._merge_overlapping_segments(segments)
+            
+            return self._create_result(segments, audio_duration)
             
         except Exception as e:
-            raise RuntimeError(f"Music detection failed: {e}")
+            # Return empty result on error
+            return self._create_result([], audio_duration)
     
-    def _analyze_audio_windows(
-        self,
-        audio_file_path: str,
-        window_size: float,
-        hop_size: float,
-        confidence_threshold: float
+    def _detect_music_gaps(
+        self, 
+        chunks: List[Dict[str, Any]], 
+        audio_duration: Optional[float]
     ) -> List[Dict[str, Any]]:
-        """Analyze audio in overlapping windows."""
-        import librosa
-        
-        # Load audio
-        audio, sr = librosa.load(audio_file_path, sr=16000)
-        duration = len(audio) / sr
-        
+        """Detect music in gaps between speech segments."""
         segments = []
-        current_time = 0.0
+        min_gap_duration = 2.0  # Minimum gap duration to consider as music
         
-        while current_time < duration:
-            end_time = min(current_time + window_size, duration)
+        # Sort chunks by start time
+        sorted_chunks = sorted(chunks, key=lambda x: x.get("timestamp", [0, 0])[0])
+        
+        for i in range(len(sorted_chunks)):
+            current_chunk = sorted_chunks[i]
+            current_timestamp = current_chunk.get("timestamp", [0, 0])
+            current_end = current_timestamp[1] if len(current_timestamp) > 1 else current_timestamp[0]
             
-            # Extract window
-            start_sample = int(current_time * sr)
-            end_sample = int(end_time * sr)
-            window_audio = audio[start_sample:end_sample]
-            
-            # Classify window
-            try:
-                # Convert to format expected by pipeline
-                result = self.pipeline(window_audio)
-                
-                # Find music-related classifications
-                music_confidence = self._extract_music_confidence(result)
-                
-                if music_confidence >= confidence_threshold:
-                    music_type = self._classify_music_type(result)
+            # Check gap before first chunk
+            if i == 0:
+                current_start = current_timestamp[0]
+                if current_start > min_gap_duration:
                     segments.append({
-                        "start_time": current_time,
-                        "end_time": end_time,
-                        "music_type": music_type,
-                        "confidence": music_confidence
+                        "start_time": 0.0,
+                        "end_time": current_start,
+                        "music_type": MusicType.BACKGROUND_MUSIC.value,
+                        "confidence": 0.6
                     })
             
-            except Exception as e:
-                print(f"Warning: Failed to classify window at {current_time}s: {e}")
+            # Check gap after current chunk
+            if i < len(sorted_chunks) - 1:
+                next_chunk = sorted_chunks[i + 1]
+                next_timestamp = next_chunk.get("timestamp", [0, 0])
+                next_start = next_timestamp[0]
+                
+                gap_duration = next_start - current_end
+                if gap_duration > min_gap_duration:
+                    segments.append({
+                        "start_time": current_end,
+                        "end_time": next_start,
+                        "music_type": MusicType.BACKGROUND_MUSIC.value,
+                        "confidence": 0.6
+                    })
             
-            current_time += hop_size
+            # Check gap after last chunk
+            elif i == len(sorted_chunks) - 1 and audio_duration:
+                gap_duration = audio_duration - current_end
+                if gap_duration > min_gap_duration:
+                    segments.append({
+                        "start_time": current_end,
+                        "end_time": audio_duration,
+                        "music_type": MusicType.BACKGROUND_MUSIC.value,
+                        "confidence": 0.6
+                    })
         
         return segments
     
-    def _extract_music_confidence(self, classification_result: List[Dict]) -> float:
-        """Extract music confidence from classification result."""
-        # Look for music-related labels
-        music_keywords = ["music", "song", "instrumental", "melody", "audio"]
-        max_confidence = 0.0
-        
-        for result in classification_result:
-            label = result["label"].lower()
-            score = result["score"]
-            
-            if any(keyword in label for keyword in music_keywords):
-                max_confidence = max(max_confidence, score)
-        
-        return max_confidence
-    
-    def _classify_music_type(self, classification_result: List[Dict]) -> MusicType:
-        """Classify type of music from classification result."""
-        # Simple heuristic based on common labels
-        for result in classification_result:
-            label = result["label"].lower()
-            
-            if "instrumental" in label:
-                return MusicType.INSTRUMENTAL
-            elif "vocal" in label or "singing" in label:
-                return MusicType.VOCAL
-            elif "background" in label:
-                return MusicType.BACKGROUND_MUSIC
-            elif "music" in label:
-                return MusicType.FOREGROUND_MUSIC
-        
-        return MusicType.UNKNOWN
-    
-    def _merge_adjacent_segments(
+    def _detect_music_from_low_confidence(
         self, 
-        segments: List[Dict[str, Any]], 
-        max_gap: float = 1.0
+        chunks: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
-        """Merge adjacent music segments."""
+        """Detect music from low-confidence or unclear speech segments."""
+        segments = []
+        
+        for chunk in chunks:
+            text = chunk.get("text", "").strip().lower()
+            timestamp = chunk.get("timestamp", [0, 0])
+            
+            if len(timestamp) < 2:
+                continue
+                
+            start_time = timestamp[0]
+            end_time = timestamp[1]
+            duration = end_time - start_time
+            
+            # Skip very short segments
+            if duration < 1.0:
+                continue
+            
+            # Check for music indicators in text
+            music_indicators = [
+                "♪", "♫", "♬", "🎵", "🎶",  # Musical symbols
+                "[music]", "[singing]", "[instrumental]",  # Common labels
+                "la la", "na na", "da da",  # Vocal music patterns
+                "mmm", "hmm", "ahh", "ohh"  # Humming patterns
+            ]
+            
+            # Check for non-speech patterns
+            is_likely_music = False
+            
+            # Very short text might be music
+            if len(text) < 5 and duration > 3.0:
+                is_likely_music = True
+            
+            # Contains music indicators
+            if any(indicator in text for indicator in music_indicators):
+                is_likely_music = True
+            
+            # Repetitive patterns (like "la la la")
+            words = text.split()
+            if len(words) >= 3:
+                # Check for repetitive words
+                unique_words = set(words)
+                if len(unique_words) <= len(words) // 2:  # More than 50% repetition
+                    is_likely_music = True
+            
+            if is_likely_music:
+                # Determine music type based on text content
+                music_type = MusicType.UNKNOWN
+                if any(vocal in text for vocal in ["la", "na", "da", "mmm", "ahh"]):
+                    music_type = MusicType.VOCAL
+                elif "[instrumental]" in text or len(text.strip()) == 0:
+                    music_type = MusicType.INSTRUMENTAL
+                else:
+                    music_type = MusicType.BACKGROUND_MUSIC
+                
+                segments.append({
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "music_type": music_type.value,
+                    "confidence": 0.5
+                })
+        
+        return segments
+    
+    def _merge_overlapping_segments(
+        self, 
+        segments: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Merge overlapping or adjacent music segments."""
         if not segments:
             return segments
         
+        # Sort by start time
+        sorted_segments = sorted(segments, key=lambda x: x["start_time"])
         merged = []
-        current = segments[0]
         
-        for next_segment in segments[1:]:
-            gap = next_segment["start_time"] - current["end_time"]
-            same_type = current["music_type"] == next_segment["music_type"]
-            
-            if gap <= max_gap and same_type:
+        current = sorted_segments[0].copy()
+        
+        for next_segment in sorted_segments[1:]:
+            # Check if segments overlap or are very close (within 0.5 seconds)
+            if next_segment["start_time"] <= current["end_time"] + 0.5:
                 # Merge segments
-                current["end_time"] = next_segment["end_time"]
+                current["end_time"] = max(current["end_time"], next_segment["end_time"])
+                # Keep higher confidence
                 current["confidence"] = max(current["confidence"], next_segment["confidence"])
+                # Prefer more specific music type
+                if current["music_type"] == MusicType.UNKNOWN.value:
+                    current["music_type"] = next_segment["music_type"]
             else:
                 merged.append(current)
-                current = next_segment
+                current = next_segment.copy()
         
         merged.append(current)
+        
+        # Filter out very short segments (less than 1 second)
+        merged = [seg for seg in merged if seg["end_time"] - seg["start_time"] >= 1.0]
+        
         return merged
     
-    def _get_audio_duration(self, audio_file_path: str) -> float:
-        """Get audio duration using librosa."""
-        try:
-            import librosa
-            duration = librosa.get_duration(path=audio_file_path)
-            return duration
-        except Exception:
-            # Fallback: return 0 if can't determine
-            return 0.0
+    def _create_result(
+        self, 
+        segments: List[Dict[str, Any]], 
+        total_duration: Optional[float]
+    ) -> Dict[str, Any]:
+        """Create standardized music detection result."""
+        return {
+            "segments": segments,
+            "total_duration": total_duration,
+            "num_segments": len(segments),
+            "total_music_duration": sum(
+                seg["end_time"] - seg["start_time"] for seg in segments
+            )
+        }
     
-    def _create_mock_detection_result(self, audio_file_path: str) -> Dict[str, Any]:
-        """Create mock detection result for development."""
-        # Simple mock: detect music in middle third of audio
-        try:
-            duration = self._get_audio_duration(audio_file_path)
-            if duration <= 0:
-                duration = 30.0  # Default fallback
-            
-            start_music = duration * 0.33
-            end_music = duration * 0.66
-            
-            return {
-                "segments": [
-                    {
-                        "start_time": start_music,
-                        "end_time": end_music,
-                        "music_type": MusicType.BACKGROUND_MUSIC,
-                        "confidence": 0.8
-                    }
-                ] if duration > 10 else [],  # Only add music for longer files
-                "total_duration": duration,
-                "source_file": audio_file_path,
-                "window_size": 5.0,
-                "confidence_threshold": 0.5
-            }
-        except Exception:
-            return {
-                "segments": [],
-                "total_duration": 0.0,
-                "source_file": audio_file_path,
-                "window_size": 5.0,
-                "confidence_threshold": 0.5
-            }
-    
-    def create_detection_entity(
+    def create_music_detection_entity(
         self, 
         detection_result: Dict[str, Any]
     ) -> MusicDetection:
@@ -296,17 +256,18 @@ class MusicDetectionService:
         Create MusicDetection entity from detection result.
         
         Args:
-            detection_result: Processed detection result
+            detection_result: Processed music detection result
             
         Returns:
             MusicDetection: Domain entity
         """
         segments = []
         for seg_data in detection_result["segments"]:
+            music_type = MusicType(seg_data["music_type"])
             segment = MusicSegment.create(
                 start_seconds=seg_data["start_time"],
                 end_seconds=seg_data["end_time"],
-                music_type=seg_data.get("music_type", MusicType.UNKNOWN),
+                music_type=music_type,
                 confidence=seg_data.get("confidence")
             )
             segments.append(segment)
@@ -318,16 +279,19 @@ class MusicDetectionService:
     
     def get_model_info(self) -> Dict[str, Any]:
         """
-        Get information about loaded model.
+        Get information about detection method.
         
         Returns:
-            dict: Model information
+            dict: Detection method information
         """
         return {
-            "model_name": self.model_name,
+            "method": "whisper_analysis",
             "device": self._device,
-            "is_loaded": self.is_model_loaded(),
-            "is_mock": self.pipeline == "mock"
+            "capabilities": [
+                "gap_detection",
+                "low_confidence_analysis", 
+                "pattern_recognition"
+            ]
         }
     
     def estimate_processing_time(self, duration_seconds: float) -> float:
@@ -340,27 +304,5 @@ class MusicDetectionService:
         Returns:
             float: Estimated processing time in seconds
         """
-        if self.pipeline == "mock":
-            return 1.0  # Mock is instant
-        
-        # Music detection with windowing is typically 0.5-2x realtime
-        if self._device == "cuda":
-            return duration_seconds * 0.5
-        elif self._device == "mps":
-            return duration_seconds * 1.0
-        else:
-            return duration_seconds * 1.5
-    
-    def cleanup(self) -> None:
-        """Clean up model resources."""
-        if self.pipeline is not None and self.pipeline != "mock":
-            del self.pipeline
-            self.pipeline = None
-            
-        # Clear CUDA cache if available
-        try:
-            import torch
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        except ImportError:
-            pass
+        # Music detection is very fast since it only analyzes existing transcription
+        return duration_seconds * 0.01  # ~1% of audio duration
