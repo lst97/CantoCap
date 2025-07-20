@@ -22,25 +22,26 @@ class SpeakerDiarizationService:
         self.pipeline = None
         self._device = self._get_optimal_device()
     
-    def _get_optimal_device(self) -> str:
+    def _get_optimal_device(self) -> 'torch.device':
         """Determine optimal device for inference."""
         try:
             import torch
             if torch.cuda.is_available():
-                return "cuda"
+                return torch.device("cuda")
             elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-                return "mps"  # Apple Silicon
+                return torch.device("mps")  # Apple Silicon
             else:
-                return "cpu"
+                return torch.device("cpu")
         except ImportError:
-            return "cpu"
+            import torch
+            return torch.device("cpu")
     
     def load_model(self, hf_token: Optional[str] = None) -> bool:
         """
         Load speaker diarization model.
         
         Args:
-            hf_token: Hugging Face token for model access
+            hf_token: Hugging Face token for model access (optional, will try to load from env)
             
         Returns:
             bool: True if model loaded successfully
@@ -49,26 +50,72 @@ class SpeakerDiarizationService:
             # Import pyannote.audio
             from pyannote.audio import Pipeline
             
+            # Get HuggingFace token from environment if not provided
+            if hf_token is None:
+                hf_token = self._get_hf_token_from_env()
+            
+            print(f"Using HF token: {'Yes' if hf_token else 'No'}")
+            if hf_token:
+                print(f"Token starts with: {hf_token[:10]}...")
+            
             # Suppress some warnings for cleaner output
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 
-                # Load the pipeline
-                self.pipeline = Pipeline.from_pretrained(
-                    self.model_name,
-                    use_auth_token=hf_token
-                )
+                # Load the pipeline with authentication token
+                # Try both parameter names for compatibility
+                try:
+                    self.pipeline = Pipeline.from_pretrained(
+                        self.model_name,
+                        token=hf_token
+                    )
+                except TypeError:
+                    # Fallback to older parameter name
+                    self.pipeline = Pipeline.from_pretrained(
+                        self.model_name,
+                        use_auth_token=hf_token
+                    )
                 
                 # Move to appropriate device
-                if self._device != "cpu":
-                    self.pipeline = self.pipeline.to(self._device)
+                if self._device.type != "cpu":
+                    self.pipeline.to(self._device)
             
             return True
             
         except Exception as e:
             print(f"Failed to load speaker diarization model: {e}")
+            if "authentication" in str(e).lower() or "gated" in str(e).lower():
+                print("Hint: Make sure HUGGINGFACE_AUTH_TOKEN is set in your .env file")
+                print("Visit https://hf.co/pyannote/speaker-diarization-3.1 to accept user conditions")
             self.pipeline = None
             return False
+    
+    def _get_hf_token_from_env(self) -> Optional[str]:
+        """Get HuggingFace token from environment variables."""
+        import os
+        
+        # Try to load from .env file first
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+        except ImportError:
+            # dotenv not available, continue with os.environ
+            pass
+        
+        # Check various possible environment variable names
+        token_names = [
+            'HUGGINGFACE_AUTH_TOKEN',
+            'HUGGINGFACE_TOKEN', 
+            'HF_TOKEN',
+            'HF_AUTH_TOKEN'
+        ]
+        
+        for token_name in token_names:
+            token = os.environ.get(token_name)
+            if token:
+                return token
+        
+        return None
     
     def is_model_loaded(self) -> bool:
         """
@@ -152,7 +199,7 @@ class SpeakerDiarizationService:
         for segment, _, speaker in diarization_result.itertracks(yield_label=True):
             # Create standardized segment
             segment_data = {
-                "speaker_id": f"SPEAKER_{speaker:02d}",
+                "speaker_id": str(speaker),
                 "start_time": segment.start,
                 "end_time": segment.end,
                 "confidence": getattr(segment, 'confidence', None)
@@ -208,7 +255,7 @@ class SpeakerDiarizationService:
         """
         return {
             "model_name": self.model_name,
-            "device": self._device,
+            "device": str(self._device),
             "is_loaded": self.is_model_loaded()
         }
     
@@ -223,9 +270,9 @@ class SpeakerDiarizationService:
             float: Estimated processing time in seconds
         """
         # Speaker diarization is typically 1-3x realtime depending on device
-        if self._device == "cuda":
+        if self._device.type == "cuda":
             return duration_seconds * 1.0  # ~1x realtime on GPU
-        elif self._device == "mps":
+        elif self._device.type == "mps":
             return duration_seconds * 1.5  # ~1.5x realtime on Apple Silicon
         else:
             return duration_seconds * 2.5  # ~2.5x realtime on CPU

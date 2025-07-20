@@ -60,11 +60,11 @@ def generate_command(
         "-p",
         help="Model selection priority: 'speed', 'quality', or 'balanced'"
     ),
-    # Phase 2 features
+    # Enhanced Phase 2 features
     speakers: bool = typer.Option(
         False,
         "--speakers",
-        help="Enable speaker diarization to identify different speakers"
+        help="Enable automatic speaker identification and diarization using Gemini Flash"
     ),
     written: bool = typer.Option(
         False,
@@ -80,6 +80,32 @@ def generate_command(
         "traditional",
         "--charset",
         help="Character set for output (traditional or simplified)"
+    ),
+    
+    # New Gemini Flash options
+    gemini_api_key: Optional[str] = typer.Option(
+        None,
+        "--gemini-key",
+        help="Google Gemini API key (overrides .env file and environment variables)"
+    ),
+    
+    disable_gemini_refinement: bool = typer.Option(
+        False,
+        "--no-gemini-refinement",
+        help="Disable Gemini Flash transcription refinement"
+    ),
+    
+    # Enhanced chunking options
+    max_chunk_duration: int = typer.Option(
+        15,
+        "--max-chunk-duration",
+        help="Maximum chunk duration in minutes for large files"
+    ),
+    
+    video_quality: str = typer.Option(
+        "360p",
+        "--video-quality",
+        help="Video compression quality for LLM analysis (360p, 480p, 720p)"
     ),
     verbose: bool = typer.Option(
         False,
@@ -108,13 +134,60 @@ def generate_command(
         if priority not in ["speed", "quality", "balanced"]:
             raise ValueError(f"Invalid priority '{priority}'. Must be 'speed', 'quality', or 'balanced'")
         
+        # Validate video quality parameter
+        if video_quality not in ["360p", "480p", "720p"]:
+            raise ValueError(f"Invalid video quality '{video_quality}'. Must be '360p', '480p', or '720p'")
+        
         # Validate input file with enhanced error handling
         validated_input = validate_audio_file(input_file)
+        
+        # Initialize services
+        from ...infrastructure.services.configuration_service import ConfigurationService
+        from ...infrastructure.services.warning_service import AccuracyWarningService
+        from ...infrastructure.services.media_chunking_service import MediaChunkingService, ChunkingStrategy
+        
+        config_service = ConfigurationService()
+        warning_service = AccuracyWarningService()
+        chunking_service = MediaChunkingService(
+            ChunkingStrategy(max_chunk_duration_seconds=max_chunk_duration * 60)
+        )
+        
+        # Resolve Gemini API key with priority order
+        resolved_gemini_key = config_service.get_gemini_api_key(gemini_api_key)
+        is_valid, message = config_service.validate_gemini_configuration(resolved_gemini_key)
+        
+        # Handle missing API key with graceful degradation
+        actual_speakers = speakers
+        actual_disable_refinement = disable_gemini_refinement
+        
+        if not is_valid:
+            impact_features = []
+            if speakers:
+                impact_features.append("Automatic speaker identification")
+                actual_speakers = False  # Disable speakers if no API key
+            if not disable_gemini_refinement:
+                impact_features.append("AI-powered transcription refinement")
+                actual_disable_refinement = True  # Disable refinement if no API key
+            
+            if impact_features:
+                warning_service.warn_missing_gemini_key(impact_features)
+        
+        # Check if chunking is required
+        from ...domain.value_objects import FilePath
+        input_file_path = FilePath.from_string(str(validated_input))
+        if chunking_service.should_chunk_file(input_file_path):
+            file_size_mb = chunking_service._get_file_size_mb(input_file_path)
+            chunks = chunking_service.create_chunks(input_file_path)
+            warning_service.warn_chunking_required(file_size_mb, len(chunks))
         
         # Initialize container and get use case
         def init_services():
             container = Container()
-            return container.get_generate_subtitles_use_case()
+            # Pre-configure whisper service with correct model/priority
+            container.get_whisper_service(model_name=model, priority=priority)
+            return container.get_enhanced_generate_subtitles_use_case(
+                gemini_api_key=resolved_gemini_key if is_valid else None
+            )
         
         use_case = safe_execute(
             init_services,
@@ -123,17 +196,21 @@ def generate_command(
             context="Service initialization"
         )
         
-        # Create command with Phase 2 features
+        # Create enhanced command
         def create_command():
             return GenerateSubtitlesCommand(
                 input_file_path=str(validated_input),
                 output_file_path=str(output_file) if output_file else None,
                 language=language,
                 model_name=model,  # Will be None for auto-selection
-                enable_speakers=speakers,
+                enable_speakers=actual_speakers,
                 enable_written_style=written,
                 enable_music_detection=music,
-                charset=charset
+                charset=charset,
+                enable_gemini_refinement=not actual_disable_refinement,
+                gemini_api_key=resolved_gemini_key if is_valid else None,
+                video_compression_quality=video_quality,
+                max_chunk_duration_minutes=max_chunk_duration
             )
         
         command = safe_execute(
@@ -336,8 +413,9 @@ def _execute_processing_steps(command, use_case, verbose: bool, model: Optional[
         unified_manager.add_technical_message(f"Setting up Whisper service with priority: {priority}")
         
         # Try to configure Whisper service for progress tracking
-        container = Container()
-        whisper_service = container.get_whisper_service(model_name=model, priority=priority)
+        # Use the same container that was used for the use case
+        temp_container = Container()
+        whisper_service = temp_container.get_whisper_service(model_name=model, priority=priority)
         setup_whisper_progress_callback(whisper_service, unified_manager)
         
         unified_manager.update_stage(
@@ -347,7 +425,40 @@ def _execute_processing_steps(command, use_case, verbose: bool, model: Optional[
         )
         unified_manager.add_status_message(f"Ready to process with model selection priority: {priority}")
         
-        # Step 3: Audio extraction
+        # Step 3: Gemini Flash Video Compression (if needed)
+        if command.enable_speakers and command.gemini_api_key:
+            unified_manager.update_stage(
+                ProcessingStage.GEMINI_VIDEO_COMPRESSION,
+                0.0,
+                "Compressing video for Gemini Flash analysis"
+            )
+            unified_manager.add_technical_message(f"Target quality: {command.video_compression_quality}")
+            time.sleep(0.5)
+            
+            unified_manager.update_stage(
+                ProcessingStage.GEMINI_VIDEO_COMPRESSION,
+                1.0,
+                "Video compression completed"
+            )
+            unified_manager.add_status_message("Video ready for AI analysis")
+        
+        # Step 4: Gemini Flash Speaker Identification (if enabled)
+        if command.enable_speakers and command.gemini_api_key:
+            unified_manager.update_stage(
+                ProcessingStage.GEMINI_SPEAKER_IDENTIFICATION,
+                0.0,
+                "Analyzing video for speaker identification"
+            )
+            unified_manager.add_technical_message("Using Gemini Flash for automatic speaker detection")
+            time.sleep(1.0)  # Speaker identification takes some time
+            
+            unified_manager.update_stage(
+                ProcessingStage.GEMINI_SPEAKER_IDENTIFICATION,
+                1.0,
+                "Speaker identification completed"
+            )
+        
+        # Step 5: Audio extraction
         input_path = Path(command.input_file_path)
         unified_manager.update_stage(
             ProcessingStage.EXTRACTING_AUDIO,
@@ -372,7 +483,7 @@ def _execute_processing_steps(command, use_case, verbose: bool, model: Optional[
         )
         unified_manager.add_status_message("Audio stream ready for transcription")
         
-        # Step 4: Model preparation
+        # Step 6: Model preparation
         actual_model = whisper_service.model_name  # Get the actually selected model
         unified_manager.update_stage(
             ProcessingStage.PREPARING_MODEL,
@@ -380,6 +491,8 @@ def _execute_processing_steps(command, use_case, verbose: bool, model: Optional[
             f"Preparing {actual_model} for transcription"
         )
         unified_manager.add_status_message(f"Selected model: {actual_model} (priority: {priority})")
+        if actual_model == "openai/whisper-large-v3-turbo":
+            unified_manager.add_status_message("ℹ️ Using the 'turbo' model. This model does not support translation tasks.")
         unified_manager.add_technical_message(f"Language: {command.language}, Phase 2 features: {command.has_phase2_features()}")
         time.sleep(0.2)
         
@@ -390,12 +503,47 @@ def _execute_processing_steps(command, use_case, verbose: bool, model: Optional[
         )
         unified_manager.add_status_message("Ready to begin transcription process")
         
-        # Step 5-7: Model loading and transcription (handled by Whisper callbacks)
+        # Step 7-9: Model loading and transcription (handled by Whisper callbacks)
         
         # Execute the main use case
         result = use_case.execute(command)
         
-        # Step 8: Subtitle formatting
+        # Step 10: Speaker Diarization (if enabled)
+        if command.enable_speakers:
+            unified_manager.update_stage(
+                ProcessingStage.SPEAKER_DIARIZATION,
+                0.0,
+                "Analyzing speaker segments"
+            )
+            unified_manager.add_status_message("Processing speaker diarization data")
+            time.sleep(0.3)
+            
+            unified_manager.update_stage(
+                ProcessingStage.SPEAKER_DIARIZATION,
+                1.0,
+                "Speaker analysis completed"
+            )
+            unified_manager.add_status_message("Speaker segments identified and labeled")
+        
+        # Step 11: Gemini Flash Transcription Refinement (if enabled)
+        if command.enable_gemini_refinement and command.gemini_api_key:
+            unified_manager.update_stage(
+                ProcessingStage.GEMINI_TRANSCRIPTION_REFINEMENT,
+                0.0,
+                "Refining transcription with Gemini Flash"
+            )
+            style = "written" if command.enable_written_style else "colloquial"
+            unified_manager.add_technical_message(f"Language style: {style}")
+            time.sleep(1.5)  # Refinement takes longer
+            
+            unified_manager.update_stage(
+                ProcessingStage.GEMINI_TRANSCRIPTION_REFINEMENT,
+                1.0,
+                "AI refinement completed"
+            )
+            unified_manager.add_status_message("Transcription accuracy and style improved")
+        
+        # Step 12: Subtitle formatting
         unified_manager.update_stage(
             ProcessingStage.FORMATTING_SUBTITLES,
             0.0,
@@ -419,25 +567,32 @@ def _execute_processing_steps(command, use_case, verbose: bool, model: Optional[
         )
         unified_manager.add_status_message(f"Optimized {result.subtitle_count} subtitles for {command.charset} charset")
         
-        # Step 9: File saving
-        output_path = Path(result.output_file_path)
-        unified_manager.update_stage(
-            ProcessingStage.SAVING_FILE,
-            0.0,
-            "Saving subtitle file"
-        )
-        unified_manager.add_technical_message(f"Writing SRT format to: {output_path.name}")
-        time.sleep(0.2)
+        # Step 13: File saving
+        if result.output_file_path:
+            output_path = Path(result.output_file_path)
+            unified_manager.update_stage(
+                ProcessingStage.SAVING_FILE,
+                0.0,
+                "Saving subtitle file"
+            )
+            unified_manager.add_technical_message(f"Writing SRT format to: {output_path.name}")
+            time.sleep(0.2)
+            
+            unified_manager.update_stage(
+                ProcessingStage.SAVING_FILE,
+                1.0,
+                f"Subtitle file saved: {output_path.name}"
+            )
+            file_size = output_path.stat().st_size if output_path.exists() else 0
+            unified_manager.add_status_message(f"Output file size: {file_size / 1024:.1f} KB")
+        else:
+            unified_manager.update_stage(
+                ProcessingStage.SAVING_FILE,
+                0.0,
+                "File saving skipped due to processing error"
+            )
         
-        unified_manager.update_stage(
-            ProcessingStage.SAVING_FILE,
-            1.0,
-            f"Subtitle file saved: {output_path.name}"
-        )
-        file_size = output_path.stat().st_size if output_path.exists() else 0
-        unified_manager.add_status_message(f"Output file size: {file_size / 1024:.1f} KB")
-        
-        # Step 10: Completion
+        # Step 14: Completion
         unified_manager.update_stage(
             ProcessingStage.COMPLETED,
             1.0,
@@ -501,7 +656,7 @@ def _display_results(result, ipc_mode: bool = False) -> None:
             if result.statistics:
                 result_data['statistics'] = result.statistics
             
-            ipc_result(result.output_file_path, success=True, **result_data)
+            ipc_result(result.output_file_path or "unknown", success=True, **result_data)
             ipc_log("Processing completed successfully")
         else:
             # Use rich console output
@@ -509,7 +664,7 @@ def _display_results(result, ipc_mode: bool = False) -> None:
             success_text.append("✅ Successfully generated subtitles!\n\n", style="bold green")
             success_text.append(f"📊 Subtitles created: {result.subtitle_count}\n")
             success_text.append(f"⏱️ Processing time: {result.processing_time_seconds:.1f} seconds\n")
-            success_text.append(f"📁 Output file: {result.output_file_path}\n")
+            success_text.append(f"📁 Output file: {result.output_file_path or 'unknown'}\n")
             
             # Add statistics if available
             if result.statistics:

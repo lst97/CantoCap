@@ -2,7 +2,7 @@
 
 from .ffmpeg_service import FFmpegService
 from .charset_conversion_service import CharsetConversionService
-from .llm_service import UnifiedLLMService, LLMServiceFactory, ILLMService
+# LLM services removed - now using Gemini Flash service directly
 
 # Import performance services conditionally
 try:
@@ -34,23 +34,14 @@ except ImportError:
     MusicDetectionService = None
     _MUSIC_AVAILABLE = False
 
-# Legacy LLM services now handled by unified service
-try:
-    from .llm_service import LLMServiceFactory, ILLMService, UnifiedLLMService
-    # Backward compatibility aliases
-    OpenAILLMService = GeminiLLMService = EnhancedLLMService = UnifiedLLMService
-    _LLM_AVAILABLE = True
-except ImportError:
-    LLMServiceFactory = ILLMService = UnifiedLLMService = None
-    OpenAILLMService = GeminiLLMService = EnhancedLLMService = None
-    _LLM_AVAILABLE = False
+# LLM services removed - now using Gemini Flash service directly
+_LLM_AVAILABLE = False
+LLMServiceFactory = ILLMService = UnifiedLLMService = None
+OpenAILLMService = GeminiLLMService = EnhancedLLMService = None
 
 __all__ = [
     "FFmpegService",
-    "CharsetConversionService",
-    "UnifiedLLMService",
-    "LLMServiceFactory",
-    "ILLMService"
+    "CharsetConversionService"
 ]
 
 # Add performance services if available
@@ -64,5 +55,4 @@ if _SPEAKER_AVAILABLE:
     __all__.append("SpeakerDiarizationService") 
 if _MUSIC_AVAILABLE:
     __all__.append("MusicDetectionService")
-if _LLM_AVAILABLE:
-    __all__.extend(["OpenAILLMService", "GeminiLLMService", "EnhancedLLMService"])
+# LLM services removed - use Gemini Flash service directly

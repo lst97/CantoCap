@@ -19,13 +19,13 @@ app = typer.Typer(
     rich_markup_mode="rich"
 )
 
-# Add the generate command as the default command
-app.command(name="generate")(generate_command)
-
 # Add the hardware capabilities command
 app.command(name="hardware")(hardware_command)
 
-# Also make it available without the "generate" subcommand for convenience
+# Add the generate command as an explicit subcommand
+app.command(name="generate")(generate_command)
+
+# Main callback that handles both direct file processing and subcommands
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
@@ -57,11 +57,11 @@ def main(
         "-p",
         help="Model selection priority: 'speed', 'quality', or 'balanced'"
     ),
-    # Phase 2 features
+    # Enhanced Phase 2 features
     speakers: bool = typer.Option(
         False,
         "--speakers",
-        help="Enable speaker diarization to identify different speakers"
+        help="Enable automatic speaker identification and diarization using Gemini Flash"
     ),
     written: bool = typer.Option(
         False,
@@ -77,6 +77,32 @@ def main(
         "traditional",
         "--charset",
         help="Character set for output (traditional or simplified)"
+    ),
+    
+    # New Gemini Flash options
+    gemini_api_key: Optional[str] = typer.Option(
+        None,
+        "--gemini-key",
+        help="Google Gemini API key (overrides .env file and environment variables)"
+    ),
+    
+    disable_gemini_refinement: bool = typer.Option(
+        False,
+        "--no-gemini-refinement",
+        help="Disable Gemini Flash transcription refinement"
+    ),
+    
+    # Enhanced chunking options
+    max_chunk_duration: int = typer.Option(
+        15,
+        "--max-chunk-duration",
+        help="Maximum chunk duration in minutes for large files"
+    ),
+    
+    video_quality: str = typer.Option(
+        "360p",
+        "--video-quality",
+        help="Video compression quality for LLM analysis (360p, 480p, 720p)"
     ),
     version: bool = typer.Option(
         False,
@@ -119,8 +145,8 @@ def main(
         # Check hardware capabilities
         cantosub hardware
         
-        # Phase 2 features
-        cantosub movie.mkv --speakers --written --music
+        # Enhanced features with Gemini Flash
+        cantosub movie.mkv --speakers --written --music --gemini-key YOUR_API_KEY
     """
     # Set global IPC mode for error handling
     from ...infrastructure.error_handling import set_global_ipc_mode
@@ -131,37 +157,39 @@ def main(
         console.print(f"[bold blue]CantoSub[/bold blue] version [green]{__version__}[/green]")
         return
     
-    # If no subcommand and no input file, show help
-    if ctx.invoked_subcommand is None:
-        if input_file is None:
-            console.print(ctx.get_help())
-            return
+    # Check if we're in a subcommand context
+    if ctx.invoked_subcommand is not None:
+        return
+    
+    # Check if the input_file is actually a command name that should be handled as a subcommand
+    if input_file is not None and str(input_file) in ['hardware', 'generate']:
+        # This means the user typed 'hardware' or 'generate' but it was parsed as input_file
+        # Let Typer handle it as a subcommand by returning early
+        return
+    
+    # If no input file provided, show help
+    if input_file is None:
+        console.print(ctx.get_help())
+        return
         
-        # Validate input file with enhanced error handling
-        try:
-            validated_input = validate_file_path(
-                input_file, 
-                must_exist=True, 
-                must_be_file=True, 
-                readable=True
-            )
-        except ValidationError as e:
-            handle_error(e, context="Input file validation", exit_code=1, ipc_mode=ipc_mode)
-        
-        # Call generate command directly
-        generate_command(
-            input_file=validated_input,
-            output_file=output_file,
-            language=language,
-            model=model,
-            priority=priority,
-            speakers=speakers,
-            written=written,
-            music=music,
-            charset=charset,
-            verbose=verbose,
-            ipc_mode=ipc_mode
-        )
+    # Call generate command directly
+    generate_command(
+        input_file=input_file,
+        output_file=output_file,
+        language=language,
+        model=model,
+        priority=priority,
+        speakers=speakers,
+        written=written,
+        music=music,
+        charset=charset,
+        gemini_api_key=gemini_api_key,
+        disable_gemini_refinement=disable_gemini_refinement,
+        max_chunk_duration=max_chunk_duration,
+        video_quality=video_quality,
+        verbose=verbose,
+        ipc_mode=ipc_mode
+    )
 
 
 if __name__ == "__main__":

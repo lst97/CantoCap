@@ -17,9 +17,16 @@ class GenerateSubtitlesCommand:
     
     # Phase 2 features
     enable_speakers: bool = False
+    # REMOVED: num_speakers - now auto-detected by Gemini Flash
     enable_written_style: bool = False
     enable_music_detection: bool = False
     charset: str = "traditional"
+    
+    # New Gemini Flash features
+    enable_gemini_refinement: bool = True  # Default enabled
+    gemini_api_key: Optional[str] = None
+    video_compression_quality: str = "360p"  # For LLM processing
+    max_chunk_duration_minutes: int = 15  # Maximum chunk duration
     
     def __post_init__(self) -> None:
         """Validate command parameters."""
@@ -37,6 +44,12 @@ class GenerateSubtitlesCommand:
         
         if not self.charset.strip():
             raise ValueError("Charset cannot be empty")
+        
+        if not self.video_compression_quality.strip():
+            raise ValueError("Video compression quality cannot be empty")
+        
+        if self.max_chunk_duration_minutes <= 0:
+            raise ValueError("Max chunk duration must be positive")
     
     def get_input_file_path(self) -> FilePath:
         """Get input file path as FilePath object."""
@@ -62,11 +75,20 @@ class GenerateSubtitlesCommand:
         """Get charset as Charset object."""
         return Charset.from_string(self.charset)
     
+    def get_language_style(self) -> str:
+        """Get language style preference for Gemini Flash."""
+        return "written" if self.enable_written_style else "colloquial"
+    
+    def requires_gemini_flash(self) -> bool:
+        """Check if Gemini Flash features are enabled."""
+        return self.enable_speakers or self.enable_gemini_refinement
+    
     def has_phase2_features(self) -> bool:
         """Check if any Phase 2 features are enabled."""
         return (self.enable_speakers or 
                 self.enable_written_style or 
-                self.enable_music_detection)
+                self.enable_music_detection or
+                self.enable_gemini_refinement)
     
     def validate_paths(self) -> None:
         """Validate that paths are accessible."""
@@ -96,5 +118,6 @@ class GenerateSubtitlesCommand:
             f"input_file_path='{self.input_file_path}', "
             f"output_file_path={self.output_file_path!r}, "
             f"language='{self.language}', "
-            f"model_name='{self.model_name}')"
+            f"model_name='{self.model_name}', "
+            f"gemini_enabled={self.requires_gemini_flash()})"
         )

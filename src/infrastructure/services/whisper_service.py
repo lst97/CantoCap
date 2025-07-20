@@ -72,7 +72,8 @@ class WhisperService:
             "openai/whisper-small",
             "openai/whisper-medium",
             "openai/whisper-large-v2",
-            "openai/whisper-large-v3"
+            "openai/whisper-large-v3",
+            "openai/whisper-large-v3-turbo"
         ]
     
     def _get_optimal_device(self) -> str:
@@ -289,6 +290,9 @@ class WhisperService:
                 self._device = self._get_optimal_device()
             
             _print(f"Loading model '{model_to_load}' on device: {self._device}", "blue")
+
+            if model_to_load == "openai/whisper-large-v3-turbo":
+                _print("ℹ️ Using the 'turbo' model. This model does not support translation tasks.", "yellow")
             
             # Suppress deprecation warnings for cleaner output
             with warnings.catch_warnings():

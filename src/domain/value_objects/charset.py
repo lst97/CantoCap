@@ -57,9 +57,9 @@ class Charset:
     def get_opencc_config(self) -> str:
         """Get OpenCC configuration string for conversion."""
         if self.is_simplified():
-            return "t2s.json"  # Traditional to Simplified
+            return "t2s"  # Traditional to Simplified
         else:
-            return "s2t.json"  # Simplified to Traditional
+            return "s2t"  # Simplified to Traditional
     
     def get_language_code(self) -> str:
         """Get language code for this charset."""

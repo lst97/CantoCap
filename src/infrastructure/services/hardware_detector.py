@@ -17,6 +17,7 @@ class ModelSize(Enum):
     MEDIUM = "openai/whisper-medium"
     LARGE_V2 = "openai/whisper-large-v2"
     LARGE_V3 = "openai/whisper-large-v3"
+    TURBO = "openai/whisper-large-v3-turbo"
 
 
 @dataclass
@@ -74,6 +75,10 @@ class HardwareDetector:
         ModelSize.LARGE_V3: ModelRequirements(
             min_vram_gb=10.0, min_ram_gb=16.0, min_cpu_cores=8, 
             estimated_speed_multiplier=0.25, quality_score=1.0
+        ),
+        ModelSize.TURBO: ModelRequirements(
+            min_vram_gb=6.0, min_ram_gb=8.0, min_cpu_cores=4,
+            estimated_speed_multiplier=8.0, quality_score=0.9
         )
     }
     

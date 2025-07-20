@@ -7,8 +7,7 @@ from .repositories import (
 )
 from .services import (
     FFmpegService,
-    CharsetConversionService,
-    UnifiedLLMService
+    CharsetConversionService
 )
 
 # Import performance services conditionally
@@ -24,20 +23,13 @@ try:
     from .services import (
         WhisperService,
         SpeakerDiarizationService,
-        LLMServiceFactory,
-        ILLMService,
-        OpenAILLMService,
-        GeminiLLMService,
         MusicDetectionService
     )
     _PHASE2_AVAILABLE = True
 except ImportError:
     WhisperService = None
     SpeakerDiarizationService = None
-    LLMServiceFactory = None
-    ILLMService = None
-    OpenAILLMService = None
-    GeminiLLMService = None
+    # LLM services removed - now using Gemini Flash service directly
     MusicDetectionService = None
     _PHASE2_AVAILABLE = False
 
@@ -47,8 +39,7 @@ __all__ = [
     "FileSubtitleRepository",
     "FFmpegService",
     "CharsetConversionService",
-    "ParallelAudioService",
-    "UnifiedLLMService"
+    "ParallelAudioService"
 ]
 
 # Add Phase 2 services if available
@@ -56,9 +47,5 @@ if _PHASE2_AVAILABLE:
     __all__.extend([
         "WhisperService",
         "SpeakerDiarizationService",
-        "LLMServiceFactory",
-        "ILLMService", 
-        "OpenAILLMService",
-        "GeminiLLMService",
         "MusicDetectionService"
     ])

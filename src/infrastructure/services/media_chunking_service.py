@@ -1,0 +1,336 @@
+"""Service for chunking large media files for Gemini Flash processing."""
+
+from dataclasses import dataclass
+from typing import List, Optional, Tuple, Dict, Any
+import subprocess
+from pathlib import Path
+import math
+import re
+
+from ...domain.value_objects import FilePath, Timestamp
+
+
+@dataclass
+class ChunkInfo:
+    """Information about a media chunk."""
+    chunk_index: int
+    start_time: Timestamp
+    end_time: Timestamp
+    file_path: FilePath
+    estimated_tokens: int
+    file_size_mb: float
+
+
+@dataclass
+class ChunkingStrategy:
+    """Strategy for chunking media files."""
+    max_chunk_duration_seconds: float = 900  # 15 minutes
+    max_chunk_size_mb: float = 1800  # 1.8GB (safety margin)
+    overlap_seconds: float = 30  # 30 seconds overlap
+    max_tokens_per_chunk: int = 25000  # Conservative token limit
+
+
+class MediaChunkingService:
+    """Service for chunking large media files for Gemini Flash processing."""
+    
+    def __init__(self, strategy: Optional[ChunkingStrategy] = None):
+        """Initialize with chunking strategy."""
+        self.strategy = strategy or ChunkingStrategy()
+        self.temp_dir = Path.cwd() / "temp" / "chunks"
+        self.temp_dir.mkdir(parents=True, exist_ok=True)
+    
+    def should_chunk_file(self, file_path: FilePath) -> bool:
+        """
+        Determine if file should be chunked.
+        
+        Args:
+            file_path: Path to media file
+            
+        Returns:
+            True if file should be chunked
+        """
+        try:
+            file_size_mb = self._get_file_size_mb(file_path)
+            duration_seconds = self._get_media_duration(file_path)
+            
+            # Chunk if file is too large or too long
+            return (
+                file_size_mb > self.strategy.max_chunk_size_mb or
+                duration_seconds > self.strategy.max_chunk_duration_seconds
+            )
+        except Exception:
+            # If we can't determine size/duration, err on the side of caution
+            return True
+    
+    def create_chunks(self, file_path: FilePath) -> List[ChunkInfo]:
+        """
+        Create chunks from media file.
+        
+        Args:
+            file_path: Path to original media file
+            
+        Returns:
+            List of chunk information
+        """
+        if not self.should_chunk_file(file_path):
+            # Return single chunk for the entire file
+            duration = self._get_media_duration(file_path)
+            file_size_mb = self._get_file_size_mb(file_path)
+            
+            return [ChunkInfo(
+                chunk_index=0,
+                start_time=Timestamp.from_seconds(0),
+                end_time=Timestamp.from_seconds(duration),
+                file_path=file_path,
+                estimated_tokens=self._estimate_tokens_for_duration(duration),
+                file_size_mb=file_size_mb
+            )]
+        
+        duration = self._get_media_duration(file_path)
+        chunk_duration = self.strategy.max_chunk_duration_seconds
+        overlap = self.strategy.overlap_seconds
+        
+        chunks = []
+        chunk_index = 0
+        current_start = 0
+        
+        while current_start < duration:
+            # Calculate chunk end time
+            chunk_end = min(current_start + chunk_duration, duration)
+            
+            # Create chunk file
+            chunk_file = self._create_chunk_file(
+                file_path, 
+                current_start, 
+                chunk_end, 
+                chunk_index
+            )
+            
+            chunk_info = ChunkInfo(
+                chunk_index=chunk_index,
+                start_time=Timestamp.from_seconds(current_start),
+                end_time=Timestamp.from_seconds(chunk_end),
+                file_path=chunk_file,
+                estimated_tokens=self._estimate_tokens_for_duration(chunk_end - current_start),
+                file_size_mb=self._get_file_size_mb(chunk_file)
+            )
+            
+            chunks.append(chunk_info)
+            
+            # Move to next chunk with overlap
+            current_start = chunk_end - overlap
+            chunk_index += 1
+        
+        return chunks
+    
+    def _create_chunk_file(
+        self, 
+        source_file: FilePath, 
+        start_seconds: float, 
+        end_seconds: float, 
+        chunk_index: int
+    ) -> FilePath:
+        """Create a chunk file using FFmpeg."""
+        source_path = Path(source_file.path)
+        chunk_filename = f"{source_path.stem}_chunk_{chunk_index:03d}{source_path.suffix}"
+        chunk_path = self.temp_dir / chunk_filename
+        
+        # FFmpeg command to extract chunk
+        cmd = [
+            "ffmpeg",
+            "-i", str(source_path),
+            "-ss", str(start_seconds),
+            "-t", str(end_seconds - start_seconds),
+            "-c", "copy",  # Copy streams without re-encoding for speed
+            "-avoid_negative_ts", "make_zero",
+            "-y",  # Overwrite output file
+            str(chunk_path)
+        ]
+        
+        try:
+            subprocess.run(cmd, check=True, capture_output=True)
+            return FilePath.from_string(str(chunk_path))
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"Failed to create chunk {chunk_index}: {e.stderr.decode()}")
+    
+    def _get_file_size_mb(self, file_path: FilePath) -> float:
+        """Get file size in MB."""
+        return Path(file_path.path).stat().st_size / (1024 * 1024)
+    
+    def _get_media_duration(self, file_path: FilePath) -> float:
+        """Get media duration in seconds using FFprobe."""
+        cmd = [
+            "ffprobe",
+            "-v", "quiet",
+            "-show_entries", "format=duration",
+            "-of", "csv=p=0",
+            str(file_path.path)
+        ]
+        
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            return float(result.stdout.strip())
+        except (subprocess.CalledProcessError, ValueError):
+            # Fallback estimation
+            file_size_mb = self._get_file_size_mb(file_path)
+            # Rough estimation: 1MB per minute for compressed video
+            return file_size_mb * 60
+    
+    def _estimate_tokens_for_duration(self, duration_seconds: float) -> int:
+        """Estimate token usage for video duration."""
+        # Conservative estimation: ~50 tokens per minute for video analysis
+        return int(duration_seconds / 60 * 50)
+    
+    def merge_chunk_results(
+        self, 
+        chunk_results: List[Tuple[ChunkInfo, str]], 
+        original_duration: float
+    ) -> str:
+        """
+        Merge results from multiple chunks into single SRT.
+        
+        Args:
+            chunk_results: List of (chunk_info, srt_content) tuples
+            original_duration: Original file duration for validation
+            
+        Returns:
+            Merged SRT content
+        """
+        merged_subtitles = []
+        subtitle_index = 1
+        
+        for chunk_info, srt_content in chunk_results:
+            chunk_subtitles = self._parse_srt_content(srt_content)
+            
+            for subtitle in chunk_subtitles:
+                # Adjust timing for chunk offset
+                adjusted_start = subtitle['start'] + chunk_info.start_time.seconds
+                adjusted_end = subtitle['end'] + chunk_info.start_time.seconds
+                
+                # Skip subtitles that extend beyond original duration
+                if adjusted_start >= original_duration:
+                    continue
+                
+                # Trim subtitles that extend beyond original duration
+                if adjusted_end > original_duration:
+                    adjusted_end = original_duration
+                
+                merged_subtitles.append({
+                    'index': subtitle_index,
+                    'start': adjusted_start,
+                    'end': adjusted_end,
+                    'text': subtitle['text']
+                })
+                subtitle_index += 1
+        
+        # Remove duplicates from overlapping chunks
+        merged_subtitles = self._remove_duplicate_subtitles(merged_subtitles)
+        
+        # Convert back to SRT format
+        return self._format_as_srt(merged_subtitles)
+    
+    def _parse_srt_content(self, srt_content: str) -> List[Dict[str, Any]]:
+        """Parse SRT content into structured data."""
+        subtitles = []
+        lines = srt_content.strip().split('\n')
+        
+        i = 0
+        while i < len(lines):
+            if lines[i].strip().isdigit():
+                index = int(lines[i].strip())
+                
+                if i + 1 < len(lines) and '-->' in lines[i + 1]:
+                    # Parse timestamp
+                    start_str, end_str = lines[i + 1].split(' --> ')
+                    start_time = self._parse_srt_timestamp(start_str.strip())
+                    end_time = self._parse_srt_timestamp(end_str.strip())
+                    
+                    # Collect text lines
+                    text_lines = []
+                    j = i + 2
+                    while j < len(lines) and lines[j].strip():
+                        text_lines.append(lines[j])
+                        j += 1
+                    
+                    subtitles.append({
+                        'index': index,
+                        'start': start_time,
+                        'end': end_time,
+                        'text': '\n'.join(text_lines)
+                    })
+                    
+                    i = j + 1
+                else:
+                    i += 1
+            else:
+                i += 1
+        
+        return subtitles
+    
+    def _parse_srt_timestamp(self, timestamp_str: str) -> float:
+        """Parse SRT timestamp to seconds."""
+        # Format: HH:MM:SS,mmm
+        time_part, ms_part = timestamp_str.split(',')
+        hours, minutes, seconds = map(int, time_part.split(':'))
+        milliseconds = int(ms_part)
+        
+        return hours * 3600 + minutes * 60 + seconds + milliseconds / 1000
+    
+    def _remove_duplicate_subtitles(self, subtitles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Remove duplicate subtitles from overlapping chunks."""
+        unique_subtitles = []
+        seen_content = set()
+        
+        for subtitle in sorted(subtitles, key=lambda x: x['start']):
+            # Create content signature for deduplication
+            content_sig = (
+                round(subtitle['start'], 1),
+                round(subtitle['end'], 1),
+                subtitle['text'].strip()
+            )
+            
+            if content_sig not in seen_content:
+                unique_subtitles.append(subtitle)
+                seen_content.add(content_sig)
+        
+        # Renumber indices
+        for i, subtitle in enumerate(unique_subtitles):
+            subtitle['index'] = i + 1
+        
+        return unique_subtitles
+    
+    def _format_as_srt(self, subtitles: List[Dict[str, Any]]) -> str:
+        """Format subtitles as SRT content."""
+        srt_lines = []
+        
+        for subtitle in subtitles:
+            srt_lines.append(str(subtitle['index']))
+            
+            start_time = self._format_srt_timestamp(subtitle['start'])
+            end_time = self._format_srt_timestamp(subtitle['end'])
+            srt_lines.append(f"{start_time} --> {end_time}")
+            
+            srt_lines.append(subtitle['text'])
+            srt_lines.append("")  # Empty line
+        
+        return '\n'.join(srt_lines)
+    
+    def _format_srt_timestamp(self, seconds: float) -> str:
+        """Format seconds as SRT timestamp."""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        milliseconds = int((seconds % 1) * 1000)
+        
+        return f"{hours:02d}:{minutes:02d}:{secs:02d},{milliseconds:03d}"
+    
+    def cleanup_chunks(self):
+        """Clean up temporary chunk files."""
+        for chunk_file in self.temp_dir.glob("*_chunk_*"):
+            chunk_file.unlink(missing_ok=True)
+        
+        # Remove empty temp directory
+        try:
+            self.temp_dir.rmdir()
+        except OSError:
+            pass  # Directory not empty or doesn't exist

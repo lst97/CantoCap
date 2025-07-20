@@ -104,7 +104,7 @@ The codebase follows Clean Architecture with four distinct layers:
 - **Application Services**: `MediaFileValidator` - application-specific validation
 
 ### Infrastructure Layer (`src/infrastructure/`)
-- **External Services**: `FFmpegService`, `WhisperService`, `LLMService` - integrations with external tools
+- **External Services**: `FFmpegService`, `WhisperService`, `GeminiFlashService` - integrations with external tools
 - **Repository Implementations**: `FFmpegAudioRepository`, `WhisperTranscriptionRepository`, `FileSubtitleRepository`
 - **Phase 2 Services**: `SpeakerDiarizationService`, `MusicDetectionService`, `CharsetConversionService` (partially implemented)
 

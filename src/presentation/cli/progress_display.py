@@ -6,6 +6,7 @@ from rich.progress import (
     Progress, SpinnerColumn, TextColumn, BarColumn, 
     TimeElapsedColumn, MofNCompleteColumn
 )
+from rich.spinner import Spinner
 from rich.panel import Panel
 from rich.text import Text
 from rich.live import Live
@@ -23,7 +24,12 @@ class ProcessingStage(Enum):
     PREPARING_MODEL = "preparing_model"
     DOWNLOADING_MODEL = "downloading_model"
     LOADING_MODEL = "loading_model"
+    # New Gemini Flash stages
+    GEMINI_SPEAKER_IDENTIFICATION = "gemini_speaker_identification"
+    GEMINI_VIDEO_COMPRESSION = "gemini_video_compression"
     TRANSCRIBING = "transcribing"
+    SPEAKER_DIARIZATION = "speaker_diarization"
+    GEMINI_TRANSCRIPTION_REFINEMENT = "gemini_transcription_refinement"
     FORMATTING_SUBTITLES = "formatting_subtitles"
     SAVING_FILE = "saving_file"
     COMPLETED = "completed"
@@ -49,25 +55,37 @@ class ProgressDisplayManager:
             "Initializing", "Setting up processing environment", 0, 5, "⚙️"
         ),
         ProcessingStage.VALIDATING: StageInfo(
-            "Validating", "Checking input file", 5, 10, "📋"
+            "Validating", "Checking input file and parameters", 5, 10, "📋"
+        ),
+        ProcessingStage.GEMINI_VIDEO_COMPRESSION: StageInfo(
+            "Video Compression", "Compressing video for Gemini Flash analysis", 10, 15, "🎬"
+        ),
+        ProcessingStage.GEMINI_SPEAKER_IDENTIFICATION: StageInfo(
+            "Speaker ID", "Identifying speakers using Gemini Flash", 15, 25, "🤖"
         ),
         ProcessingStage.EXTRACTING_AUDIO: StageInfo(
-            "Extracting Audio", "Extracting audio from media file", 10, 20, "🎵"
+            "Audio Extraction", "Extracting audio from media file", 25, 30, "🎵"
         ),
         ProcessingStage.PREPARING_MODEL: StageInfo(
-            "Preparing Model", "Preparing Whisper model", 20, 25, "🧠"
+            "Model Prep", "Preparing Whisper model", 30, 35, "🧠"
         ),
         ProcessingStage.DOWNLOADING_MODEL: StageInfo(
-            "Downloading Model", "Downloading Whisper model (first time only)", 25, 40, "⬇️"
+            "Model Download", "Downloading Whisper model (first time only)", 35, 45, "⬇️"
         ),
         ProcessingStage.LOADING_MODEL: StageInfo(
-            "Loading Model", "Loading model into memory", 40, 50, "🚀"
+            "Model Loading", "Loading model into memory", 45, 50, "🚀"
         ),
         ProcessingStage.TRANSCRIBING: StageInfo(
-            "Transcribing", "Converting speech to text", 50, 85, "🗣️"
+            "Transcribing", "Converting speech to text with Whisper", 50, 70, "🗣️"
+        ),
+        ProcessingStage.SPEAKER_DIARIZATION: StageInfo(
+            "Speaker Analysis", "Analyzing speaker segments", 70, 75, "👥"
+        ),
+        ProcessingStage.GEMINI_TRANSCRIPTION_REFINEMENT: StageInfo(
+            "AI Refinement", "Refining transcription with Gemini Flash", 75, 85, "✨"
         ),
         ProcessingStage.FORMATTING_SUBTITLES: StageInfo(
-            "Formatting", "Formatting subtitles", 85, 95, "📝"
+            "Formatting", "Formatting and optimizing subtitles", 85, 95, "📝"
         ),
         ProcessingStage.SAVING_FILE: StageInfo(
             "Saving", "Saving subtitle file", 95, 99, "💾"
@@ -155,14 +173,27 @@ class ProgressDisplayManager:
             self.add_status_message(f"[dim]Technical: {message}[/dim]", "dim")
     
     def create_progress_panel(self) -> Panel:
-        """Create the main progress panel."""
+        """Create the main progress panel with spinner."""
         stage_info = self.STAGES[self.current_stage]
         overall_progress = self.get_overall_progress()
         
-        # Create progress bar text
+        # Create progress bar text with spinner for active stages
         progress_text = Text()
+        
+        # Add spinner for active stages (not completed or error)
+        if self.current_stage not in [ProcessingStage.COMPLETED, ProcessingStage.ERROR] and overall_progress < 100:
+            # Use rich's built-in spinner characters
+            spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+            spinner_char = spinner_frames[int(time.time() * 4) % len(spinner_frames)]
+            progress_text.append(f"{spinner_char} ", style="bold cyan")
+        
         progress_text.append(f"{stage_info.emoji} ", style="bold")
         progress_text.append(stage_info.description, style="bold blue")
+        
+        # Add stage progress indicator within current stage
+        if self.current_stage_progress > 0 and self.current_stage_progress < 1:
+            stage_percent = int(self.current_stage_progress * 100)
+            progress_text.append(f" ({stage_percent}%)", style="dim")
         
         # Create the progress bar
         bar_width = 40
