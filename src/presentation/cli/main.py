@@ -83,6 +83,16 @@ def main(
         "--version",
         "-v",
         help="Show version information"
+    ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        help="Show detailed technical information during processing"
+    ),
+    ipc_mode: bool = typer.Option(
+        False,
+        "--ipc-mode",
+        help="Enable IPC mode for machine-readable JSON output"
     )
 ) -> None:
     """
@@ -112,6 +122,10 @@ def main(
         # Phase 2 features
         cantosub movie.mkv --speakers --written --music
     """
+    # Set global IPC mode for error handling
+    from ...infrastructure.error_handling import set_global_ipc_mode
+    set_global_ipc_mode(ipc_mode)
+    
     if version:
         from ... import __version__
         console.print(f"[bold blue]CantoSub[/bold blue] version [green]{__version__}[/green]")
@@ -132,7 +146,7 @@ def main(
                 readable=True
             )
         except ValidationError as e:
-            handle_error(e, context="Input file validation", exit_code=1)
+            handle_error(e, context="Input file validation", exit_code=1, ipc_mode=ipc_mode)
         
         # Call generate command directly
         generate_command(
@@ -144,7 +158,9 @@ def main(
             speakers=speakers,
             written=written,
             music=music,
-            charset=charset
+            charset=charset,
+            verbose=verbose,
+            ipc_mode=ipc_mode
         )
 
 

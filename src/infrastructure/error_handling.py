@@ -120,7 +120,8 @@ def handle_error(
     error: Exception,
     context: str = "Operation",
     exit_code: int = None,
-    show_traceback: bool = False
+    show_traceback: bool = False,
+    ipc_mode: bool = False
 ) -> None:
     """
     Handle errors with rich formatting and optional exit.
@@ -130,6 +131,7 @@ def handle_error(
         context: Context description for the error
         exit_code: If provided, exit with this code
         show_traceback: Whether to show full traceback
+        ipc_mode: Whether to output JSON errors for IPC communication
     """
     error_type = type(error).__name__
     message = str(error)
@@ -146,13 +148,39 @@ def handle_error(
     if show_traceback:
         details['Traceback'] = traceback.format_exc()
     
-    _print_error(message, error_type, details)
+    if ipc_mode:
+        # Import here to avoid circular imports
+        from ..presentation.cli.ipc_handler import _output_json
+        
+        # Create structured error data for IPC - flatten structure for better access
+        error_data = {
+            'error': message,
+            'error_type': error_type,
+            'context': context
+        }
+        
+        # Add custom error details if available
+        if hasattr(error, 'details') and error.details:
+            error_data.update(error.details)
+        
+        # Add error code if available
+        if hasattr(error, 'error_code'):
+            error_data['error_code'] = error.error_code
+        
+        # Add traceback if requested
+        if show_traceback:
+            error_data['traceback'] = traceback.format_exc()
+        
+        # Output JSON error directly with flattened structure
+        _output_json("error", error_data)
+    else:
+        _print_error(message, error_type, details)
     
     if exit_code is not None:
         sys.exit(exit_code)
 
 
-def handle_warning(message: str, context: str = None, details: dict = None) -> None:
+def handle_warning(message: str, context: str = None, details: dict = None, ipc_mode: bool = False) -> None:
     """
     Handle warnings with rich formatting.
     
@@ -160,12 +188,30 @@ def handle_warning(message: str, context: str = None, details: dict = None) -> N
         message: Warning message
         context: Context description
         details: Additional details dictionary
+        ipc_mode: Whether to output JSON warnings for IPC communication
     """
     warning_details = details or {}
     if context:
         warning_details['Context'] = context
     
-    _print_warning(message, warning_details)
+    if ipc_mode:
+        # Import here to avoid circular imports
+        from ..presentation.cli.ipc_handler import ipc_log
+        
+        # Create structured warning data for IPC
+        log_details = {}
+        if context:
+            log_details['context'] = context
+        if details:
+            log_details.update(details)
+        
+        # Output as warning-level log in IPC mode
+        if log_details:
+            ipc_log(f"{message} - Details: {log_details}", "warning")
+        else:
+            ipc_log(message, "warning")
+    else:
+        _print_warning(message, warning_details)
 
 
 def safe_execute(
@@ -174,7 +220,8 @@ def safe_execute(
     error_type: Type[CantoSubError] = CantoSubError,
     context: str = None,
     default_return: Any = None,
-    reraise: bool = True
+    reraise: bool = True,
+    ipc_mode: bool = False
 ) -> Any:
     """
     Safely execute a function with error handling.
@@ -186,6 +233,7 @@ def safe_execute(
         context: Context for error reporting
         default_return: Value to return on error (if not reraising)
         reraise: Whether to reraise exceptions
+        ipc_mode: Whether to output JSON warnings for IPC communication
         
     Returns:
         Function result or default_return on error
@@ -208,7 +256,8 @@ def safe_execute(
             handle_warning(
                 f"{error_message}: {str(e)}",
                 context=context,
-                details={'original_error': str(e)}
+                details={'original_error': str(e)},
+                ipc_mode=ipc_mode
             )
             return default_return
 
@@ -407,13 +456,32 @@ def validate_audio_file(file_path: Union[str, Path]) -> Path:
     return path
 
 
+# Global IPC mode state
+_global_ipc_mode = False
+
+def set_global_ipc_mode(enabled: bool) -> None:
+    """Set global IPC mode for error handling."""
+    global _global_ipc_mode
+    _global_ipc_mode = enabled
+
+def get_global_ipc_mode() -> bool:
+    """Get current global IPC mode setting."""
+    return _global_ipc_mode
+
 # Global error handler setup
 def setup_global_error_handler():
     """Setup global exception handler."""
     def handle_exception(exc_type, exc_value, exc_traceback):
         if issubclass(exc_type, KeyboardInterrupt):
             # Handle Ctrl+C gracefully
-            if _rich_available and _console:
+            if _global_ipc_mode:
+                from ..presentation.cli.ipc_handler import _output_json
+                error_data = {
+                    "error": "Operation cancelled by user",
+                    "reason": "keyboard_interrupt"
+                }
+                _output_json("error", error_data)
+            elif _rich_available and _console:
                 _console.print("\n\n🛑 [yellow]Operation cancelled by user[/yellow]")
             else:
                 print("\n\n🛑 Operation cancelled by user")
@@ -424,7 +492,8 @@ def setup_global_error_handler():
                 exc_value,
                 context="Global exception handler",
                 show_traceback=True,
-                exit_code=1
+                exit_code=1,
+                ipc_mode=_global_ipc_mode
             )
     
     sys.excepthook = handle_exception
