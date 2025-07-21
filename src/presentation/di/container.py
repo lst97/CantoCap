@@ -5,8 +5,10 @@ import platform
 from pathlib import Path
 from typing import Optional
 
-from ...domain import SubtitleFormattingService
+from ...domain import SubtitleFormattingService, DualLanguageSubtitleService
 from ...application import GenerateSubtitlesUseCase, MediaFileValidator
+from ...application.services.subtitle_validation_service import SubtitleValidationService
+from ...application.services.terminology_config_service import TerminologyConfigService
 from ...infrastructure import (
     FFmpegAudioRepository,
     WhisperTranscriptionRepository,
@@ -25,12 +27,18 @@ try:
         # LLMServiceFactory - removed, using Gemini Flash service directly
         MusicDetectionService
     )
+    from ...infrastructure.services.gemini_flash_service import GeminiFlashService
+    from ...infrastructure.services.video_compression_service import VideoCompressionService
+    from ...infrastructure.services.subtitle_translation_service import SubtitleTranslationService
     _PHASE2_AVAILABLE = True
 except ImportError:
     WhisperService = None
     SpeakerDiarizationService = None
     # LLMServiceFactory = None - removed, using Gemini Flash service directly
     MusicDetectionService = None
+    GeminiFlashService = None
+    VideoCompressionService = None
+    SubtitleTranslationService = None
     _PHASE2_AVAILABLE = False
 
 
@@ -53,6 +61,13 @@ class Container:
         self._video_preprocessing_service = None
         self._media_chunking_service = None
         self._gemini_flash_service = None
+        self._subtitle_validation_service = None
+        self._video_compression_service = None
+        self._terminology_config_service = None
+        
+        # Translation services
+        self._subtitle_translation_service = None
+        self._dual_language_subtitle_service: Optional[DualLanguageSubtitleService] = None
         
         # Phase 2 services
         self._speaker_diarization_service: Optional[SpeakerDiarizationService] = None
@@ -256,31 +271,91 @@ class Container:
             self._media_chunking_service = MediaChunkingService(strategy)
         return self._media_chunking_service
     
-    def get_gemini_flash_service(self, api_key: str):
-        """Get Gemini Flash service instance."""
+    def get_gemini_flash_service(self, api_key: str, terminology_config_path: Optional[str] = None):
+        """Get Gemini Flash service instance with optional terminology configuration."""
         if self._gemini_flash_service is None:
-            from ...infrastructure.services.gemini_flash_service import GeminiFlashService
-            if GeminiFlashService.is_gemini_available():
-                self._gemini_flash_service = GeminiFlashService(api_key)
+            if GeminiFlashService and GeminiFlashService.is_gemini_available():
+                # Get terminology service if config path provided
+                terminology_service = None
+                if terminology_config_path:
+                    terminology_service = self.get_terminology_config_service(terminology_config_path)
+                
+                self._gemini_flash_service = GeminiFlashService(api_key, terminology_service)
             else:
                 raise ImportError("google-generativeai package not installed")
         return self._gemini_flash_service
     
-    def get_enhanced_generate_subtitles_use_case(self, gemini_api_key: Optional[str] = None):
+    def get_subtitle_validation_service(self) -> SubtitleValidationService:
+        """Get subtitle validation service instance."""
+        if self._subtitle_validation_service is None:
+            self._subtitle_validation_service = SubtitleValidationService()
+        return self._subtitle_validation_service
+    
+    def get_video_compression_service(self) -> VideoCompressionService:
+        """Get video compression service instance."""
+        if self._video_compression_service is None:
+            if VideoCompressionService:
+                self._video_compression_service = VideoCompressionService()
+            else:
+                raise RuntimeError("Video compression service not available")
+        return self._video_compression_service
+    
+    def get_terminology_config_service(self, config_path: str) -> TerminologyConfigService:
+        """Get terminology configuration service instance."""
+        if self._terminology_config_service is None:
+            from pathlib import Path
+            config_file_path = Path(config_path)
+            if not config_file_path.exists():
+                raise FileNotFoundError(f"Terminology config file not found: {config_path}")
+            
+            self._terminology_config_service = TerminologyConfigService(config_file_path)
+        return self._terminology_config_service
+    
+    def get_subtitle_translation_service(self, api_key: str):
+        """Get subtitle translation service instance."""
+        if self._subtitle_translation_service is None:
+            if SubtitleTranslationService and SubtitleTranslationService.is_gemini_available():
+                self._subtitle_translation_service = SubtitleTranslationService(api_key)
+            else:
+                raise ImportError("google-generativeai package not installed")
+        return self._subtitle_translation_service
+    
+    def get_dual_language_subtitle_service(self) -> DualLanguageSubtitleService:
+        """Get dual-language subtitle service instance."""
+        if self._dual_language_subtitle_service is None:
+            self._dual_language_subtitle_service = DualLanguageSubtitleService()
+        return self._dual_language_subtitle_service
+    
+    def get_enhanced_generate_subtitles_use_case(self, gemini_api_key: Optional[str] = None, terminology_config_path: Optional[str] = None):
         """Get enhanced generate subtitles use case with Gemini Flash integration."""
         # Get enhanced services
         video_preprocessing_service = None
         media_chunking_service = None
         gemini_flash_service = None
+        subtitle_validation_service = None
+        video_compression_service = None
         
         try:
             video_preprocessing_service = self.get_video_preprocessing_service()
             media_chunking_service = self.get_media_chunking_service()
+            subtitle_validation_service = self.get_subtitle_validation_service()
+            video_compression_service = self.get_video_compression_service()
             
             if gemini_api_key:
-                gemini_flash_service = self.get_gemini_flash_service(gemini_api_key)
+                gemini_flash_service = self.get_gemini_flash_service(gemini_api_key, terminology_config_path)
         except Exception as e:
             print(f"Warning: Enhanced services not available: {e}")
+        
+        # Get translation services  
+        translation_service = None
+        dual_language_service = None
+        
+        if _PHASE2_AVAILABLE and gemini_api_key:
+            try:
+                translation_service = self.get_subtitle_translation_service(gemini_api_key)
+                dual_language_service = self.get_dual_language_subtitle_service()
+            except Exception as e:
+                print(f"Warning: Translation services not available: {e}")
         
         # Get existing Phase 2 services
         speaker_service = None
@@ -309,6 +384,11 @@ class Container:
             video_preprocessing_service=video_preprocessing_service,
             media_chunking_service=media_chunking_service,
             gemini_flash_service=gemini_flash_service,
+            subtitle_validation_service=subtitle_validation_service,
+            video_compression_service=video_compression_service,
+            # Translation services
+            subtitle_translation_service=translation_service,
+            dual_language_subtitle_service=dual_language_service,
             # Phase 2 services (optional)
             speaker_diarization_service=speaker_service,
             music_detection_service=music_service,

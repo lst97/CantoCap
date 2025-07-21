@@ -10,6 +10,7 @@ from ...domain import (
     AudioFormat,
     SubtitleDocument,
     SubtitleFormattingService,
+    DualLanguageSubtitleService,
     IAudioRepository,
     ITranscriptionRepository,
     ISubtitleRepository
@@ -18,6 +19,7 @@ from ...domain.value_objects import Timestamp
 from ...domain.entities import Subtitle
 from ..commands import GenerateSubtitlesCommand
 from ..services import MediaFileValidator
+from ..services.subtitle_validation_service import SubtitleValidationService
 
 
 @dataclass
@@ -76,6 +78,11 @@ class GenerateSubtitlesUseCase:
         video_preprocessing_service=None,
         media_chunking_service=None,
         gemini_flash_service=None,
+        subtitle_validation_service: Optional[SubtitleValidationService] = None,
+        video_compression_service=None,
+        # Translation dependencies
+        subtitle_translation_service=None,
+        dual_language_subtitle_service: Optional[DualLanguageSubtitleService] = None,
         # Phase 2 dependencies (optional)
         speaker_diarization_service=None,
         music_detection_service=None,
@@ -92,6 +99,12 @@ class GenerateSubtitlesUseCase:
         self.video_preprocessing_service = video_preprocessing_service
         self.media_chunking_service = media_chunking_service
         self.gemini_flash_service = gemini_flash_service
+        self.subtitle_validation_service = subtitle_validation_service or SubtitleValidationService()
+        self.video_compression_service = video_compression_service
+        
+        # Translation services
+        self.subtitle_translation_service = subtitle_translation_service
+        self.dual_language_subtitle_service = dual_language_subtitle_service or DualLanguageSubtitleService()
         
         # Phase 2 services (optional)
         self.speaker_diarization_service = speaker_diarization_service
@@ -126,13 +139,13 @@ class GenerateSubtitlesUseCase:
                     media_file, command
                 )
             
-            # Step 4: Extract audio (existing logic)
+            # Step 4: Extract audio 
             temp_audio = self._extract_audio(media_file)
             
-            # Step 5: Load transcription model (existing logic)
+            # Step 5: Load transcription model 
             self._load_transcription_model(command.model_name)
             
-            # Step 6: Transcribe audio (existing logic)
+            # Step 6: Transcribe audio 
             transcription = self._transcribe_audio(temp_audio, command.language)
             
             # Step 7: Speaker diarization with auto-detected count
@@ -142,7 +155,7 @@ class GenerateSubtitlesUseCase:
                     temp_audio, detected_speaker_count, command.hf_token
                 )
             
-            # Step 8: Music detection (existing logic)
+            # Step 8: Music detection 
             music_detection = None
             if command.enable_music_detection and self.music_detection_service:
                 music_detection = self._perform_music_detection(transcription, temp_audio)
@@ -155,19 +168,27 @@ class GenerateSubtitlesUseCase:
                 music_detection=music_detection
             )
             
-            # Step 10: Gemini Flash Phase 2 - Transcription Refinement
+            # Step 10: Subtitle Validation and Tagging
             if command.enable_gemini_refinement and self.gemini_flash_service:
-                subtitle_document = self._gemini_transcription_refinement(
-                    subtitle_document, media_file, command
+                # Apply validation tags before Gemini refinement
+                validated_srt = self._apply_subtitle_validation(subtitle_document)
+                
+                # Step 10.1: Gemini Flash Phase 2 - Transcription Refinement
+                subtitle_document = self._gemini_transcription_refinement_with_validation(
+                    subtitle_document, validated_srt, media_file, command
                 )
             
-            # Step 11: Apply charset conversion (existing logic)
+            # Step 11: Apply subtitle translation (if enabled)
+            if command.requires_translation() and self.subtitle_translation_service:
+                subtitle_document = self._translate_subtitles(subtitle_document, command)
+            
+            # Step 12: Apply charset conversion 
             subtitle_document = self._apply_charset_conversion(subtitle_document, command)
             
-            # Step 12: Save subtitle file (existing logic)
+            # Step 13: Save subtitle file 
             output_path = self._save_subtitle_file(subtitle_document, command)
             
-            # Step 13: Generate statistics (existing logic)
+            # Step 14: Generate statistics 
             statistics = self._generate_statistics(subtitle_document)
             
             processing_time = time.time() - start_time
@@ -190,8 +211,11 @@ class GenerateSubtitlesUseCase:
             # Cleanup
             if temp_audio:
                 self.audio_repository.cleanup_temp_audio(temp_audio)
-            if compressed_video and self.video_preprocessing_service:
-                self.video_preprocessing_service.cleanup_temp_files()
+            if compressed_video:
+                if self.video_preprocessing_service:
+                    self.video_preprocessing_service.cleanup_temp_files()
+                elif self.video_compression_service:
+                    self.video_compression_service.cleanup_temp_file(compressed_video)
             if self.media_chunking_service:
                 self.media_chunking_service.cleanup_chunks()
     
@@ -311,10 +335,18 @@ class GenerateSubtitlesUseCase:
         basic_stats = subtitle_document.get_statistics()
         formatting_stats = self.subtitle_formatting_service.get_formatting_statistics(subtitle_document)
         
-        return {
+        stats = {
             **basic_stats,
             "formatting": formatting_stats
         }
+        
+        # Add dual-language statistics if subtitle document contains translations
+        if self.dual_language_subtitle_service and subtitle_document.get_language() and '+' in subtitle_document.get_language():
+            # This is a dual-language document
+            dual_language_stats = self.dual_language_subtitle_service.get_dual_language_statistics(subtitle_document)
+            stats["dual_language"] = dual_language_stats
+        
+        return stats
     
     def _perform_speaker_diarization(self, audio_stream, command: GenerateSubtitlesCommand) -> Optional[any]:
         """Perform speaker diarization on audio stream (legacy method)."""
@@ -525,6 +557,83 @@ class GenerateSubtitlesUseCase:
             print(f"Warning: Charset conversion failed: {e}")
             return subtitle_document
     
+    def _translate_subtitles(
+        self, 
+        subtitle_document: SubtitleDocument, 
+        command: GenerateSubtitlesCommand
+    ) -> SubtitleDocument:
+        """Translate subtitles and create dual-language document."""
+        
+        try:
+            # Get translation language
+            target_language = command.get_translation_language()
+            if not target_language:
+                print("Warning: Translation language not specified, skipping translation")
+                return subtitle_document
+            
+            # Check if translation service is available
+            if not self.subtitle_translation_service:
+                print("Warning: Translation service not available, skipping translation")
+                return subtitle_document
+            
+            if not self.subtitle_translation_service.is_available():
+                print("Warning: Gemini API not available for translation, skipping")
+                return subtitle_document
+            
+            print(f"Translating subtitles to {target_language.language_name}...")
+            
+            # Convert subtitle document to SRT format for translation
+            chinese_srt = self._convert_subtitle_document_to_srt(subtitle_document)
+            
+            # Translate using Gemini
+            from ...infrastructure.services.subtitle_translation_service import TranslationResult
+            translation_result = self.subtitle_translation_service.translate_subtitles(
+                chinese_srt=chinese_srt,
+                target_language=target_language,
+                source_language="Chinese"
+            )
+            
+            print(f"Translation completed: {translation_result.translation_count} subtitles translated")
+            print(f"Translation quality score: {translation_result.quality_score:.1%}")
+            
+            # Create dual-language subtitle document
+            dual_language_document = self.dual_language_subtitle_service.create_dual_language_document(
+                chinese_document=subtitle_document,
+                translated_srt_content=translation_result.translated_srt,
+                target_language=target_language.language_name,
+                source_file_path=command.input_file_path
+            )
+            
+            print(f"Dual-language subtitles created: {dual_language_document.get_subtitle_count()} entries")
+            
+            return dual_language_document
+            
+        except Exception as e:
+            # Log warning but don't fail the entire process
+            print(f"Warning: Translation failed: {e}")
+            return subtitle_document
+    
+    def _convert_subtitle_document_to_srt(self, subtitle_document: SubtitleDocument) -> str:
+        """Convert subtitle document to SRT format for translation."""
+        srt_lines = []
+        
+        for subtitle in subtitle_document.subtitles:
+            # Subtitle index
+            srt_lines.append(str(subtitle.index))
+            
+            # Timing line
+            start_time = subtitle.start_time.to_srt_format()
+            end_time = subtitle.end_time.to_srt_format()
+            srt_lines.append(f"{start_time} --> {end_time}")
+            
+            # Content
+            srt_lines.append(subtitle.content)
+            
+            # Empty line separator
+            srt_lines.append("")
+        
+        return '\n'.join(srt_lines)
+    
     def _convert_subtitle_content(self, content: str, target_charset) -> str:
         """Convert subtitle content while preserving speaker labels."""
         if not content.strip():
@@ -559,31 +668,58 @@ class GenerateSubtitlesUseCase:
         media_file: MediaFile, 
         command: GenerateSubtitlesCommand
     ) -> tuple:
-        """Phase 1: Use Gemini Flash to identify speaker count."""
+        """Phase 1: Use Gemini Flash to identify speaker count with video compression."""
         if not self.gemini_flash_service:
             raise RuntimeError("Gemini Flash service not available")
         
-        if not self.video_preprocessing_service:
-            raise RuntimeError("Video preprocessing service not available")
+        if not self.video_compression_service:
+            raise RuntimeError("Video compression service not available")
         
-        # Compress video for LLM analysis
-        from ...infrastructure.services.video_preprocessing_service import CompressionSettings
-        compression_settings = CompressionSettings(
-            target_resolution=command.video_compression_quality
+        # Compress video for API transmission
+        compression_result = self.video_compression_service.compress_for_api(
+            input_video=media_file.get_file_path(),
+            quality="low",  # Low quality sufficient for speaker identification
+            max_size_mb=50  # Keep under 50MB for API limits
         )
         
-        compressed_video = self.video_preprocessing_service.compress_for_llm_analysis(
-            media_file.get_file_path(),
-            compression_settings
-        )
+        if not compression_result.success:
+            raise RuntimeError(f"Video compression failed: {compression_result.error_message}")
         
-        # Identify speakers using Gemini Flash
-        speaker_result = self.gemini_flash_service.identify_speaker_count(compressed_video)
+        print(f"Video compressed: {compression_result.original_size_mb:.1f}MB → "
+              f"{compression_result.compressed_size_mb:.1f}MB "
+              f"({compression_result.compression_ratio:.1f}x compression)")
         
-        print(f"Gemini Flash identified {speaker_result.speaker_count} speakers "
-              f"(confidence: {speaker_result.confidence:.2%})")
+        try:
+            # Identify speakers using Gemini Flash
+            from ...domain.value_objects import FilePath
+            compressed_path = FilePath.from_string(str(compression_result.compressed_path))
+            speaker_result = self.gemini_flash_service.identify_speaker_count(compressed_path)
+            
+            print(f"Gemini Flash identified {speaker_result.speaker_count} speakers "
+                  f"(confidence: {speaker_result.confidence:.2%})")
+            
+            return compression_result.compressed_path, speaker_result.speaker_count
+            
+        except Exception as e:
+            # Clean up compressed file on error
+            self.video_compression_service.cleanup_temp_file(compression_result.compressed_path)
+            raise RuntimeError(f"Speaker identification failed: {e}")
+    
+    def _apply_subtitle_validation(self, subtitle_document: SubtitleDocument) -> str:
+        """Apply validation tags to subtitle content before Gemini refinement."""
+        # Convert to SRT format
+        srt_content = self._convert_subtitle_document_to_srt(subtitle_document)
         
-        return compressed_video, speaker_result.speaker_count
+        # Apply validation tags
+        validated_srt = self.subtitle_validation_service.validate_srt_content(srt_content)
+        
+        # Get validation statistics
+        validation_stats = self.subtitle_validation_service.get_validation_stats()
+        if validation_stats["refinement_needed"] > 0:
+            print(f"Validation applied: {validation_stats['trim_tags_applied']} TRIM tags, "
+                  f"{validation_stats['repeat_tags_applied']} REPEAT tags")
+        
+        return validated_srt
     
     def _perform_enhanced_speaker_diarization(
         self, 
@@ -618,6 +754,75 @@ class GenerateSubtitlesUseCase:
         except Exception as e:
             print(f"Warning: Enhanced speaker diarization failed: {e}")
             return None
+    
+    def _gemini_transcription_refinement_with_validation(
+        self,
+        subtitle_document: SubtitleDocument,
+        validated_srt: str,
+        media_file: MediaFile,
+        command: GenerateSubtitlesCommand
+    ) -> SubtitleDocument:
+        """Phase 2: Use Gemini Flash to refine transcription with validation tags."""
+        if not self.gemini_flash_service:
+            return subtitle_document
+        
+        try:
+            # Check if chunking is needed
+            if self.media_chunking_service and self.media_chunking_service.should_chunk_file(media_file.get_file_path()):
+                return self._gemini_transcription_refinement_chunked_with_validation(
+                    subtitle_document, validated_srt, media_file, command
+                )
+            
+            # Use compressed video if available, otherwise use original
+            video_path = media_file.get_file_path()
+            
+            # Compress video for refinement if not already compressed and service available
+            compressed_video_path = None
+            if self.video_compression_service:
+                compression_result = self.video_compression_service.compress_for_api(
+                    input_video=video_path,
+                    quality="medium",  # Medium quality for better transcription analysis
+                    max_size_mb=100   # Allow larger file for refinement
+                )
+                
+                if compression_result.success:
+                    print(f"Video compressed for refinement: {compression_result.original_size_mb:.1f}MB → "
+                          f"{compression_result.compressed_size_mb:.1f}MB")
+                    from ...domain.value_objects import FilePath
+                    video_path = FilePath.from_string(str(compression_result.compressed_path))
+                    compressed_video_path = compression_result.compressed_path
+            
+            try:
+                # Refine using Gemini Flash with validation tags
+                refinement_result = self.gemini_flash_service.refine_transcription(
+                    video_path=video_path,
+                    whisper_srt=validated_srt,
+                    language_style=command.get_language_style()
+                )
+                
+                print(f"Gemini Flash refinement completed: {refinement_result.changes_made} changes made")
+                
+                # Verify validation tags were processed (should be removed)
+                if '[TRIM]' in refinement_result.refined_srt or '[REPEAT]' in refinement_result.refined_srt:
+                    print("Warning: Validation tags found in refined output - may need manual review")
+                
+                # Convert refined SRT back to subtitle document
+                refined_subtitle_document = self._convert_srt_to_subtitle_document(
+                    refinement_result.refined_srt,
+                    subtitle_document.get_source_file(),
+                    subtitle_document.get_language()
+                )
+                
+                return refined_subtitle_document
+                
+            finally:
+                # Clean up compressed video
+                if compressed_video_path and self.video_compression_service:
+                    self.video_compression_service.cleanup_temp_file(compressed_video_path)
+            
+        except Exception as e:
+            print(f"Warning: Gemini Flash refinement failed: {e}")
+            return subtitle_document
     
     def _gemini_transcription_refinement(
         self,
@@ -659,6 +864,74 @@ class GenerateSubtitlesUseCase:
             
         except Exception as e:
             print(f"Warning: Gemini Flash refinement failed: {e}")
+            return subtitle_document
+    
+    def _gemini_transcription_refinement_chunked_with_validation(
+        self,
+        subtitle_document: SubtitleDocument,
+        validated_srt: str,
+        media_file: MediaFile,
+        command: GenerateSubtitlesCommand
+    ) -> SubtitleDocument:
+        """Handle chunked transcription refinement with validation for large files."""
+        try:
+            # Create chunks
+            chunks = self.media_chunking_service.create_chunks(media_file.get_file_path())
+            
+            # Split validated SRT content by chunks
+            chunk_srt_contents = self._split_srt_by_chunks(validated_srt, chunks)
+            
+            # Process each chunk
+            chunk_results = []
+            for i, (chunk_info, chunk_srt) in enumerate(zip(chunks, chunk_srt_contents)):
+                try:
+                    # Compress chunk if video compression service available
+                    chunk_video_path = chunk_info.file_path
+                    compressed_chunk_path = None
+                    
+                    if self.video_compression_service:
+                        chunk_compression = self.video_compression_service.compress_for_api(
+                            input_video=chunk_video_path,
+                            quality="medium",
+                            max_size_mb=50
+                        )
+                        if chunk_compression.success:
+                            from ...domain.value_objects import FilePath
+                            chunk_video_path = FilePath.from_string(str(chunk_compression.compressed_path))
+                            compressed_chunk_path = chunk_compression.compressed_path
+                    
+                    try:
+                        refinement_result = self.gemini_flash_service.refine_transcription(
+                            video_path=chunk_video_path,
+                            whisper_srt=chunk_srt,
+                            language_style=command.get_language_style()
+                        )
+                        chunk_results.append((chunk_info, refinement_result.refined_srt))
+                        
+                    finally:
+                        # Clean up compressed chunk
+                        if compressed_chunk_path and self.video_compression_service:
+                            self.video_compression_service.cleanup_temp_file(compressed_chunk_path)
+                    
+                except Exception as e:
+                    print(f"Warning: Chunk {i} refinement failed: {e}")
+                    chunk_results.append((chunk_info, chunk_srt))  # Use original
+            
+            # Merge results
+            original_duration = self.media_chunking_service._get_media_duration(media_file.get_file_path())
+            merged_srt = self.media_chunking_service.merge_chunk_results(
+                chunk_results, original_duration
+            )
+            
+            # Convert back to subtitle document
+            return self._convert_srt_to_subtitle_document(
+                merged_srt,
+                subtitle_document.get_source_file(),
+                subtitle_document.get_language()
+            )
+            
+        except Exception as e:
+            print(f"Warning: Chunked Gemini refinement with validation failed: {e}")
             return subtitle_document
     
     def _gemini_transcription_refinement_chunked(

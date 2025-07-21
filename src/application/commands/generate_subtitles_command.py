@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Optional
 
-from ...domain.value_objects import FilePath, Charset
+from ...domain.value_objects import FilePath, Charset, LanguageCode
 
 
 @dataclass(frozen=True)
@@ -27,7 +27,12 @@ class GenerateSubtitlesCommand:
     gemini_api_key: Optional[str] = None
     video_compression_quality: str = "360p"  # For LLM processing
     max_chunk_duration_minutes: int = 15  # Maximum chunk duration
+    terminology_config_path: Optional[str] = None  # Path to custom terminology JSON config
     hf_token: Optional[str] = None # Hugging Face token for gated models
+    
+    # Translation features
+    enable_translation: bool = False
+    translation_language: Optional[str] = None  # Language code for translation (e.g., "en_us")
     
     def __post_init__(self) -> None:
         """Validate command parameters."""
@@ -51,6 +56,16 @@ class GenerateSubtitlesCommand:
         
         if self.max_chunk_duration_minutes <= 0:
             raise ValueError("Max chunk duration must be positive")
+        
+        # Validate translation options
+        if self.enable_translation and not self.translation_language:
+            raise ValueError("Translation language must be specified when translation is enabled")
+        
+        if self.translation_language and not self.translation_language.strip():
+            raise ValueError("Translation language cannot be empty string")
+        
+        if self.translation_language and not LanguageCode.is_supported(self.translation_language):
+            raise ValueError(f"Unsupported translation language: {self.translation_language}")
     
     def get_input_file_path(self) -> FilePath:
         """Get input file path as FilePath object."""
@@ -80,16 +95,27 @@ class GenerateSubtitlesCommand:
         """Get language style preference for Gemini Flash."""
         return "written" if self.enable_written_style else "colloquial"
     
+    def get_translation_language(self) -> Optional[LanguageCode]:
+        """Get translation language as LanguageCode object."""
+        if not self.translation_language:
+            return None
+        return LanguageCode.from_string(self.translation_language)
+    
+    def requires_translation(self) -> bool:
+        """Check if subtitle translation is enabled."""
+        return self.enable_translation and self.translation_language is not None
+    
     def requires_gemini_flash(self) -> bool:
         """Check if Gemini Flash features are enabled."""
-        return self.enable_speakers or self.enable_gemini_refinement
+        return self.enable_speakers or self.enable_gemini_refinement or self.requires_translation()
     
     def has_phase2_features(self) -> bool:
         """Check if any Phase 2 features are enabled."""
         return (self.enable_speakers or 
                 self.enable_written_style or 
                 self.enable_music_detection or
-                self.enable_gemini_refinement)
+                self.enable_gemini_refinement or
+                self.requires_translation())
     
     def validate_paths(self) -> None:
         """Validate that paths are accessible."""

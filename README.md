@@ -6,7 +6,7 @@ An advanced CLI tool for generating accurate Cantonese subtitles from audio/vide
 
 ### Core Transcription
 - **Intelligent Model Selection**: Automatic Whisper model selection based on hardware capabilities
-- **High-Quality Recognition**: Uses OpenAI Whisper V3 with priority-based model selection (speed/quality/balanced)
+- **High-Quality Recognition**: Uses OpenAI Whisper V3.1 with priority-based model selection (speed/quality/balanced)
 - **Multiple Formats**: Supports various audio/video formats (MP4, AVI, MKV, WAV, MP3, etc.)
 - **Optimized Subtitles**: Automatically formats subtitles with proper timing and text breaking
 
@@ -111,6 +111,9 @@ cantosub movie.mkv --speakers --written --music --gemini-key YOUR_API_KEY
 echo "GEMINI_API_KEY=your_key_here" > .env
 cantosub video.mp4 --speakers --written
 
+# Use custom terminology for mixed language content
+cantosub video.mp4 --terminology-config examples/terminology_config.json
+
 # Check hardware capabilities
 cantosub hardware
 cantosub hardware --priority speed
@@ -129,7 +132,7 @@ cantosub hardware --priority speed
 - `--help`: Show help message
 
 #### AI Enhancement Options
-- `--speakers`: Enable automatic speaker identification and diarization using Gemini Flash
+- `--speakers`: Enable automatic speaker identification and diarization
 - `--written`: Convert colloquial speech to formal written Cantonese style
 - `--music`: Enable music detection and add [music] labels
 - `--gemini-key`: Google Gemini API key (overrides .env file and environment variables)
@@ -139,6 +142,7 @@ cantosub hardware --priority speed
 - `--charset`: Character set for output ("traditional" or "simplified", default: "traditional")
 - `--max-chunk-duration`: Maximum chunk duration in minutes for large files (default: 15)
 - `--video-quality`: Video compression quality for AI analysis ("360p", "480p", "720p", default: "360p")
+- `--terminology-config`: Path to custom terminology JSON configuration file for handling mixed language content
 - `--ipc-mode`: Enable IPC mode for machine-readable JSON output
 
 ### Supported Formats
@@ -302,9 +306,82 @@ CantoSub leverages Google's Gemini Flash model for advanced AI processing:
 1. **Video Analysis** 🎬 → Gemini Flash analyzes video for speaker identification
 2. **Audio Extraction** 🎵 → FFmpeg extracts high-quality audio
 3. **Whisper Transcription** 🗣️ → Initial speech-to-text conversion
-4. **Speaker Diarization** 👥 → Segments audio by speaker using AI-detected count
+4. **Speaker Diarization** 👥 → Segments audio by speaker
 5. **AI Refinement** ✨ → Gemini Flash improves accuracy and applies style
 6. **Subtitle Optimization** 📝 → Final formatting and timing optimization
+
+## Custom Terminology Configuration
+
+CantoSub supports custom terminology configuration to handle mixed English-Cantonese content, proper nouns, brand names, and domain-specific terms accurately.
+
+### Configuration File
+
+Create a JSON configuration file (example: `examples/terminology_config.json`) with your custom terms:
+
+```json
+{
+  "version": "1.0",
+  "language": "cantonese",
+  "terminology": {
+    "proper_nouns": [
+      {
+        "id": "hong_kong",
+        "spoken_forms": ["Hong Kong", "香港", "HK"],
+        "written_form": "香港",
+        "spoken_preference": "香港",
+        "priority": "high"
+      }
+    ],
+    "brand_names": [
+      {
+        "id": "apple_company",
+        "spoken_forms": ["Apple", "蘋果公司", "apple"],
+        "written_form": "蘋果公司",
+        "spoken_preference": "Apple",
+        "priority": "high"
+      }
+    ]
+  },
+  "style_rules": {
+    "written": {
+      "prefer_chinese": true,
+      "convert_english": true
+    },
+    "colloquial": {
+      "preserve_spoken": true,
+      "natural_mixing": true
+    }
+  }
+}
+```
+
+### Usage Examples
+
+```bash
+# Use custom terminology with written style (converts English to Chinese)
+cantosub video.mp4 --written --terminology-config examples/terminology_config.json
+
+# Use custom terminology with colloquial style (preserves natural speech)
+cantosub video.mp4 --terminology-config examples/terminology_config.json
+
+# Combined with AI features
+cantosub video.mp4 --speakers --terminology-config my_terms.json --gemini-key YOUR_KEY
+```
+
+### Terminology Categories
+
+- **proper_nouns**: Geographic locations, organization names
+- **brand_names**: Company names, product brands  
+- **technical_terms**: Industry jargon, technical vocabulary
+- **slang_terms**: Colloquial expressions, trendy phrases
+- **industry_terms**: Domain-specific terminology
+- **locations**: Local place names, landmarks
+- **person_names**: Common names in your content
+
+### Style Handling
+
+- **Written Style**: Converts English terms to Chinese equivalents for formal subtitles
+- **Colloquial Style**: Preserves natural code-switching and spoken preferences
 
 ## Troubleshooting
 
@@ -346,6 +423,15 @@ cantosub large_video.mp4 --max-chunk-duration 10
 
 # Monitor processing with verbose output
 cantosub video.mp4 --verbose
+```
+
+**Terminology Configuration Issues:**
+```bash
+# Verify terminology config file format
+cat examples/terminology_config.json | python -m json.tool
+
+# Test with specific terminology file
+cantosub video.mp4 --terminology-config my_terms.json --verbose
 ```
 
 ### Getting Help

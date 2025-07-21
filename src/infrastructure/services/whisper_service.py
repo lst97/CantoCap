@@ -59,16 +59,15 @@ class WhisperService:
             self.model_name = recommended_model.value
             self._log_model_recommendation()
         else:
-            # Fallback to base model
-            self.model_name = "openai/whisper-base"
+            # Fallback to small model (minimum recommended for Cantonese)
+            self.model_name = "openai/whisper-small"
         
         self.pipeline: Optional[Pipeline] = None
         self._device = self._get_optimal_device()
         
         # Available model sizes in order of resource requirements
+        # Note: tiny and base models removed due to poor Cantonese accuracy
         self._model_hierarchy = [
-            "openai/whisper-tiny",
-            "openai/whisper-base", 
             "openai/whisper-small",
             "openai/whisper-medium",
             "openai/whisper-large-v2",
@@ -386,17 +385,14 @@ class WhisperService:
                 self._device = "cpu"
                 return self.load_model(model_name, force_gpu=False)
             elif model_to_load == "openai/whisper-large-v3":
-                _print("🔄 Large-v3 failed, trying base model...", "blue")
-                return self.load_model("openai/whisper-base", force_gpu=force_gpu)
+                _print("🔄 Large-v3 failed, trying medium model...", "blue")
+                return self.load_model("openai/whisper-medium", force_gpu=force_gpu)
             elif model_to_load == "openai/whisper-medium":
-                _print("🔄 Medium model failed, trying base model...", "blue")
-                return self.load_model("openai/whisper-base", force_gpu=force_gpu)
-            elif model_to_load == "openai/whisper-base":
-                _print("🔄 Base model failed, trying small model...", "blue")
+                _print("🔄 Medium model failed, trying small model...", "blue")
                 return self.load_model("openai/whisper-small", force_gpu=force_gpu)
             elif model_to_load == "openai/whisper-small":
-                _print("🔄 Small model failed, trying tiny model...", "blue")
-                return self.load_model("openai/whisper-tiny", force_gpu=force_gpu)
+                _print("❌ Small model failed - this is the minimum supported model for Cantonese", "red")
+                # No further fallback as small is minimum for good Cantonese accuracy
             
             self.pipeline = None
             return False

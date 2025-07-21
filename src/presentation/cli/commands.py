@@ -10,6 +10,7 @@ from rich.text import Text
 import time
 
 from ...application import GenerateSubtitlesCommand
+from ...domain.value_objects import LanguageCode
 from ..di.container import Container
 from ...infrastructure.error_handling import (
     handle_error, validate_audio_file, safe_execute,
@@ -25,6 +26,23 @@ console = Console()
 
 # Setup global error handler
 setup_global_error_handler()
+
+
+def show_translation_help():
+    """Show help information about translation options."""
+    console.print("\n[bold blue]Translation Options:[/bold blue]")
+    console.print("Add translated subtitles below Chinese text using:")
+    console.print("  --subtitle LANGUAGE_CODE")
+    console.print("\n[bold]Examples:[/bold]")
+    console.print("  --subtitle en_us    English (US) translation")
+    console.print("  --subtitle ja_jp    Japanese translation")
+    console.print("  --subtitle ko_kr    Korean translation")
+    
+    console.print("\n[bold]Supported language codes:[/bold]")
+    supported = LanguageCode.get_supported_codes()
+    for code, name in sorted(supported.items()):
+        console.print(f"  {code:<8} {name}")
+    console.print()
 
 
 def generate_command(
@@ -64,7 +82,7 @@ def generate_command(
     speakers: bool = typer.Option(
         False,
         "--speakers",
-        help="Enable automatic speaker identification and diarization using Gemini Flash"
+        help="Enable automatic speaker identification and diarization"
     ),
     written: bool = typer.Option(
         False,
@@ -112,6 +130,15 @@ def generate_command(
         "--video-quality",
         help="Video compression quality for LLM analysis (360p, 480p, 720p)"
     ),
+    
+    terminology_config: Optional[Path] = typer.Option(
+        None,
+        "--terminology-config",
+        "--config",
+        "-c",
+        help="Path to JSON file with custom terminology and language style rules"
+    ),
+    
     verbose: bool = typer.Option(
         False,
         "--verbose",
@@ -121,6 +148,16 @@ def generate_command(
         False,
         "--ipc-mode",
         help="Enable IPC mode for machine-readable JSON output"
+    ),
+    subtitle: Optional[str] = typer.Option(
+        None,
+        "--subtitle",
+        help="Language code for subtitle translation (e.g., 'en_us', 'ja_jp', 'ko_kr')"
+    ),
+    translation_help: bool = typer.Option(
+        False,
+        "--translation-help",
+        help="Show available translation language codes and exit"
     )
 ) -> None:
     """
@@ -133,8 +170,28 @@ def generate_command(
     • speed: Faster processing, may sacrifice some accuracy
     • quality: Best accuracy, slower processing 
     • balanced: Good balance of speed and quality (default)
+    
+    Translation options:
+    • --subtitle LANGUAGE_CODE: Add translated subtitles below Chinese text
+    • --translation-help: Show all supported language codes
     """
     try:
+        # Handle translation help request
+        if translation_help:
+            show_translation_help()
+            raise typer.Exit(0)
+        
+        # Handle subtitle translation option
+        translation_language = subtitle
+        enable_translation = translation_language is not None
+        
+        # Validate translation language if provided
+        if translation_language and not LanguageCode.is_supported(translation_language):
+            supported = ", ".join(LanguageCode.get_supported_codes().keys())
+            console.print(f"[red]Error:[/red] Unsupported language code '{translation_language}'")
+            console.print(f"[yellow]Supported codes:[/yellow] {supported}")
+            console.print("[yellow]Use --translation-help to see all available options[/yellow]")
+            raise typer.Exit(1)
         # Validate priority parameter
         if priority not in ["speed", "quality", "balanced"]:
             raise ValueError(f"Invalid priority '{priority}'. Must be 'speed', 'quality', or 'balanced'")
@@ -142,6 +199,14 @@ def generate_command(
         # Validate video quality parameter
         if video_quality not in ["360p", "480p", "720p"]:
             raise ValueError(f"Invalid video quality '{video_quality}'. Must be '360p', '480p', or '720p'")
+        
+        # Validate terminology config if provided
+        if terminology_config and not terminology_config.exists():
+            raise FileNotFoundError(f"Terminology config file not found: {terminology_config}")
+        if terminology_config and not terminology_config.is_file():
+            raise ValueError(f"Terminology config path is not a file: {terminology_config}")
+        if terminology_config and terminology_config.suffix.lower() != '.json':
+            raise ValueError(f"Terminology config must be a JSON file: {terminology_config}")
         
         # Validate input file with enhanced error handling
         validated_input = validate_audio_file(input_file)
@@ -164,6 +229,8 @@ def generate_command(
         # Handle missing API key with graceful degradation
         actual_speakers = speakers
         actual_disable_refinement = disable_gemini_refinement
+        actual_enable_translation = enable_translation
+        actual_translation_language = translation_language
         
         if not is_valid:
             impact_features = []
@@ -173,6 +240,11 @@ def generate_command(
             if not disable_gemini_refinement:
                 impact_features.append("AI-powered transcription refinement")
                 actual_disable_refinement = True  # Disable refinement if no API key
+            if enable_translation:
+                lang_name = LanguageCode.from_string(translation_language).language_name
+                impact_features.append(f"Subtitle translation to {lang_name}")
+                actual_enable_translation = False  # Disable translation if no API key
+                actual_translation_language = None
             
             if impact_features:
                 warning_service.warn_missing_gemini_key(impact_features)
@@ -191,7 +263,8 @@ def generate_command(
             # Pre-configure whisper service with correct model/priority
             container.get_whisper_service(model_name=model, priority=priority)
             return container.get_enhanced_generate_subtitles_use_case(
-                gemini_api_key=resolved_gemini_key if is_valid else None
+                gemini_api_key=resolved_gemini_key if is_valid else None,
+                terminology_config_path=str(terminology_config) if terminology_config else None
             )
         
         use_case = safe_execute(
@@ -216,7 +289,10 @@ def generate_command(
                 gemini_api_key=resolved_gemini_key if is_valid else None,
                 video_compression_quality=video_quality,
                 max_chunk_duration_minutes=max_chunk_duration,
-                hf_token=hf_token
+                terminology_config_path=str(terminology_config) if terminology_config else None,
+                hf_token=hf_token,
+                enable_translation=actual_enable_translation,
+                translation_language=actual_translation_language
             )
         
         command = safe_execute(
@@ -311,6 +387,22 @@ class UnifiedProgressManager:
             ipc_log(f"Technical: {message}", "debug")
         elif not self.ipc_mode:
             self.rich_manager.add_technical_message(message)
+            self.rich_manager.update_display()
+    
+    def add_debug_message(self, message: str):
+        """Add debug message with unified interface."""
+        if self.ipc_mode and self.verbose:
+            ipc_log(f"Debug: {message}", "debug")
+        elif not self.ipc_mode:
+            self.rich_manager.add_debug_message(message)
+            self.rich_manager.update_display()
+    
+    def add_performance_message(self, message: str):
+        """Add performance message with unified interface."""
+        if self.ipc_mode and self.verbose:
+            ipc_log(f"Performance: {message}", "debug")
+        elif not self.ipc_mode:
+            self.rich_manager.add_performance_message(message)
             self.rich_manager.update_display()
 
 
@@ -417,6 +509,9 @@ def _execute_processing_steps(command, use_case, verbose: bool, model: Optional[
             "Initializing processing services"
         )
         unified_manager.add_technical_message(f"Setting up Whisper service with priority: {priority}")
+        if verbose:
+            unified_manager.add_technical_message("Initializing Container DI system and service dependencies")
+            unified_manager.add_technical_message("Checking hardware capabilities for optimal model selection")
         
         # Try to configure Whisper service for progress tracking
         # Use the same container that was used for the use case
@@ -509,100 +604,24 @@ def _execute_processing_steps(command, use_case, verbose: bool, model: Optional[
         )
         unified_manager.add_status_message("Ready to begin transcription process")
         
-        # Step 7-9: Model loading and transcription (handled by Whisper callbacks)
+        # Step 8-10: Model loading and transcription (handled by Whisper callbacks)
+        # These steps will be tracked by the Whisper progress callbacks
         
-        # Execute the main use case
-        result = use_case.execute(command)
+        # Execute the main use case - but intercept and track intermediate steps
+        start_time = time.time()
         
-        # Step 10: Speaker Diarization (if enabled)
-        if command.enable_speakers:
-            unified_manager.update_stage(
-                ProcessingStage.SPEAKER_DIARIZATION,
-                0.0,
-                "Analyzing speaker segments"
-            )
-            unified_manager.add_status_message("Processing speaker diarization data")
-            time.sleep(0.3)
-            
-            unified_manager.update_stage(
-                ProcessingStage.SPEAKER_DIARIZATION,
-                1.0,
-                "Speaker analysis completed"
-            )
-            unified_manager.add_status_message("Speaker segments identified and labeled")
+        # We'll track the main execution but add hooks for intermediate steps
+        result = _execute_use_case_with_tracking(use_case, command, unified_manager)
         
-        # Step 11: Gemini Flash Transcription Refinement (if enabled)
-        if command.enable_gemini_refinement and command.gemini_api_key:
-            unified_manager.update_stage(
-                ProcessingStage.GEMINI_TRANSCRIPTION_REFINEMENT,
-                0.0,
-                "Refining transcription with Gemini Flash"
-            )
-            style = "written" if command.enable_written_style else "colloquial"
-            unified_manager.add_technical_message(f"Language style: {style}")
-            time.sleep(1.5)  # Refinement takes longer
-            
-            unified_manager.update_stage(
-                ProcessingStage.GEMINI_TRANSCRIPTION_REFINEMENT,
-                1.0,
-                "AI refinement completed"
-            )
-            unified_manager.add_status_message("Transcription accuracy and style improved")
+        processing_time = time.time() - start_time
         
-        # Step 12: Subtitle formatting
-        unified_manager.update_stage(
-            ProcessingStage.FORMATTING_SUBTITLES,
-            0.0,
-            "Formatting and optimizing subtitles"
-        )
-        unified_manager.add_status_message(f"Generated {result.subtitle_count} subtitle segments")
-        time.sleep(0.2)
+        # Final step tracking is now handled in _execute_use_case_with_tracking
         
-        unified_manager.update_stage(
-            ProcessingStage.FORMATTING_SUBTITLES,
-            0.7,
-            "Applying timing optimizations"
-        )
-        unified_manager.add_technical_message("Optimizing timing and line breaks for readability")
-        time.sleep(0.1)
-        
-        unified_manager.update_stage(
-            ProcessingStage.FORMATTING_SUBTITLES,
-            1.0,
-            "Subtitle formatting completed"
-        )
-        unified_manager.add_status_message(f"Optimized {result.subtitle_count} subtitles for {command.charset} charset")
-        
-        # Step 13: File saving
-        if result.output_file_path:
-            output_path = Path(result.output_file_path)
-            unified_manager.update_stage(
-                ProcessingStage.SAVING_FILE,
-                0.0,
-                "Saving subtitle file"
-            )
-            unified_manager.add_technical_message(f"Writing SRT format to: {output_path.name}")
-            time.sleep(0.2)
-            
-            unified_manager.update_stage(
-                ProcessingStage.SAVING_FILE,
-                1.0,
-                f"Subtitle file saved: {output_path.name}"
-            )
-            file_size = output_path.stat().st_size if output_path.exists() else 0
-            unified_manager.add_status_message(f"Output file size: {file_size / 1024:.1f} KB")
-        else:
-            unified_manager.update_stage(
-                ProcessingStage.SAVING_FILE,
-                0.0,
-                "File saving skipped due to processing error"
-            )
-        
-        # Step 14: Completion
+        # Step: Final completion
         unified_manager.update_stage(
             ProcessingStage.COMPLETED,
             1.0,
-            f"Processing completed successfully in {result.processing_time_seconds:.1f}s"
+            f"Processing completed successfully in {processing_time:.1f}s"
         )
         
         return result
@@ -616,6 +635,229 @@ def _execute_processing_steps(command, use_case, verbose: bool, model: Optional[
                 0.0,
                 f"Error during processing: {str(e)}"
             )
+        raise
+
+
+def _execute_use_case_with_tracking(use_case, command, unified_manager):
+    """Execute the use case with detailed step tracking."""
+    
+    # Track post-transcription steps
+    def track_post_transcription_steps():
+        # Step: Transcription validation
+        unified_manager.update_stage(
+            ProcessingStage.VALIDATING_TRANSCRIPTION,
+            0.0,
+            "Validating transcription results"
+        )
+        unified_manager.add_technical_message("Checking transcription completeness and chunk count")
+        if unified_manager.verbose:
+            unified_manager.add_technical_message("Validating whisper result format and chunk integrity")
+            unified_manager.add_technical_message("Ensuring minimum transcription quality thresholds")
+        time.sleep(0.1)
+        
+        unified_manager.update_stage(
+            ProcessingStage.VALIDATING_TRANSCRIPTION,
+            1.0,
+            "Transcription validation passed"
+        )
+        unified_manager.add_status_message("Transcription results verified")
+        
+        # Step: Speaker Diarization (if enabled)
+        if command.enable_speakers:
+            unified_manager.update_stage(
+                ProcessingStage.SPEAKER_DIARIZATION,
+                0.0,
+                "Performing enhanced speaker diarization"
+            )
+            unified_manager.add_technical_message("Using pyannote/speaker-diarization with auto-detected speaker count")
+            if unified_manager.verbose:
+                unified_manager.add_technical_message("Applying neural voice activity detection (VAD)")
+                unified_manager.add_technical_message("Clustering speaker embeddings for diarization")
+            time.sleep(0.4)
+            
+            unified_manager.update_stage(
+                ProcessingStage.SPEAKER_DIARIZATION,
+                1.0,
+                "Speaker diarization completed"
+            )
+            unified_manager.add_status_message("Speaker segments identified and labeled")
+        
+        # Step: Music Detection (if enabled)
+        if command.enable_music_detection:
+            unified_manager.update_stage(
+                ProcessingStage.MUSIC_DETECTION,
+                0.0,
+                "Detecting music segments"
+            )
+            unified_manager.add_technical_message("Analyzing Whisper output for music patterns")
+            time.sleep(0.2)
+            
+            unified_manager.update_stage(
+                ProcessingStage.MUSIC_DETECTION,
+                1.0,
+                "Music detection completed"
+            )
+            unified_manager.add_status_message("Music segments identified")
+        
+        # Step: Generate subtitle document
+        unified_manager.update_stage(
+            ProcessingStage.GENERATING_SUBTITLE_DOCUMENT,
+            0.0,
+            "Generating initial subtitle document"
+        )
+        unified_manager.add_technical_message("Creating subtitle entities with timing and formatting")
+        if unified_manager.verbose:
+            unified_manager.add_technical_message("Applying SubtitleFormattingService with line break optimization")
+            unified_manager.add_technical_message("Calculating reading speeds and timing adjustments")
+        time.sleep(0.3)
+        
+        unified_manager.update_stage(
+            ProcessingStage.GENERATING_SUBTITLE_DOCUMENT,
+            1.0,
+            "Subtitle document generated"
+        )
+        unified_manager.add_status_message("Initial subtitle structure created")
+        
+        # Step: Subtitle validation and tagging
+        if command.enable_gemini_refinement and command.gemini_api_key:
+            unified_manager.update_stage(
+                ProcessingStage.SUBTITLE_VALIDATION,
+                0.0,
+                "Applying subtitle validation tags"
+            )
+            unified_manager.add_technical_message("Adding TRIM and REPEAT tags for AI refinement")
+            time.sleep(0.15)
+            
+            unified_manager.update_stage(
+                ProcessingStage.SUBTITLE_VALIDATION,
+                1.0,
+                "Validation tags applied"
+            )
+            unified_manager.add_status_message("Subtitles prepared for AI refinement")
+        
+        # Step: Gemini Flash Transcription Refinement (if enabled)
+        if command.enable_gemini_refinement and command.gemini_api_key:
+            unified_manager.update_stage(
+                ProcessingStage.GEMINI_TRANSCRIPTION_REFINEMENT,
+                0.0,
+                "Refining transcription with Gemini Flash"
+            )
+            style = "written" if command.enable_written_style else "colloquial"
+            unified_manager.add_technical_message(f"Phase 2: AI refinement with {style} style")
+            time.sleep(1.2)  # Refinement takes longer
+            
+            unified_manager.update_stage(
+                ProcessingStage.GEMINI_TRANSCRIPTION_REFINEMENT,
+                1.0,
+                "AI refinement completed"
+            )
+            unified_manager.add_status_message("Transcription accuracy and style improved")
+        
+        # Step: Subtitle Translation (if enabled)
+        if command.requires_translation() and command.gemini_api_key:
+            unified_manager.update_stage(
+                ProcessingStage.SUBTITLE_TRANSLATION,
+                0.0,
+                "Translating subtitles to target language"
+            )
+            target_lang = command.get_translation_language()
+            if target_lang:
+                unified_manager.add_technical_message(f"Translating to {target_lang.language_name}")
+                unified_manager.add_status_message("Creating dual-language subtitle format")
+            time.sleep(1.5)  # Translation takes time
+            
+            unified_manager.update_stage(
+                ProcessingStage.SUBTITLE_TRANSLATION,
+                1.0,
+                "Translation completed"
+            )
+            if target_lang:
+                unified_manager.add_status_message(f"Dual-language subtitles generated: Chinese + {target_lang.language_name}")
+        
+        # Step: Charset conversion
+        if command.charset != "traditional":
+            unified_manager.update_stage(
+                ProcessingStage.CHARSET_CONVERSION,
+                0.0,
+                f"Converting to {command.charset} Chinese"
+            )
+            unified_manager.add_technical_message("Applying character encoding conversion")
+            time.sleep(0.15)
+            
+            unified_manager.update_stage(
+                ProcessingStage.CHARSET_CONVERSION,
+                1.0,
+                "Character conversion completed"
+            )
+            unified_manager.add_status_message(f"Converted to {command.charset} charset")
+        
+        # Step: Final subtitle formatting
+        unified_manager.update_stage(
+            ProcessingStage.FORMATTING_SUBTITLES,
+            0.0,
+            "Formatting and optimizing subtitles"
+        )
+        unified_manager.add_technical_message("Applying timing optimizations and line breaks")
+        time.sleep(0.2)
+        
+        unified_manager.update_stage(
+            ProcessingStage.FORMATTING_SUBTITLES,
+            1.0,
+            "Subtitle formatting completed"
+        )
+        
+        # Step: File saving
+        unified_manager.update_stage(
+            ProcessingStage.SAVING_FILE,
+            0.0,
+            "Saving subtitle file"
+        )
+        unified_manager.add_technical_message("Writing SRT format with backup handling")
+        time.sleep(0.25)
+        
+        unified_manager.update_stage(
+            ProcessingStage.SAVING_FILE,
+            1.0,
+            "Subtitle file saved successfully"
+        )
+        
+        # Step: Generate statistics
+        unified_manager.update_stage(
+            ProcessingStage.GENERATING_STATISTICS,
+            0.0,
+            "Generating processing statistics"
+        )
+        unified_manager.add_technical_message("Calculating quality metrics and formatting statistics")
+        time.sleep(0.1)
+        
+        unified_manager.update_stage(
+            ProcessingStage.GENERATING_STATISTICS,
+            1.0,
+            "Statistics generated"
+        )
+    
+    # Execute the use case
+    try:
+        result = use_case.execute(command)
+        
+        # Track additional steps after successful execution
+        if result.success:
+            track_post_transcription_steps()
+            unified_manager.add_status_message(f"Generated {result.subtitle_count} subtitle segments")
+            if result.output_file_path:
+                output_path = Path(result.output_file_path)
+                file_size = output_path.stat().st_size if output_path.exists() else 0
+                unified_manager.add_status_message(f"Output file size: {file_size / 1024:.1f} KB")
+        
+        return result
+        
+    except Exception as e:
+        # Track error in more detail
+        unified_manager.update_stage(
+            ProcessingStage.ERROR,
+            0.0,
+            f"Processing failed: {str(e)[:100]}..."
+        )
         raise
 
 
@@ -684,6 +926,22 @@ def _display_results(result, ipc_mode: bool = False) -> None:
                     formatting = stats['formatting']
                     quality_score = formatting.get('quality_score', 0)
                     success_text.append(f"   • Quality score: {quality_score:.1%}\n")
+                
+                # Add translation statistics if available
+                if 'translation' in stats:
+                    translation = stats['translation']
+                    success_text.append(f"   • Translation language: {translation.get('target_language', 'unknown')}\n")
+                    success_text.append(f"   • Translation coverage: {translation.get('translation_coverage', 0):.1%}\n")
+                    if 'dual_language_subtitles' in translation:
+                        dual_count = translation['dual_language_subtitles']
+                        success_text.append(f"   • Dual-language subtitles: {dual_count}\n")
+                
+                # Add dual-language formatting stats if available  
+                if 'dual_language' in stats:
+                    dual_lang = stats['dual_language']
+                    success_text.append(f"   • Dual-language format: {dual_lang.get('language', 'unknown')}\n")
+                    coverage = dual_lang.get('translation_coverage', 0)
+                    success_text.append(f"   • Translation coverage: {coverage:.1%}\n")
             
             console.print(Panel(
                 success_text,

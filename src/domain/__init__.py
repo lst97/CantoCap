@@ -1,7 +1,7 @@
 """Domain layer for CantoSub - Core business logic and rules."""
 
 # Value Objects
-from .value_objects import Timestamp, FilePath, AudioFormat
+from .value_objects import Timestamp, FilePath, AudioFormat, LanguageCode
 
 # Entities  
 from .entities import (
@@ -14,7 +14,7 @@ from .entities import (
 )
 
 # Services
-from .services import SubtitleFormattingService
+from .services import SubtitleFormattingService, DualLanguageSubtitleService
 
 # Repository Interfaces
 from .repositories import (
@@ -28,6 +28,7 @@ __all__ = [
     "Timestamp",
     "FilePath", 
     "AudioFormat",
+    "LanguageCode",
     
     # Entities
     "MediaFile",
@@ -39,6 +40,7 @@ __all__ = [
     
     # Services
     "SubtitleFormattingService",
+    "DualLanguageSubtitleService",
     
     # Repository Interfaces
     "IAudioRepository",

@@ -61,7 +61,7 @@ def main(
     speakers: bool = typer.Option(
         False,
         "--speakers",
-        help="Enable automatic speaker identification and diarization using Gemini Flash"
+        help="Enable automatic speaker identification and diarization"
     ),
     written: bool = typer.Option(
         False,
@@ -104,6 +104,15 @@ def main(
         "--video-quality",
         help="Video compression quality for LLM analysis (360p, 480p, 720p)"
     ),
+    
+    terminology_config: Optional[Path] = typer.Option(
+        None,
+        "--terminology-config",
+        "--config",
+        "-c",
+        help="Path to JSON file with custom terminology and language style rules"
+    ),
+    
     version: bool = typer.Option(
         False,
         "--version",
@@ -119,6 +128,16 @@ def main(
         False,
         "--ipc-mode",
         help="Enable IPC mode for machine-readable JSON output"
+    ),
+    subtitle: Optional[str] = typer.Option(
+        None,
+        "--subtitle",
+        help="Language code for subtitle translation (e.g., 'en_us', 'ja_jp', 'ko_kr')"
+    ),
+    translation_help: bool = typer.Option(
+        False,
+        "--translation-help",
+        help="Show available translation language codes and exit"
     )
 ) -> None:
     """
@@ -147,6 +166,9 @@ def main(
         
         # Enhanced features with Gemini Flash
         cantosub movie.mkv --speakers --written --music --gemini-key YOUR_API_KEY
+        
+        # Custom terminology configuration
+        cantosub video.mp4 --terminology-config my_terms.json --written
     """
     # Set global IPC mode for error handling
     from ...infrastructure.error_handling import set_global_ipc_mode
@@ -155,6 +177,12 @@ def main(
     if version:
         from ... import __version__
         console.print(f"[bold blue]CantoSub[/bold blue] version [green]{__version__}[/green]")
+        return
+    
+    # Handle translation help request
+    if translation_help:
+        from .commands import show_translation_help
+        show_translation_help()
         return
     
     # Check if we're in a subcommand context
@@ -187,8 +215,11 @@ def main(
         disable_gemini_refinement=disable_gemini_refinement,
         max_chunk_duration=max_chunk_duration,
         video_quality=video_quality,
+        terminology_config=terminology_config,
         verbose=verbose,
-        ipc_mode=ipc_mode
+        ipc_mode=ipc_mode,
+        subtitle=subtitle,
+        translation_help=translation_help
     )
 
 

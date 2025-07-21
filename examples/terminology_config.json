@@ -1,0 +1,224 @@
+{
+  "version": "1.0",
+  "language": "cantonese",
+  "description": "Example terminology configuration for CantoSub - customize for your specific domain",
+  "terminology": {
+    "proper_nouns": [
+      {
+        "id": "hong_kong",
+        "spoken_forms": ["Hong Kong", "香港", "HK"],
+        "written_form": "香港",
+        "spoken_preference": "香港",
+        "context": "geography",
+        "priority": "high",
+        "description": "Hong Kong Special Administrative Region"
+      },
+      {
+        "id": "shenzhen",
+        "spoken_forms": ["Shenzhen", "深圳", "SZ"],
+        "written_form": "深圳",
+        "spoken_preference": "深圳",
+        "context": "geography",
+        "priority": "high"
+      },
+      {
+        "id": "guangzhou",
+        "spoken_forms": ["Guangzhou", "廣州", "Canton"],
+        "written_form": "廣州",
+        "spoken_preference": "廣州",
+        "context": "geography",
+        "priority": "high"
+      }
+    ],
+    "brand_names": [
+      {
+        "id": "apple_company",
+        "spoken_forms": ["Apple", "蘋果公司", "apple", "蘋果"],
+        "written_form": "蘋果公司",
+        "spoken_preference": "Apple",
+        "context": "technology",
+        "priority": "high",
+        "description": "Apple Inc. technology company"
+      },
+      {
+        "id": "google",
+        "spoken_forms": ["Google", "谷歌", "google"],
+        "written_form": "谷歌",
+        "spoken_preference": "Google",
+        "context": "technology",
+        "priority": "high"
+      },
+      {
+        "id": "microsoft",
+        "spoken_forms": ["Microsoft", "微軟", "microsoft"],
+        "written_form": "微軟",
+        "spoken_preference": "Microsoft",
+        "context": "technology",
+        "priority": "high"
+      },
+      {
+        "id": "tencent",
+        "spoken_forms": ["Tencent", "騰訊", "tencent"],
+        "written_form": "騰訊",
+        "spoken_preference": "騰訊",
+        "context": "technology",
+        "priority": "high"
+      }
+    ],
+    "technical_terms": [
+      {
+        "id": "ai_artificial_intelligence",
+        "spoken_forms": ["AI", "人工智能", "artificial intelligence", "人工智慧"],
+        "written_form": "人工智能",
+        "spoken_preference": "AI",
+        "context": "technology",
+        "priority": "medium",
+        "description": "Artificial Intelligence technology"
+      },
+      {
+        "id": "machine_learning",
+        "spoken_forms": ["machine learning", "機器學習", "ML"],
+        "written_form": "機器學習",
+        "spoken_preference": "machine learning",
+        "context": "technology",
+        "priority": "medium"
+      },
+      {
+        "id": "blockchain",
+        "spoken_forms": ["blockchain", "區塊鏈", "block chain"],
+        "written_form": "區塊鏈",
+        "spoken_preference": "blockchain",
+        "context": "technology",
+        "priority": "medium"
+      },
+      {
+        "id": "smartphone",
+        "spoken_forms": ["smartphone", "智能手機", "smart phone", "手機"],
+        "written_form": "智能手機",
+        "spoken_preference": "smartphone",
+        "context": "technology",
+        "priority": "low"
+      }
+    ],
+    "slang_terms": [
+      {
+        "id": "legendary_awesome",
+        "spoken_forms": ["神級", "legendary", "勁", "頂級"],
+        "written_form": "出色",
+        "spoken_preference": "神級",
+        "context": "colloquial",
+        "priority": "low",
+        "description": "Expressing something is awesome or legendary"
+      },
+      {
+        "id": "very_good",
+        "spoken_forms": ["好正", "so good", "超好", "正"],
+        "written_form": "很好",
+        "spoken_preference": "好正",
+        "context": "colloquial",
+        "priority": "low"
+      },
+      {
+        "id": "trending_hot",
+        "spoken_forms": ["爆紅", "viral", "trending", "好hit"],
+        "written_form": "流行",
+        "spoken_preference": "爆紅",
+        "context": "social_media",
+        "priority": "low"
+      }
+    ],
+    "industry_terms": [
+      {
+        "id": "fintech",
+        "spoken_forms": ["fintech", "金融科技", "fin tech"],
+        "written_form": "金融科技",
+        "spoken_preference": "fintech",
+        "context": "finance_technology",
+        "priority": "medium"
+      },
+      {
+        "id": "startup",
+        "spoken_forms": ["startup", "初創公司", "start up", "創業公司"],
+        "written_form": "初創公司",
+        "spoken_preference": "startup",
+        "context": "business",
+        "priority": "medium"
+      },
+      {
+        "id": "ipo",
+        "spoken_forms": ["IPO", "上市", "initial public offering"],
+        "written_form": "首次公開募股",
+        "spoken_preference": "IPO",
+        "context": "finance",
+        "priority": "medium"
+      }
+    ],
+    "locations": [
+      {
+        "id": "central_hk",
+        "spoken_forms": ["Central", "中環", "central"],
+        "written_form": "中環",
+        "spoken_preference": "中環",
+        "context": "hong_kong_location",
+        "priority": "high"
+      },
+      {
+        "id": "tsim_sha_tsui",
+        "spoken_forms": ["Tsim Sha Tsui", "尖沙咀", "TST"],
+        "written_form": "尖沙咀",
+        "spoken_preference": "尖沙咀",
+        "context": "hong_kong_location",
+        "priority": "high"
+      },
+      {
+        "id": "causeway_bay",
+        "spoken_forms": ["Causeway Bay", "銅鑼灣", "causeway bay"],
+        "written_form": "銅鑼灣",
+        "spoken_preference": "銅鑼灣",
+        "context": "hong_kong_location",
+        "priority": "high"
+      }
+    ],
+    "person_names": [
+      {
+        "id": "example_person_john",
+        "spoken_forms": ["John", "約翰", "john"],
+        "written_form": "約翰",
+        "spoken_preference": "John",
+        "context": "person_name",
+        "priority": "medium",
+        "description": "Example person name - customize for your content"
+      }
+    ]
+  },
+  "style_rules": {
+    "written": {
+      "prefer_chinese": true,
+      "convert_english": true,
+      "formal_register": true,
+      "description": "Written style prioritizes formal Chinese and converts English terms when possible"
+    },
+    "colloquial": {
+      "preserve_spoken": true,
+      "natural_mixing": true,
+      "informal_register": true,
+      "description": "Colloquial style preserves natural speech patterns and code-switching"
+    }
+  },
+  "usage_notes": {
+    "customization": "Modify this file to include terms specific to your content domain",
+    "priority_levels": {
+      "high": "Always replace - proper nouns, brand names, critical terms",
+      "medium": "Replace when confident - technical terms, industry jargon",
+      "low": "Replace with caution - slang, informal expressions"
+    },
+    "style_guidance": {
+      "written": "Use for formal documents, subtitles for educational content, business presentations",
+      "colloquial": "Use for casual conversations, social media content, entertainment shows"
+    },
+    "examples": {
+      "written_conversion": "Apple 公司推出新的 AI 技術 → 蘋果公司推出新的人工智能技術",
+      "colloquial_preservation": "呢個 Apple 嘅 AI 好神級 → 呢個 Apple 嘅 AI 好神級"
+    }
+  }
+}

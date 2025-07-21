@@ -20,18 +20,26 @@ class ProcessingStage(Enum):
     """Enum for processing stages."""
     INITIALIZING = "initializing"
     VALIDATING = "validating" 
+    LOADING_MEDIA_FILE = "loading_media_file"
+    GEMINI_VIDEO_COMPRESSION = "gemini_video_compression"
+    GEMINI_SPEAKER_IDENTIFICATION = "gemini_speaker_identification"
     EXTRACTING_AUDIO = "extracting_audio"
+    VALIDATING_AUDIO = "validating_audio"
     PREPARING_MODEL = "preparing_model"
     DOWNLOADING_MODEL = "downloading_model"
     LOADING_MODEL = "loading_model"
-    # New Gemini Flash stages
-    GEMINI_SPEAKER_IDENTIFICATION = "gemini_speaker_identification"
-    GEMINI_VIDEO_COMPRESSION = "gemini_video_compression"
     TRANSCRIBING = "transcribing"
+    VALIDATING_TRANSCRIPTION = "validating_transcription"
     SPEAKER_DIARIZATION = "speaker_diarization"
+    MUSIC_DETECTION = "music_detection"
+    GENERATING_SUBTITLE_DOCUMENT = "generating_subtitle_document"
+    SUBTITLE_VALIDATION = "subtitle_validation"
     GEMINI_TRANSCRIPTION_REFINEMENT = "gemini_transcription_refinement"
+    SUBTITLE_TRANSLATION = "subtitle_translation"
+    CHARSET_CONVERSION = "charset_conversion"
     FORMATTING_SUBTITLES = "formatting_subtitles"
     SAVING_FILE = "saving_file"
+    GENERATING_STATISTICS = "generating_statistics"
     COMPLETED = "completed"
     ERROR = "error"
 
@@ -52,43 +60,70 @@ class ProgressDisplayManager:
     # Define processing stages with realistic progress ranges
     STAGES = {
         ProcessingStage.INITIALIZING: StageInfo(
-            "Initializing", "Setting up processing environment", 0, 5, "⚙️"
+            "Initializing", "Setting up processing environment", 0, 3, "⚙️"
         ),
         ProcessingStage.VALIDATING: StageInfo(
-            "Validating", "Checking input file and parameters", 5, 10, "📋"
+            "Validating", "Checking input file and parameters", 3, 6, "📋"
+        ),
+        ProcessingStage.LOADING_MEDIA_FILE: StageInfo(
+            "Loading Media", "Loading and validating media file", 6, 9, "📁"
         ),
         ProcessingStage.GEMINI_VIDEO_COMPRESSION: StageInfo(
-            "Video Compression", "Compressing video for Gemini Flash analysis", 10, 15, "🎬"
+            "Video Compression", "Compressing video for Gemini Flash analysis", 9, 12, "🎬"
         ),
         ProcessingStage.GEMINI_SPEAKER_IDENTIFICATION: StageInfo(
-            "Speaker ID", "Identifying speakers using Gemini Flash", 15, 25, "🤖"
+            "Speaker ID", "Identifying speakers using Gemini Flash", 12, 18, "🤖"
         ),
         ProcessingStage.EXTRACTING_AUDIO: StageInfo(
-            "Audio Extraction", "Extracting audio from media file", 25, 30, "🎵"
+            "Audio Extraction", "Extracting audio from media file", 18, 23, "🎵"
+        ),
+        ProcessingStage.VALIDATING_AUDIO: StageInfo(
+            "Audio Validation", "Validating extracted audio format", 23, 25, "🔍"
         ),
         ProcessingStage.PREPARING_MODEL: StageInfo(
-            "Model Prep", "Preparing Whisper model", 30, 35, "🧠"
+            "Model Prep", "Preparing Whisper model", 25, 28, "🧠"
         ),
         ProcessingStage.DOWNLOADING_MODEL: StageInfo(
-            "Model Download", "Downloading Whisper model (first time only)", 35, 45, "⬇️"
+            "Model Download", "Downloading Whisper model (first time only)", 28, 35, "⬇️"
         ),
         ProcessingStage.LOADING_MODEL: StageInfo(
-            "Model Loading", "Loading model into memory", 45, 50, "🚀"
+            "Model Loading", "Loading model into memory", 35, 40, "🚀"
         ),
         ProcessingStage.TRANSCRIBING: StageInfo(
-            "Transcribing", "Converting speech to text with Whisper", 50, 70, "🗣️"
+            "Transcribing", "Converting speech to text with Whisper", 40, 60, "🗣️"
+        ),
+        ProcessingStage.VALIDATING_TRANSCRIPTION: StageInfo(
+            "Transcription Check", "Validating transcription results", 60, 62, "🔍"
         ),
         ProcessingStage.SPEAKER_DIARIZATION: StageInfo(
-            "Speaker Analysis", "Analyzing speaker segments", 70, 75, "👥"
+            "Speaker Analysis", "Analyzing speaker segments", 62, 67, "👥"
+        ),
+        ProcessingStage.MUSIC_DETECTION: StageInfo(
+            "Music Detection", "Detecting music segments", 67, 70, "🎼"
+        ),
+        ProcessingStage.GENERATING_SUBTITLE_DOCUMENT: StageInfo(
+            "Generating Subtitles", "Creating initial subtitle document", 70, 75, "📄"
+        ),
+        ProcessingStage.SUBTITLE_VALIDATION: StageInfo(
+            "Subtitle Validation", "Applying validation tags", 75, 77, "✅"
         ),
         ProcessingStage.GEMINI_TRANSCRIPTION_REFINEMENT: StageInfo(
-            "AI Refinement", "Refining transcription with Gemini Flash", 75, 85, "✨"
+            "AI Refinement", "Refining transcription with Gemini Flash", 77, 82, "✨"
+        ),
+        ProcessingStage.SUBTITLE_TRANSLATION: StageInfo(
+            "Translation", "Translating subtitles to target language", 82, 87, "🌐"
+        ),
+        ProcessingStage.CHARSET_CONVERSION: StageInfo(
+            "Charset Conversion", "Converting character encoding", 87, 89, "🔄"
         ),
         ProcessingStage.FORMATTING_SUBTITLES: StageInfo(
-            "Formatting", "Formatting and optimizing subtitles", 85, 95, "📝"
+            "Formatting", "Formatting and optimizing subtitles", 89, 92, "📝"
         ),
         ProcessingStage.SAVING_FILE: StageInfo(
-            "Saving", "Saving subtitle file", 95, 99, "💾"
+            "Saving", "Saving subtitle file", 92, 96, "💾"
+        ),
+        ProcessingStage.GENERATING_STATISTICS: StageInfo(
+            "Statistics", "Generating processing statistics", 96, 99, "📊"
         ),
         ProcessingStage.COMPLETED: StageInfo(
             "Complete", "Processing completed successfully", 100, 100, "✅"
@@ -171,6 +206,16 @@ class ProgressDisplayManager:
         """Add a technical message (only shown if technical details enabled)."""
         if self.show_technical_details:
             self.add_status_message(f"[dim]Technical: {message}[/dim]", "dim")
+    
+    def add_debug_message(self, message: str) -> None:
+        """Add a debug message (only shown in verbose mode)."""
+        if self.show_technical_details:
+            self.add_status_message(f"[dim cyan]Debug: {message}[/dim cyan]", "dim")
+    
+    def add_performance_message(self, message: str) -> None:
+        """Add a performance-related message (only shown in verbose mode)."""
+        if self.show_technical_details:
+            self.add_status_message(f"[dim yellow]Perf: {message}[/dim yellow]", "dim")
     
     def create_progress_panel(self) -> Panel:
         """Create the main progress panel with spinner."""

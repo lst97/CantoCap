@@ -670,7 +670,7 @@ def generate_command(
     speakers: bool = typer.Option(
         False,
         "--speakers",
-        help="Enable automatic speaker identification and diarization using Gemini Flash"
+        help="Enable automatic speaker identification and diarization"
     ),
     
     written: bool = typer.Option(False, "--written"),

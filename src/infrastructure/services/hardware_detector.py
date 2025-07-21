@@ -51,15 +51,8 @@ class HardwareDetector:
     """Detects hardware capabilities and recommends optimal Whisper models."""
     
     # Model requirements matrix (conservative estimates)
+    # Note: Tiny and Base models removed due to poor accuracy for Cantonese
     MODEL_REQUIREMENTS = {
-        ModelSize.TINY: ModelRequirements(
-            min_vram_gb=0.5, min_ram_gb=1.0, min_cpu_cores=1, 
-            estimated_speed_multiplier=4.0, quality_score=0.6
-        ),
-        ModelSize.BASE: ModelRequirements(
-            min_vram_gb=1.0, min_ram_gb=2.0, min_cpu_cores=2, 
-            estimated_speed_multiplier=1.0, quality_score=0.7
-        ),
         ModelSize.SMALL: ModelRequirements(
             min_vram_gb=2.0, min_ram_gb=3.0, min_cpu_cores=2, 
             estimated_speed_multiplier=0.7, quality_score=0.8
@@ -256,11 +249,11 @@ class HardwareDetector:
         compatible_models = self._get_compatible_models(hardware)
         
         if not compatible_models:
-            # Emergency fallback
-            return ModelSize.TINY, {
+            # Emergency fallback to smallest available model
+            return ModelSize.SMALL, {
                 "reason": "emergency_fallback",
-                "warning": "Hardware does not meet minimum requirements for any model",
-                "recommendation": "Consider upgrading system memory or using a more powerful device"
+                "warning": "Hardware does not meet minimum requirements for larger models",
+                "recommendation": "Using smallest available model (small) - consider upgrading system memory or using a more powerful device for better performance"
             }
         
         # Score models based on priority
@@ -412,8 +405,8 @@ class HardwareDetector:
         # Model-specific tips
         if model in [ModelSize.LARGE_V2, ModelSize.LARGE_V3]:
             tips.append("Large models provide best quality but take longer to process")
-        elif model == ModelSize.TINY:
-            tips.append("Tiny model is fastest but may have lower accuracy for complex audio")
+        elif model == ModelSize.SMALL:
+            tips.append("Small model is the minimum recommended for Cantonese transcription")
         
         return tips
     
