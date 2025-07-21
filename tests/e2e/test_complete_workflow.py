@@ -6,8 +6,8 @@ import os
 import subprocess
 from unittest.mock import Mock, patch
 
-from cantosub.application.commands import GenerateSubtitlesCommand
-from cantosub.presentation.di.container import Container
+from cantocap.application.commands import GenerateSubtitlesCommand
+from cantocap.presentation.di.container import Container
 
 
 @pytest.mark.e2e

@@ -159,7 +159,7 @@ cython_debug/
 #  https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
 .idea/
 
-# CantoSub specific
+# CantoCap specific
 *.wav
 *.mp4
 *.mp3

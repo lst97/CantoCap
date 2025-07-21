@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "language": "cantonese",
-  "description": "Example terminology configuration for CantoSub - customize for your specific domain",
+  "description": "Example terminology configuration for CantoCap - customize for your specific domain",
   "terminology": {
     "proper_nouns": [
       {

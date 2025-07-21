@@ -10,7 +10,7 @@ from unittest.mock import patch, MagicMock
 
 from src.infrastructure.error_handling import (
     handle_error, handle_warning, safe_execute, set_global_ipc_mode, get_global_ipc_mode,
-    CantoSubError, AudioProcessingError, TranscriptionError
+    CantoCapError, AudioProcessingError, TranscriptionError
 )
 
 
@@ -72,7 +72,7 @@ class TestIPCErrorHandling:
     
     def test_handle_error_with_traceback(self):
         """Test that handle_error includes traceback when requested in IPC mode."""
-        error = CantoSubError("Test error")
+        error = CantoCapError("Test error")
         
         with patch('sys.stdout', new_callable=StringIO) as mock_stdout:
             with patch('traceback.format_exc', return_value="Mock traceback"):

@@ -1,4 +1,4 @@
-# CantoSub
+# CantoCap
 
 An advanced CLI tool for generating accurate Cantonese subtitles from audio/video files using OpenAI Whisper with AI-powered enhancements via Google Gemini Flash.
 
@@ -40,7 +40,7 @@ An advanced CLI tool for generating accurate Cantonese subtitles from audio/vide
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd cantosub
+cd cantocap
 
 # Create virtual environment
 python -m venv .venv
@@ -77,46 +77,46 @@ sudo apt install ffmpeg
 
 ```bash
 # Generate subtitles for a video file
-cantosub video.mp4
+cantocap video.mp4
 
 # Specify custom output path
-cantosub video.mp4 --output subtitles.srt
+cantocap video.mp4 --output subtitles.srt
 
 # Use different language (if needed)
-cantosub audio.wav --language zh
+cantocap audio.wav --language zh
 
 # Use specific Whisper model
-cantosub video.mkv --model openai/whisper-medium
+cantocap video.mkv --model openai/whisper-medium
 
 # Prioritize speed over quality
-cantosub video.mp4 --priority speed
+cantocap video.mp4 --priority speed
 
 # Prioritize quality over speed
-cantosub video.mp4 --priority quality
+cantocap video.mp4 --priority quality
 ```
 
 ### AI-Enhanced Usage
 
 ```bash
 # Enable automatic speaker identification and AI refinement
-cantosub video.mp4 --speakers --gemini-key YOUR_API_KEY
+cantocap video.mp4 --speakers --gemini-key YOUR_API_KEY
 
 # Convert to formal written Cantonese style
-cantosub video.mp4 --written --gemini-key YOUR_API_KEY
+cantocap video.mp4 --written --gemini-key YOUR_API_KEY
 
 # Full AI-powered processing with all features
-cantosub movie.mkv --speakers --written --music --gemini-key YOUR_API_KEY
+cantocap movie.mkv --speakers --written --music --gemini-key YOUR_API_KEY
 
 # Use environment variable for API key
 echo "GEMINI_API_KEY=your_key_here" > .env
-cantosub video.mp4 --speakers --written
+cantocap video.mp4 --speakers --written
 
 # Use custom terminology for mixed language content
-cantosub video.mp4 --terminology-config examples/terminology_config.json
+cantocap video.mp4 --terminology-config examples/terminology_config.json
 
 # Check hardware capabilities
-cantosub hardware
-cantosub hardware --priority speed
+cantocap hardware
+cantocap hardware --priority speed
 ```
 
 ### Command Options
@@ -155,8 +155,8 @@ cantosub hardware --priority speed
 ### Project Structure
 
 ```bash
-cantosub/
-├── src/cantosub/           # Source code
+cantocap/
+├── src/cantocap/           # Source code
 │   ├── domain/            # Business logic and entities
 │   ├── application/       # Use cases and commands
 │   ├── infrastructure/    # External service implementations
@@ -185,7 +185,7 @@ pytest tests/integration/   # Integration tests only
 pytest tests/e2e/          # End-to-end tests only
 
 # Run with coverage
-pytest --cov=src/cantosub --cov-report=html
+pytest --cov=src/cantocap --cov-report=html
 ```
 
 ### Code Quality
@@ -206,7 +206,7 @@ flake8 src/ tests/
 
 ## Architecture
 
-CantoSub follows Clean Architecture and Domain-Driven Design principles:
+CantoCap follows Clean Architecture and Domain-Driven Design principles:
 
 ### Domain Layer
 
@@ -255,7 +255,7 @@ GOOGLE_API_KEY=your_api_key_here         # Alternative name
 
 ### Hardware Optimization
 
-CantoSub automatically detects and optimizes for your hardware:
+CantoCap automatically detects and optimizes for your hardware:
 
 - **NVIDIA GPU**: CUDA acceleration for faster processing
 - **Apple Silicon**: Metal Performance Shaders (MPS) acceleration
@@ -281,7 +281,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ### Gemini Flash Integration
 
-CantoSub leverages Google's Gemini Flash model for advanced AI processing:
+CantoCap leverages Google's Gemini Flash model for advanced AI processing:
 
 - **Automatic Speaker Detection**: Analyzes video content to determine speaker count without manual input
 - **Contextual Understanding**: AI understands scene context, emotions, and speaker relationships
@@ -312,7 +312,7 @@ CantoSub leverages Google's Gemini Flash model for advanced AI processing:
 
 ## Custom Terminology Configuration
 
-CantoSub supports custom terminology configuration to handle mixed English-Cantonese content, proper nouns, brand names, and domain-specific terms accurately.
+CantoCap supports custom terminology configuration to handle mixed English-Cantonese content, proper nouns, brand names, and domain-specific terms accurately.
 
 ### Configuration File
 
@@ -359,13 +359,13 @@ Create a JSON configuration file (example: `examples/terminology_config.json`) w
 
 ```bash
 # Use custom terminology with written style (converts English to Chinese)
-cantosub video.mp4 --written --terminology-config examples/terminology_config.json
+cantocap video.mp4 --written --terminology-config examples/terminology_config.json
 
 # Use custom terminology with colloquial style (preserves natural speech)
-cantosub video.mp4 --terminology-config examples/terminology_config.json
+cantocap video.mp4 --terminology-config examples/terminology_config.json
 
 # Combined with AI features
-cantosub video.mp4 --speakers --terminology-config my_terms.json --gemini-key YOUR_KEY
+cantocap video.mp4 --speakers --terminology-config my_terms.json --gemini-key YOUR_KEY
 ```
 
 ### Terminology Categories
@@ -390,14 +390,14 @@ cantosub video.mp4 --speakers --terminology-config my_terms.json --gemini-key YO
 **Model Selection Not Working:**
 ```bash
 # Ensure you're using the correct flags
-cantosub video.mp4 --model openai/whisper-tiny  # Specific model
-cantosub video.mp4 --priority speed              # Priority-based selection
+cantocap video.mp4 --model openai/whisper-tiny  # Specific model
+cantocap video.mp4 --priority speed              # Priority-based selection
 ```
 
 **Gemini Features Not Working:**
 ```bash
 # Check API key configuration
-cantosub video.mp4 --speakers --gemini-key YOUR_KEY
+cantocap video.mp4 --speakers --gemini-key YOUR_KEY
 
 # Verify environment setup
 echo $GEMINI_API_KEY
@@ -407,22 +407,22 @@ cat .env
 **Performance Issues:**
 ```bash
 # Check hardware capabilities
-cantosub hardware
+cantocap hardware
 
 # Use faster model for speed
-cantosub video.mp4 --priority speed
+cantocap video.mp4 --priority speed
 
 # Reduce video quality for AI processing
-cantosub video.mp4 --speakers --video-quality 360p
+cantocap video.mp4 --speakers --video-quality 360p
 ```
 
 **Large File Processing:**
 ```bash
 # Adjust chunk duration for very large files
-cantosub large_video.mp4 --max-chunk-duration 10
+cantocap large_video.mp4 --max-chunk-duration 10
 
 # Monitor processing with verbose output
-cantosub video.mp4 --verbose
+cantocap video.mp4 --verbose
 ```
 
 **Terminology Configuration Issues:**
@@ -431,13 +431,13 @@ cantosub video.mp4 --verbose
 cat examples/terminology_config.json | python -m json.tool
 
 # Test with specific terminology file
-cantosub video.mp4 --terminology-config my_terms.json --verbose
+cantocap video.mp4 --terminology-config my_terms.json --verbose
 ```
 
 ### Getting Help
 
-- Use `cantosub --help` for command reference
-- Use `cantosub hardware` to check system capabilities
+- Use `cantocap --help` for command reference
+- Use `cantocap hardware` to check system capabilities
 - Enable `--verbose` for detailed processing information
 - Check `.env` file configuration for API keys
 

@@ -1,4 +1,4 @@
-"""Presentation layer for CantoSub - CLI interface and dependency injection."""
+"""Presentation layer for CantoCap - CLI interface and dependency injection."""
 
 from .cli.main import app
 from .di.container import Container

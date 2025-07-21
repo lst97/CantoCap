@@ -1,4 +1,4 @@
-"""Enhanced error handling for CantoSub application."""
+"""Enhanced error handling for CantoCap application."""
 
 import traceback
 import functools
@@ -17,8 +17,8 @@ except ImportError:
     _rich_available = False
 
 
-class CantoSubError(Exception):
-    """Base exception for CantoSub errors."""
+class CantoCapError(Exception):
+    """Base exception for CantoCap errors."""
     
     def __init__(self, message: str, error_code: str = None, details: dict = None):
         super().__init__(message)
@@ -27,37 +27,37 @@ class CantoSubError(Exception):
         self.details = details or {}
 
 
-class AudioProcessingError(CantoSubError):
+class AudioProcessingError(CantoCapError):
     """Errors related to audio processing."""
     pass
 
 
-class TranscriptionError(CantoSubError):
+class TranscriptionError(CantoCapError):
     """Errors related to transcription."""
     pass
 
 
-class LLMProcessingError(CantoSubError):
+class LLMProcessingError(CantoCapError):
     """Errors related to LLM processing."""
     pass
 
 
-class FileSystemError(CantoSubError):
+class FileSystemError(CantoCapError):
     """Errors related to file system operations."""
     pass
 
 
-class DependencyError(CantoSubError):
+class DependencyError(CantoCapError):
     """Errors related to missing dependencies."""
     pass
 
 
-class ConfigurationError(CantoSubError):
+class ConfigurationError(CantoCapError):
     """Errors related to configuration."""
     pass
 
 
-class ValidationError(CantoSubError):
+class ValidationError(CantoCapError):
     """Errors related to input validation."""
     pass
 
@@ -217,7 +217,7 @@ def handle_warning(message: str, context: str = None, details: dict = None, ipc_
 def safe_execute(
     func: Callable,
     error_message: str = "Operation failed",
-    error_type: Type[CantoSubError] = CantoSubError,
+    error_type: Type[CantoCapError] = CantoCapError,
     context: str = None,
     default_return: Any = None,
     reraise: bool = True,
@@ -239,13 +239,13 @@ def safe_execute(
         Function result or default_return on error
         
     Raises:
-        CantoSubError: If reraise is True and an error occurs
+        CantoCapError: If reraise is True and an error occurs
     """
     try:
         return func()
     except Exception as e:
         if reraise:
-            if isinstance(e, CantoSubError):
+            if isinstance(e, CantoCapError):
                 raise
             else:
                 raise error_type(

@@ -1,4 +1,4 @@
-"""Enhanced progress display system for CantoSub CLI."""
+"""Enhanced progress display system for CantoCap CLI."""
 
 from typing import Optional, Callable, Any, Dict
 from rich.console import Console

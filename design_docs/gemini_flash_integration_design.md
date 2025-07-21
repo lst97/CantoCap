@@ -770,11 +770,11 @@ GEMINI_API_KEY=your_gemini_api_key_here
 CLI usage:
 ```bash
 # Basic usage with Gemini enhancement
-cantosub video.mp4 --speakers --gemini-key YOUR_KEY
+cantocap video.mp4 --speakers --gemini-key YOUR_KEY
 
 # Full feature set
-cantosub video.mp4 --speakers --written --music --gemini-key YOUR_KEY
+cantocap video.mp4 --speakers --written --music --gemini-key YOUR_KEY
 
 # Disable Gemini refinement but keep speaker identification
-cantosub video.mp4 --speakers --no-gemini-refinement --gemini-key YOUR_KEY
+cantocap video.mp4 --speakers --no-gemini-refinement --gemini-key YOUR_KEY
 ```

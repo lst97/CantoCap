@@ -1,4 +1,4 @@
-"""Application layer for CantoSub - Use cases and application services."""
+"""Application layer for CantoCap - Use cases and application services."""
 
 from .commands import GenerateSubtitlesCommand
 from .use_cases import GenerateSubtitlesUseCase

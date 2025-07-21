@@ -1,4 +1,4 @@
-"""Infrastructure layer for CantoSub - External service implementations."""
+"""Infrastructure layer for CantoCap - External service implementations."""
 
 from .repositories import (
     FFmpegAudioRepository,

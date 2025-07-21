@@ -1,1 +1,1 @@
-"""Unit tests for CantoSub."""
+"""Unit tests for CantoCap."""

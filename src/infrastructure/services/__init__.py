@@ -1,4 +1,4 @@
-"""Infrastructure services for CantoSub."""
+"""Infrastructure services for CantoCap."""
 
 from .ffmpeg_service import FFmpegService
 from .charset_conversion_service import CharsetConversionService

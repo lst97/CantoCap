@@ -1,4 +1,4 @@
-"""CLI commands for CantoSub."""
+"""CLI commands for CantoCap."""
 
 from pathlib import Path
 from typing import Optional
@@ -873,7 +873,7 @@ def _display_file_info(input_file: Path, output_file: Optional[Path], ipc_mode: 
         # Output file info as JSON log messages
         ipc_log(f"Input file: {str(input_file)}")
         ipc_log(f"Output file: {output_path}")
-        ipc_log("CantoSub - Cantonese Subtitle Generator initialized")
+        ipc_log("CantoCap - Cantonese Subtitle Generator initialized")
     else:
         # Use rich console output
         info_text = Text()
@@ -884,7 +884,7 @@ def _display_file_info(input_file: Path, output_file: Optional[Path], ipc_mode: 
         
         console.print(Panel(
             info_text,
-            title="🎬 CantoSub - Cantonese Subtitle Generator",
+            title="🎬 CantoCap - Cantonese Subtitle Generator",
             title_align="left",
             border_style="blue"
         ))

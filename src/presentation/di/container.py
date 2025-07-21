@@ -1,4 +1,4 @@
-"""Dependency injection container for CantoSub."""
+"""Dependency injection container for CantoCap."""
 
 import os
 import platform
@@ -43,7 +43,7 @@ except ImportError:
 
 
 class Container:
-    """Dependency injection container for CantoSub application."""
+    """Dependency injection container for CantoCap application."""
     
     def __init__(self):
         """Initialize container with lazy-loaded singletons."""
@@ -88,7 +88,7 @@ class Container:
     
     def _find_local_ffmpeg(self) -> Optional[str]:
         """Find local ffmpeg executable in project lib directory."""
-        # Get project root directory (assuming container.py is in src/cantosub/presentation/di)
+        # Get project root directory (assuming container.py is in src/cantocap/presentation/di)
         project_root = Path(__file__).resolve().parent.parent.parent.parent
 
         # Define potential paths for ffmpeg

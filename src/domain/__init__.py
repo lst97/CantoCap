@@ -1,4 +1,4 @@
-"""Domain layer for CantoSub - Core business logic and rules."""
+"""Domain layer for CantoCap - Core business logic and rules."""
 
 # Value Objects
 from .value_objects import Timestamp, FilePath, AudioFormat, LanguageCode

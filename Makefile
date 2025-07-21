@@ -1,10 +1,10 @@
-# Makefile for CantoSub development
+# Makefile for CantoCap development
 
 .PHONY: install install-dev test test-unit test-integration test-e2e lint format typecheck clean build help
 
 # Default target
 help:
-	@echo "CantoSub Development Commands:"
+	@echo "CantoCap Development Commands:"
 	@echo ""
 	@echo "Setup:"
 	@echo "  install       Install production dependencies"
@@ -52,7 +52,7 @@ test-e2e:
 	pytest tests/e2e/ -m e2e
 
 test-cov:
-	pytest --cov=src/cantosub --cov-report=html --cov-report=term-missing
+	pytest --cov=src/cantocap --cov-report=html --cov-report=term-missing
 
 # Code Quality
 lint:

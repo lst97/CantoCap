@@ -1,4 +1,4 @@
-"""Main CLI application for CantoSub."""
+"""Main CLI application for CantoCap."""
 
 import typer
 from typing import Optional
@@ -13,8 +13,8 @@ console = Console()
 
 # Create the main Typer application
 app = typer.Typer(
-    name="cantosub",
-    help="CantoSub - Generate Cantonese subtitles from audio/video files",
+    name="cantocap",
+    help="CantoCap - Generate Cantonese subtitles from audio/video files",
     add_completion=False,
     rich_markup_mode="rich"
 )
@@ -141,7 +141,7 @@ def main(
     )
 ) -> None:
     """
-    CantoSub - Generate Cantonese subtitles with intelligent model selection.
+    CantoCap - Generate Cantonese subtitles with intelligent model selection.
     
     This tool automatically selects the optimal Whisper model based on your hardware
     capabilities and extracts audio from video/audio files to generate accurate
@@ -150,25 +150,25 @@ def main(
     Examples:
     
         # Basic usage (auto-selects optimal model)
-        cantosub video.mp4
+        cantocap video.mp4
         
         # Prioritize speed over quality
-        cantosub video.mp4 --priority speed
+        cantocap video.mp4 --priority speed
         
         # Prioritize quality over speed  
-        cantosub video.mp4 --priority quality
+        cantocap video.mp4 --priority quality
         
         # Override with specific model
-        cantosub video.mp4 --model openai/whisper-medium
+        cantocap video.mp4 --model openai/whisper-medium
         
         # Check hardware capabilities
-        cantosub hardware
+        cantocap hardware
         
         # Enhanced features with Gemini Flash
-        cantosub movie.mkv --speakers --written --music --gemini-key YOUR_API_KEY
+        cantocap movie.mkv --speakers --written --music --gemini-key YOUR_API_KEY
         
         # Custom terminology configuration
-        cantosub video.mp4 --terminology-config my_terms.json --written
+        cantocap video.mp4 --terminology-config my_terms.json --written
     """
     # Set global IPC mode for error handling
     from ...infrastructure.error_handling import set_global_ipc_mode
@@ -176,7 +176,23 @@ def main(
     
     if version:
         from ... import __version__
-        console.print(f"[bold blue]CantoSub[/bold blue] version [green]{__version__}[/green]")
+        console.print(f"""
+[bold blue]CantoCap[/bold blue] version [green]{__version__}[/green]
+
+[bold]Cantonese To Caption[/bold] 
+
+To eliminate the time-consuming and tedious process of creating subtitles, allowing creators to focus on their content specially for Hong Kong and Cantonese community.
+License: Free and open-source. Use your own API key. Paid services may be available in the future for users how want more seamless experience.
+
+整字幕嘥時間又麻煩, 純粹想 Youtuber 可以專心搞好啲片, 特別為香港同講廣東話嘅朋友整。
+授權: 費用全免, 而且係開源嘅。用返你自己條 API Key 就得。將來可能會出收費服務, 畀啲手殘想撳個掣就用到嘅朋友仔。
+
+[bold]Author:[/bold] lst97 - SIO TOU (Nelson) LAI
+[bold]Website:[/bold] https://www.lst97.dev
+[bold]LinkedIn:[/bold] https://www.linkedin.com/in/lst97
+[bold]Email:[/bold] contact@lst97.dev
+[bold]Feedback:[/bold] https://github.com/lst97/canto-cap
+""")
         return
     
     # Handle translation help request

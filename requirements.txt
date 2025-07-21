@@ -1,4 +1,4 @@
-# Core dependencies for CantoSub Phase 1
+# Core dependencies for CantoCap Phase 1
 typer[all]>=0.16.0
 transformers>=4.53.2
 torch>=2.7.1

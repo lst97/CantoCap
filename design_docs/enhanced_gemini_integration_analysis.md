@@ -641,16 +641,16 @@ def generate_command(
 GEMINI_API_KEY=your_api_key_here
 
 # Command
-cantosub large_video.mp4 --speakers --written
+cantocap large_video.mp4 --speakers --written
 ```
 
 ### Large file with chunking:
 ```bash
-cantosub 2hour_movie.mp4 --speakers --max-chunk-duration 10
+cantocap 2hour_movie.mp4 --speakers --max-chunk-duration 10
 ```
 
 ### Graceful degradation without API key:
 ```bash
-cantosub video.mp4 --speakers
+cantocap video.mp4 --speakers
 # Warning: Gemini features disabled, continuing with Whisper only
 ```

@@ -4,8 +4,8 @@ import pytest
 import tempfile
 import os
 
-from cantosub.application.commands import GenerateSubtitlesCommand
-from cantosub.domain.value_objects import FilePath
+from cantocap.application.commands import GenerateSubtitlesCommand
+from cantocap.domain.value_objects import FilePath
 
 
 class TestGenerateSubtitlesCommand:

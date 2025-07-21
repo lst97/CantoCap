@@ -3,7 +3,7 @@
 import pytest
 from datetime import timedelta
 
-from cantosub.domain.value_objects import Timestamp
+from cantocap.domain.value_objects import Timestamp
 
 
 class TestTimestamp:

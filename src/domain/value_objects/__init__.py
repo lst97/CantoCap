@@ -1,4 +1,4 @@
-"""Domain value objects for CantoSub."""
+"""Domain value objects for CantoCap."""
 
 from .timestamp import Timestamp
 from .file_path import FilePath

@@ -5,7 +5,7 @@ import tempfile
 import os
 from pathlib import Path
 
-from cantosub.domain.value_objects import FilePath
+from cantocap.domain.value_objects import FilePath
 
 
 class TestFilePath:

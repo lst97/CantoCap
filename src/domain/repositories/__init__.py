@@ -1,4 +1,4 @@
-"""Domain repository interfaces for CantoSub."""
+"""Domain repository interfaces for CantoCap."""
 
 from .audio_repository import IAudioRepository
 from .transcription_repository import ITranscriptionRepository

@@ -1,4 +1,4 @@
-"""Application commands for CantoSub."""
+"""Application commands for CantoCap."""
 
 from .generate_subtitles_command import GenerateSubtitlesCommand
 

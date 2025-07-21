@@ -1,4 +1,4 @@
-"""CLI module for CantoSub."""
+"""CLI module for CantoCap."""
 
 from .main import app
 from .commands import generate_command

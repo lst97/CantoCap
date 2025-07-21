@@ -1,4 +1,4 @@
-"""Dependency injection module for CantoSub."""
+"""Dependency injection module for CantoCap."""
 
 from .container import Container
 

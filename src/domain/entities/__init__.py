@@ -1,4 +1,4 @@
-"""Domain entities for CantoSub."""
+"""Domain entities for CantoCap."""
 
 from .media_file import MediaFile
 from .audio_stream import AudioStream

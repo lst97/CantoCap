@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-CantoSub is a CLI tool for generating accurate Cantonese subtitles from audio/video files using OpenAI Whisper. The project follows Clean Architecture and Domain-Driven Design principles with clear separation of concerns across layers.
+CantoCap is a CLI tool for generating accurate Cantonese subtitles from audio/video files using OpenAI Whisper. The project follows Clean Architecture and Domain-Driven Design principles with clear separation of concerns across layers.
 
 ## Development Commands
 
@@ -27,14 +27,14 @@ make dev-setup
 ### Hardware Analysis and Model Selection
 ```bash
 # Check hardware capabilities and model recommendations
-cantosub hardware
+cantocap hardware
 
 # Check with specific priority
-cantosub hardware --priority speed
-cantosub hardware --priority quality
+cantocap hardware --priority speed
+cantocap hardware --priority quality
 
 # Check with expected audio duration for timing estimates
-cantosub hardware --duration 30.0
+cantocap hardware --duration 30.0
 ```
 
 ### Testing
@@ -52,7 +52,7 @@ make test-e2e         # End-to-end tests only
 # Run with coverage
 make test-cov
 # or
-pytest --cov=src/cantosub --cov-report=html --cov-report=term-missing
+pytest --cov=src/cantocap --cov-report=html --cov-report=term-missing
 ```
 
 ### Code Quality
@@ -115,8 +115,8 @@ The codebase follows Clean Architecture with four distinct layers:
 ## Key Implementation Details
 
 ### CLI Entry Point
-- Main command: `cantosub <input_file> [options]`
-- Hardware analysis: `cantosub hardware [options]`
+- Main command: `cantocap <input_file> [options]`
+- Hardware analysis: `cantocap hardware [options]`
 - Entry point: `src/presentation/cli/main.py`
 - DI container: `src/presentation/di/container.py`
 
@@ -134,7 +134,7 @@ All business operations flow through use cases:
 - **Priority-based optimization**: `--priority speed|quality|balanced`
 - **Hardware detection**: CUDA, Apple MPS, Intel XPU support with fallback to CPU
 - **Manual override**: `--model <model_name>` to force specific model
-- **Hardware analysis**: `cantosub hardware` command for capabilities and recommendations
+- **Hardware analysis**: `cantocap hardware` command for capabilities and recommendations
 - See `GPU_SETUP_GUIDE.md` for GPU setup instructions
 
 ### Phase Development
@@ -186,7 +186,7 @@ pytest -m slow          # Long-running tests
 
 ### Project Structure
 ```
-src/cantosub/
+src/cantocap/
 ├── domain/          # Business logic and entities
 ├── application/     # Use cases and commands  
 ├── infrastructure/  # External service implementations
@@ -194,7 +194,7 @@ src/cantosub/
 ```
 
 ### Important Configuration
-- Package name: `cantosub` (entry point in pyproject.toml)
+- Package name: `cantocap` (entry point in pyproject.toml)
 - Python version: 3.9+ required
 - Line length: 88 characters (black/isort)
 - Type checking: Strict mode enabled in mypy

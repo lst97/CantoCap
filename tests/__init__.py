@@ -1,1 +1,1 @@
-"""Test suite for CantoSub."""
+"""Test suite for CantoCap."""
