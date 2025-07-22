@@ -333,15 +333,12 @@ class GenerateSubtitlesCommand:
     output_file_path: Optional[str] = None
     language: str = "zh"
     model_name: Optional[str] = "openai/whisper-large-v3"
-    
-    # Modified Phase 2 features
+
     enable_speakers: bool = False
-    # REMOVED: num_speakers - now auto-detected by Gemini Flash
     enable_written_style: bool = False  # colloquial vs written style
     enable_music_detection: bool = False
     charset: str = "traditional"
-    
-    # New Gemini Flash features
+
     enable_gemini_refinement: bool = True  # Default enabled
     gemini_api_key: Optional[str] = None
     video_compression_quality: str = "360p"  # For LLM processing
@@ -365,18 +362,15 @@ class GenerateSubtitlesUseCase:
     
     def __init__(
         self,
-        # Existing dependencies...
         audio_repository: IAudioRepository,
         transcription_repository: ITranscriptionRepository,
         subtitle_repository: ISubtitleRepository,
         media_file_validator: MediaFileValidator,
         subtitle_formatting_service: SubtitleFormattingService,
-        
-        # Enhanced dependencies
+
         video_preprocessing_service: VideoPreprocessingService,
         gemini_flash_service: Optional[GeminiFlashService] = None,
         
-        # Existing Phase 2 dependencies
         speaker_diarization_service=None,
         music_detection_service=None,
         charset_conversion_service=None
@@ -403,13 +397,13 @@ class GenerateSubtitlesUseCase:
                     media_file, command
                 )
             
-            # Step 4: Extract audio (existing logic)
+            # Step 4: Extract audio 
             temp_audio = self._extract_audio(media_file)
             
-            # Step 5: Load transcription model (existing logic)
+            # Step 5: Load transcription model 
             self._load_transcription_model(command.model_name)
             
-            # Step 6: Transcribe audio (existing logic)
+            # Step 6: Transcribe audio 
             transcription = self._transcribe_audio(temp_audio, command.language)
             
             # Step 7: Speaker diarization with auto-detected count
@@ -419,7 +413,7 @@ class GenerateSubtitlesUseCase:
                     temp_audio, detected_speaker_count
                 )
             
-            # Step 8: Music detection (existing logic)
+            # Step 8: Music detection 
             music_detection = None
             if command.enable_music_detection and self.music_detection_service:
                 music_detection = self._perform_music_detection(transcription, temp_audio)
@@ -432,19 +426,19 @@ class GenerateSubtitlesUseCase:
                 music_detection=music_detection
             )
             
-            # Step 10: Gemini Flash Phase 2 - Transcription Refinement
+            # Step 10: Gemini Flash Transcription Refinement
             if command.enable_gemini_refinement and self.gemini_flash_service:
                 subtitle_document = self._gemini_transcription_refinement(
                     subtitle_document, media_file, command
                 )
             
-            # Step 11: Apply charset conversion (existing logic)
+            # Step 11: Apply charset conversion 
             subtitle_document = self._apply_charset_conversion(subtitle_document, command)
             
-            # Step 12: Save subtitle file (existing logic)
+            # Step 12: Save subtitle file 
             output_path = self._save_subtitle_file(subtitle_document, command)
             
-            # Step 13: Generate statistics (existing logic)
+            # Step 13: Generate statistics 
             statistics = self._generate_statistics(subtitle_document)
             
             processing_time = time.time() - start_time

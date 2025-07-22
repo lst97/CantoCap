@@ -70,7 +70,7 @@ def generate_command(
         None,
         "--model",
         "-m",
-        help="Whisper model to use (auto-selects optimal model if not specified)"
+        help="Whisper model to use (auto-selects optimal model if not specified). Use 'whisperX/large-v3' for WhisperX"
     ),
     priority: str = typer.Option(
         "balanced",
@@ -78,7 +78,7 @@ def generate_command(
         "-p",
         help="Model selection priority: 'speed', 'quality', or 'balanced'"
     ),
-    # Enhanced Phase 2 features
+    # Enhanced features
     speakers: bool = typer.Option(
         False,
         "--speakers",
@@ -263,6 +263,8 @@ def generate_command(
             # Pre-configure whisper service with correct model/priority
             container.get_whisper_service(model_name=model, priority=priority)
             return container.get_enhanced_generate_subtitles_use_case(
+                model_name=model,
+                priority=priority,
                 gemini_api_key=resolved_gemini_key if is_valid else None,
                 terminology_config_path=str(terminology_config) if terminology_config else None
             )
@@ -594,7 +596,7 @@ def _execute_processing_steps(command, use_case, verbose: bool, model: Optional[
         unified_manager.add_status_message(f"Selected model: {actual_model} (priority: {priority})")
         if actual_model == "openai/whisper-large-v3-turbo":
             unified_manager.add_status_message("ℹ️ Using the 'turbo' model. This model does not support translation tasks.")
-        unified_manager.add_technical_message(f"Language: {command.language}, Phase 2 features: {command.has_phase2_features()}")
+        unified_manager.add_technical_message(f"Language: {command.language}, Additional features: {command.has_phase2_features()}")
         time.sleep(0.2)
         
         unified_manager.update_stage(

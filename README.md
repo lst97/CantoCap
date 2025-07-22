@@ -223,10 +223,10 @@ CantoCap follows Clean Architecture and Domain-Driven Design principles:
 
 ### Infrastructure Layer
 
-- **Services**: `FFmpegService`, `WhisperService`, `GeminiFlashService`
+- **Services**: `FFmpegService`, `WhisperService`, `GeminiSpeakerCountService`, `GeminiTranscriptionRefinementService`
 - **Repositories**: `FFmpegAudioRepository`, `WhisperTranscriptionRepository`, `FileSubtitleRepository`
 - **AI Services**: `VideoPreprocessingService`, `MediaChunkingService`, `ConfigurationService`
-- **Phase 2 Services**: `SpeakerDiarizationService`, `MusicDetectionService`, `CharsetConversionService`
+- **Additional Services**: `SpeakerDiarizationService`, `MusicDetectionService`, `CharsetConversionService`
 
 ### Presentation Layer
 
@@ -390,7 +390,7 @@ cantocap video.mp4 --speakers --terminology-config my_terms.json --gemini-key YO
 **Model Selection Not Working:**
 ```bash
 # Ensure you're using the correct flags
-cantocap video.mp4 --model openai/whisper-tiny  # Specific model
+cantocap video.mp4 --model openai/whisper-small  # Specific model
 cantocap video.mp4 --priority speed              # Priority-based selection
 ```
 

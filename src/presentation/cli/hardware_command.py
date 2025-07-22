@@ -170,8 +170,19 @@ def _display_model_comparison(detector, hardware, priority, audio_duration) -> N
         else:
             time_str = "N/A"
         
+        # Simplify model names for display
+        model_display_name = model.value.split('/')[-1]
+        if model_display_name == "whisper-large-v2":
+            model_display_name = "large-v2"
+        elif model_display_name == "whisper-large-v3":
+            model_display_name = "large-v3"
+        elif model_display_name == "whisper-large-v3-turbo":
+            model_display_name = "turbo"
+        elif model_display_name.startswith("whisper-"):
+            model_display_name = model_display_name.replace("whisper-", "")
+        
         comparison_table.add_row(
-            f"[{model_style}]{model.value.split('/')[-1]}[/{model_style}]",
+            f"[{model_style}]{model_display_name}[/{model_style}]",
             f"[{model_style}]{requirements.quality_score:.1%}[/{model_style}]",
             f"[{model_style}]{requirements.estimated_speed_multiplier:.1f}x[/{model_style}]",
             f"[{model_style}]{requirements.min_vram_gb:.1f}GB[/{model_style}]",

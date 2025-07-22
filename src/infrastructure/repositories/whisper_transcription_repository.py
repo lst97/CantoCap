@@ -1,35 +1,51 @@
 """Whisper-based transcription repository implementation."""
 
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 
 from ...domain.repositories import ITranscriptionRepository
 from ...domain.entities import AudioStream, Transcription
 from ..services import WhisperService
 
+# Import WhisperXService conditionally
+try:
+    from ..services.whisperx_service import WhisperXService
+    WhisperServiceType = Union[WhisperService, WhisperXService]
+except ImportError:
+    WhisperXService = None
+    WhisperServiceType = WhisperService
+
 
 class WhisperTranscriptionRepository(ITranscriptionRepository):
-    """Transcription repository implementation using Whisper."""
+    """Transcription repository implementation using Whisper or WhisperX."""
     
-    def __init__(self, whisper_service: WhisperService):
+    def __init__(self, whisper_service: WhisperServiceType):
         """
         Initialize with Whisper service.
         
         Args:
-            whisper_service: Whisper service instance
+            whisper_service: Whisper or WhisperX service instance
         """
         self.whisper_service = whisper_service
     
-    def load_model(self, model_name: str = "openai/whisper-large-v3") -> bool:
+    def load_model(self, model_name: str = "openai/whisper-large-v3", language: str = "zh") -> bool:
         """
         Load Whisper model.
         
         Args:
-            model_name: Model name/path to load
+            model_name: Model name/path to load (e.g., "openai/whisper-large-v3" or "whisperX/large-v3")
+            language: Language code for WhisperX (eliminates auto-detection warning)
             
         Returns:
             bool: True if model loaded successfully
         """
-        return self.whisper_service.load_model(model_name)
+        # Handle different service types with different load_model signatures
+        if hasattr(self.whisper_service, '__class__') and self.whisper_service.__class__.__name__ == 'WhisperXService':
+            # WhisperXService: load_model() takes language parameter to avoid auto-detection
+            # The model name was already set during service initialization
+            return self.whisper_service.load_model(language=language)
+        else:
+            # Standard WhisperService: load_model() takes optional model_name parameter
+            return self.whisper_service.load_model(model_name)
     
     def transcribe_audio(
         self,

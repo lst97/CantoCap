@@ -22,8 +22,7 @@ app = typer.Typer(
 # Add the hardware capabilities command
 app.command(name="hardware")(hardware_command)
 
-# Add the generate command as an explicit subcommand
-app.command(name="generate")(generate_command)
+# Generate command is now the default action (no explicit registration needed)
 
 # Main callback that handles both direct file processing and subcommands
 @app.callback(invoke_without_command=True)
@@ -49,7 +48,7 @@ def main(
         None,
         "--model",
         "-m",
-        help="Whisper model to use (auto-selects optimal model if not specified)"
+        help="Whisper model to use (auto-selects optimal model if not specified). Use 'whisperX/large-v3' for WhisperX"
     ),
     priority: str = typer.Option(
         "balanced",
@@ -57,7 +56,7 @@ def main(
         "-p",
         help="Model selection priority: 'speed', 'quality', or 'balanced'"
     ),
-    # Enhanced Phase 2 features
+    # Enhanced features
     speakers: bool = typer.Option(
         False,
         "--speakers",
@@ -138,6 +137,12 @@ def main(
         False,
         "--translation-help",
         help="Show available translation language codes and exit"
+    ),
+    duration: float = typer.Option(
+        10.0,
+        "--duration",
+        "-d",
+        help="Expected audio duration in minutes for hardware estimation"
     )
 ) -> None:
     """
@@ -160,6 +165,9 @@ def main(
         
         # Override with specific model
         cantocap video.mp4 --model openai/whisper-medium
+        
+        # Use WhisperX with enhanced features
+        cantocap video.mp4 --model whisperX/large-v3
         
         # Check hardware capabilities
         cantocap hardware
@@ -206,9 +214,16 @@ License: Free and open-source. Use your own API key. Paid services may be availa
         return
     
     # Check if the input_file is actually a command name that should be handled as a subcommand
-    if input_file is not None and str(input_file) in ['hardware', 'generate']:
-        # This means the user typed 'hardware' or 'generate' but it was parsed as input_file
-        # Let Typer handle it as a subcommand by returning early
+    if input_file is not None and str(input_file) == 'hardware':
+        # This means the user typed 'hardware' but it was parsed as input_file
+        # Manually invoke the hardware command with available options
+        from .hardware_command import hardware_command
+        
+        # Use the priority and duration options if they were provided
+        hardware_command(priority=priority, audio_duration=duration)
+        
+        # Note: If users want to use hardware-specific options like --duration,
+        # they should use: cantocap --duration 30 --priority speed hardware
         return
     
     # If no input file provided, show help

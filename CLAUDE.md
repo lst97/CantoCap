@@ -18,10 +18,15 @@ pip install -r requirements.txt
 # Install development dependencies  
 make install-dev
 # or
-pip install -e .[dev]
+pip install -r requirements-dev.txt  # Note: requirements-dev.txt may not exist yet
 
 # Complete development setup
 make dev-setup
+
+# Install in development mode (editable)
+make install-local
+# or
+pip install -e .
 ```
 
 ### Hardware Analysis and Model Selection
@@ -104,9 +109,9 @@ The codebase follows Clean Architecture with four distinct layers:
 - **Application Services**: `MediaFileValidator` - application-specific validation
 
 ### Infrastructure Layer (`src/infrastructure/`)
-- **External Services**: `FFmpegService`, `WhisperService`, `GeminiFlashService` - integrations with external tools
+- **External Services**: `FFmpegService`, `WhisperService`, `GeminiSpeakerCountService`, `GeminiTranscriptionRefinementService` - integrations with external tools
 - **Repository Implementations**: `FFmpegAudioRepository`, `WhisperTranscriptionRepository`, `FileSubtitleRepository`
-- **Phase 2 Services**: `SpeakerDiarizationService`, `MusicDetectionService`, `CharsetConversionService` (partially implemented)
+- **Additional Services**: `SpeakerDiarizationService`, `MusicDetectionService`, `CharsetConversionService` (partially implemented)
 
 ### Presentation Layer (`src/presentation/`)
 - **CLI Interface**: Typer-based command-line interface with Rich formatting
@@ -138,9 +143,8 @@ All business operations flow through use cases:
 - See `GPU_SETUP_GUIDE.md` for GPU setup instructions
 
 ### Phase Development
-- **Phase 1** (Current): Basic Cantonese transcription to SRT
-- **Phase 2** (Planned): Speaker diarization, music detection, LLM-based style conversion, character set conversion
-- Phase 2 features are partially implemented but not fully functional
+- **Phase 1** (Complete): Basic Cantonese transcription to SRT
+- **Phase 2** (Current): Speaker diarization, music detection, LLM-based style conversion, character set conversion
 
 ## Testing Strategy
 
@@ -194,10 +198,11 @@ src/cantocap/
 ```
 
 ### Important Configuration
-- Package name: `cantocap` (entry point in pyproject.toml)
+- Package name: `cantocap` (CLI entry point defined in src/presentation/cli/main.py)
 - Python version: 3.9+ required
 - Line length: 88 characters (black/isort)
 - Type checking: Strict mode enabled in mypy
+- No pyproject.toml - package uses traditional requirements.txt and Makefile setup
 
 ### GPU Setup
 If working with GPU acceleration:
@@ -224,3 +229,17 @@ If working with GPU acceleration:
 - Temporary file cleanup
 - GPU memory management
 - Chunked processing for large files
+
+## IPC Mode and Error Handling
+
+### IPC (Inter-Process Communication) Mode
+- Enable with `--ipc-mode` flag for machine-readable JSON output
+- All output formatted as structured JSON for programmatic integration
+- Error handling adapted for IPC mode with structured error messages
+- Global IPC mode affects error handling behavior across all services
+
+### Global Error Handling
+- Comprehensive error handling with user-friendly Rich console formatting
+- Graceful degradation patterns (GPU → CPU fallback)
+- Automatic cleanup of temporary files in error scenarios
+- IPC-aware error reporting with structured JSON output when enabled

@@ -11,8 +11,6 @@ from enum import Enum
 
 class ModelSize(Enum):
     """Whisper model sizes."""
-    TINY = "openai/whisper-tiny"
-    BASE = "openai/whisper-base"
     SMALL = "openai/whisper-small"
     MEDIUM = "openai/whisper-medium"
     LARGE_V2 = "openai/whisper-large-v2"
@@ -55,19 +53,19 @@ class HardwareDetector:
     MODEL_REQUIREMENTS = {
         ModelSize.SMALL: ModelRequirements(
             min_vram_gb=2.0, min_ram_gb=3.0, min_cpu_cores=2, 
-            estimated_speed_multiplier=0.7, quality_score=0.8
+            estimated_speed_multiplier=4.0, quality_score=0.8
         ),
         ModelSize.MEDIUM: ModelRequirements(
             min_vram_gb=4.0, min_ram_gb=6.0, min_cpu_cores=4, 
-            estimated_speed_multiplier=0.5, quality_score=0.9
+            estimated_speed_multiplier=2.0, quality_score=0.9
         ),
         ModelSize.LARGE_V2: ModelRequirements(
             min_vram_gb=8.0, min_ram_gb=12.0, min_cpu_cores=6, 
-            estimated_speed_multiplier=0.3, quality_score=0.95
+            estimated_speed_multiplier=1.0, quality_score=0.95
         ),
         ModelSize.LARGE_V3: ModelRequirements(
             min_vram_gb=10.0, min_ram_gb=16.0, min_cpu_cores=8, 
-            estimated_speed_multiplier=0.25, quality_score=1.0
+            estimated_speed_multiplier=1.0, quality_score=1.0
         ),
         ModelSize.TURBO: ModelRequirements(
             min_vram_gb=6.0, min_ram_gb=8.0, min_cpu_cores=4,

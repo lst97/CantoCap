@@ -3,7 +3,9 @@
     "allow": [
       "Bash(rm:*)",
       "Bash(python:*)",
-      "mcp__sequential-thinking__sequentialthinking"
+      "mcp__sequential-thinking__sequentialthinking",
+      "Bash(find:*)",
+      "WebFetch(domain:github.com)"
     ],
     "deny": []
   }

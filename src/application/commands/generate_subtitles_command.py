@@ -15,14 +15,12 @@ class GenerateSubtitlesCommand:
     language: str = "zh"  # Chinese
     model_name: Optional[str] = "openai/whisper-large-v3"  # None enables auto-selection
     
-    # Phase 2 features
     enable_speakers: bool = False
-    # REMOVED: num_speakers - now auto-detected by Gemini Flash
     enable_written_style: bool = False
     enable_music_detection: bool = False
     charset: str = "traditional"
     
-    # New Gemini Flash features
+    # Gemini Flash features
     enable_gemini_refinement: bool = True  # Default enabled
     gemini_api_key: Optional[str] = None
     video_compression_quality: str = "360p"  # For LLM processing
@@ -110,7 +108,7 @@ class GenerateSubtitlesCommand:
         return self.enable_speakers or self.enable_gemini_refinement or self.requires_translation()
     
     def has_phase2_features(self) -> bool:
-        """Check if any Phase 2 features are enabled."""
+        """Check if any enhanced features are enabled."""
         return (self.enable_speakers or 
                 self.enable_written_style or 
                 self.enable_music_detection or

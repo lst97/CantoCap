@@ -18,7 +18,7 @@ except ImportError:
     ParallelAudioService = None
     _PARALLEL_AVAILABLE = False
 
-# Import Phase 2 services conditionally
+# Import services conditionally
 try:
     from .services import (
         WhisperService,
@@ -42,7 +42,7 @@ __all__ = [
     "ParallelAudioService"
 ]
 
-# Add Phase 2 services if available
+# Add enhanced services if available
 if _PHASE2_AVAILABLE:
     __all__.extend([
         "WhisperService",
