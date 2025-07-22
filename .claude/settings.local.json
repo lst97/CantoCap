@@ -1,11 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(rm:*)",
-      "Bash(python:*)",
-      "mcp__sequential-thinking__sequentialthinking",
-      "Bash(find:*)",
-      "WebFetch(domain:github.com)"
+      "mcp__sequential-thinking__sequentialthinking"
     ],
     "deny": []
   }

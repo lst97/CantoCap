@@ -1,0 +1,192 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cantocap-engine"
+version = "0.1.0-alpha"
+description = "Generate accurate Cantonese subtitles from audio/video files"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "lst97", email = "contact@lst97.dev"}
+]
+maintainers = [
+    {name = "lst97", email = "contact@lst97.dev"}
+]
+keywords = ["cantonese", "subtitles", "whisper", "transcription", "srt"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Video :: Conversion",
+    "Topic :: Text Processing :: Linguistic",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "typer[all]>=0.16.0",
+    "transformers>=4.53.2",
+    "torch>=2.7.1",
+    "torchaudio>=2.7.1",
+    "srt>=3.5.3",
+    "ffmpeg-python>=0.2.0",
+    "openai>=1.97.0",
+    "google-generativeai>=0.8.5",
+    "python-dotenv>=1.1.1",
+    "pyannote.audio>=3.3.2",
+    "opencc-python-reimplemented>=0.1.7",
+    "librosa>=0.11.0",
+    "accelerate>=1.9.0",
+    "whisperx>=3.4.2",
+    "rich>=14.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "black>=23.0",
+    "isort>=5.0",
+    "mypy>=1.0",
+    "flake8>=6.0",
+]
+test = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pytest-mock>=3.0",
+]
+gpu = [
+    "torch[cuda]>=2.7.1",
+    "torchaudio[cuda]>=2.7.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/lst97/canto-cap"
+Repository = "https://github.com/lst97/canto-cap.git"
+Issues = "https://github.com/lst97/canto-cap/issues"
+Changelog = "https://github.com/lst97/canto-cap/blob/main/CHANGELOG.md"
+
+[project.scripts]
+cantocap-engine = "cantocap_engine.main:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.json", "*.yaml", "*.yml", "*.txt", "*.md"]
+
+# Black configuration
+[tool.black]
+line-length = 88
+target-version = ["py39", "py310", "py311", "py312"]
+include = '\\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \\.eggs
+  | \\.git
+  | \\.hg
+  | \\.mypy_cache
+  | \\.tox
+  | \\.venv
+  | venv
+  | build
+  | dist
+)/
+'''
+
+# isort configuration
+[tool.isort]
+profile = "black"
+line_length = 88
+known_first_party = ["cantocap"]
+src_paths = ["src", "tests"]
+
+# mypy configuration
+[tool.mypy]
+python_version = "3.9"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = [
+    "srt.*",
+    "ffmpeg.*",
+    "librosa.*",
+    "pyannote.*",
+    "opencc.*",
+    "whisperx.*",
+]
+ignore_missing_imports = true
+
+# pytest configuration
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q --strict-markers --strict-config"
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "unit: Unit tests (fast, isolated)",
+    "integration: Integration tests (require external dependencies)",
+    "e2e: End-to-end tests (full workflow)",
+    "slow: Long-running tests",
+    "gpu: Tests requiring GPU",
+]
+filterwarnings = [
+    "error",
+    "ignore::UserWarning",
+    "ignore::DeprecationWarning",
+]
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "*/__pycache__/*",
+    "*/venv/*",
+    "*/build/*",
+    "*/dist/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+ignore_errors = true
+show_missing = true
+precision = 2
+
+[tool.coverage.html]
+directory = "htmlcov"

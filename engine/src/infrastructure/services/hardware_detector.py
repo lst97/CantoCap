@@ -16,6 +16,7 @@ class ModelSize(Enum):
     LARGE_V2 = "openai/whisper-large-v2"
     LARGE_V3 = "openai/whisper-large-v3"
     TURBO = "openai/whisper-large-v3-turbo"
+    WHISPERX_LARGE_V3 = "whisperx/large-v3"
 
 
 @dataclass
@@ -26,6 +27,9 @@ class ModelRequirements:
     min_cpu_cores: int
     estimated_speed_multiplier: float  # Relative to base model
     quality_score: float  # 0.0 to 1.0
+    supports_quantization: bool = False  # 8-bit quantization support
+    batch_processing: bool = False  # Optimized batch processing
+    memory_efficiency: float = 1.0  # Memory efficiency multiplier
     
     
 @dataclass
@@ -70,6 +74,15 @@ class HardwareDetector:
         ModelSize.TURBO: ModelRequirements(
             min_vram_gb=6.0, min_ram_gb=8.0, min_cpu_cores=4,
             estimated_speed_multiplier=8.0, quality_score=0.9
+        ),
+        # WhisperX Large-v3: Up to 4x faster than openai/whisper with same accuracy
+        # Based on benchmark: Large-v3 faster-whisper fp16 batch_size=8: 17s vs openai 2m23s
+        ModelSize.WHISPERX_LARGE_V3: ModelRequirements(
+            min_vram_gb=4.5, min_ram_gb=8.0, min_cpu_cores=6,
+            estimated_speed_multiplier=8.4, quality_score=1.0,  # 4x faster than openai/whisper
+            supports_quantization=True,  # 8-bit quantization support
+            batch_processing=True,  # Optimized batch processing
+            memory_efficiency=0.65  # ~35% less VRAM usage (4.5GB vs 7GB)
         )
     }
     
@@ -308,25 +321,47 @@ class HardwareDetector:
         # Priority-based scoring
         if priority == "speed":
             # Prioritize faster models
-            speed_score = requirements.estimated_speed_multiplier / 4.0  # Normalize to tiny model
-            priority_score = min(speed_score, 1.0)
+            speed_score = min(requirements.estimated_speed_multiplier / 8.0, 1.0)  # Normalize to max speed
+            priority_score = speed_score
         elif priority == "quality":
             # Prioritize higher quality models
             priority_score = requirements.quality_score
         else:  # balanced
             # Balance speed and quality
-            speed_score = requirements.estimated_speed_multiplier / 4.0
+            speed_score = min(requirements.estimated_speed_multiplier / 8.0, 1.0)
             quality_score = requirements.quality_score
             priority_score = (speed_score * 0.4 + quality_score * 0.6)
+        
+        # WhisperX optimization bonus
+        whisperx_bonus = 0.0
+        if model == ModelSize.WHISPERX_LARGE_V3:
+            # Bonus for memory efficiency
+            if hardware.vram_gb < 8.0:
+                whisperx_bonus += 0.2  # Reward memory efficiency on constrained hardware
+            
+            # Bonus for quantization support
+            if requirements.supports_quantization and hardware.vram_gb < 6.0:
+                whisperx_bonus += 0.15
+            
+            # Bonus for batch processing capability
+            if requirements.batch_processing and hardware.vram_gb >= 4.5:
+                whisperx_bonus += 0.1
+            
+            # Speed priority bonus
+            if priority == "speed":
+                whisperx_bonus += 0.15  # Extra bonus for speed-focused users
         
         # Duration penalty for large models on slow hardware
         duration_penalty = 0.0
         if audio_duration_minutes and audio_duration_minutes > 10:
-            if hardware.overall_performance_score < 0.5 and model in [ModelSize.LARGE_V2, ModelSize.LARGE_V3]:
-                duration_penalty = 0.3
+            if hardware.overall_performance_score < 0.5:
+                if model in [ModelSize.LARGE_V2, ModelSize.LARGE_V3]:
+                    duration_penalty = 0.3
+                elif model == ModelSize.WHISPERX_LARGE_V3:
+                    duration_penalty = 0.1  # Reduced penalty due to efficiency
         
         # Combine scores
-        final_score = (compatibility_score * 0.4 + priority_score * 0.6) - duration_penalty
+        final_score = (compatibility_score * 0.4 + priority_score * 0.6) + whisperx_bonus - duration_penalty
         return max(final_score, 0.0)
     
     def _generate_recommendation_details(
@@ -353,7 +388,7 @@ class HardwareDetector:
             
             estimated_time = audio_duration_minutes * base_multiplier * device_multiplier
         
-        return {
+        details = {
             "model": recommended_model.value,
             "reason": f"Optimal for {priority} priority on {hardware.device_type.upper()}",
             "hardware_profile": {
@@ -373,6 +408,18 @@ class HardwareDetector:
             "estimated_processing_time_minutes": estimated_time,
             "performance_tips": self._generate_performance_tips(hardware, recommended_model)
         }
+        
+        # Add WhisperX-specific configuration if recommended
+        if recommended_model == ModelSize.WHISPERX_LARGE_V3:
+            whisperx_config = self.get_optimal_whisperx_config(hardware)
+            details["whisperx_config"] = whisperx_config
+            details["model_info"].update({
+                "supports_quantization": requirements.supports_quantization,
+                "batch_processing": requirements.batch_processing,
+                "memory_efficiency": requirements.memory_efficiency
+            })
+        
+        return details
     
     def _generate_performance_tips(self, hardware: HardwareProfile, model: ModelSize) -> List[str]:
         """Generate performance optimization tips."""
@@ -406,7 +453,128 @@ class HardwareDetector:
         elif model == ModelSize.SMALL:
             tips.append("Small model is the minimum recommended for Cantonese transcription")
         
+        # WhisperX-specific optimizations
+        if model == ModelSize.WHISPERX_LARGE_V3:
+            tips.extend(self._get_whisperx_optimization_tips(hardware, requirements))
+        
         return tips
+    
+    def _get_whisperx_optimization_tips(self, hardware: HardwareProfile, requirements: ModelRequirements) -> List[str]:
+        """Generate WhisperX-specific optimization tips."""
+        tips = [
+            "WhisperX Large-v3 provides up to 4x speed improvement over OpenAI Whisper"
+        ]
+        
+        # Quantization recommendations
+        if requirements.supports_quantization:
+            if hardware.vram_gb < 6.0:
+                tips.append("Enable 8-bit quantization to reduce VRAM usage by ~35% (4.5GB → 2.9GB)")
+            elif hardware.vram_gb >= 6.0:
+                tips.append("Consider 8-bit quantization for faster processing (59s vs 63s on GPU)")
+        
+        # Batch processing recommendations
+        if requirements.batch_processing:
+            if hardware.vram_gb >= 6.0:
+                tips.append("Enable batch processing (batch_size=8) for up to 3.7x speed improvement")
+            elif hardware.vram_gb >= 4.5:
+                tips.append("Enable smaller batch processing (batch_size=4) for 2x speed improvement")
+        
+        # Device-specific WhisperX tips
+        if hardware.device_type == "cuda":
+            if hardware.vram_gb >= 8.0:
+                tips.append("Optimal WhisperX performance: fp16 precision with batch_size=8-16")
+            else:
+                tips.append("Use int8 quantization with smaller batch sizes for optimal memory usage")
+        elif hardware.device_type == "cpu":
+            tips.append("WhisperX CPU performance: Use int8 quantization and batch_size=8 for best results")
+            tips.append("CPU benchmark: ~1m42s with int8 vs 6m58s with OpenAI Whisper")
+        
+        return tips
+    
+    def get_optimal_whisperx_config(self, hardware: HardwareProfile) -> Dict[str, Any]:
+        """Get optimal WhisperX configuration for the given hardware."""
+        requirements = self.MODEL_REQUIREMENTS[ModelSize.WHISPERX_LARGE_V3]
+        
+        config = {
+            "model": "whisperx/large-v3",
+            "precision": "fp16",
+            "quantization": None,
+            "batch_size": 1,
+            "use_batch_processing": False
+        }
+        
+        # Determine optimal precision and quantization
+        if hardware.device_type == "cuda":
+            if hardware.vram_gb >= 6.0:
+                config["precision"] = "fp16"
+                config["batch_size"] = 8 if hardware.vram_gb >= 8.0 else 4
+                config["use_batch_processing"] = True
+            else:
+                config["precision"] = "int8"
+                config["quantization"] = "8bit"
+                config["batch_size"] = 4
+        elif hardware.device_type == "cpu":
+            config["precision"] = "int8"
+            config["quantization"] = "8bit"
+            config["batch_size"] = 8 if hardware.cpu_cores >= 8 else 4
+            config["use_batch_processing"] = True
+        elif hardware.device_type == "mps":
+            config["precision"] = "fp16"
+            config["batch_size"] = 4 if hardware.vram_gb >= 16 else 2
+        
+        # Performance estimates based on benchmarks
+        estimated_performance = self._estimate_whisperx_performance(hardware, config)
+        config["performance_estimate"] = estimated_performance
+        
+        return config
+    
+    def _estimate_whisperx_performance(self, hardware: HardwareProfile, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Estimate WhisperX performance based on hardware and configuration."""
+        requirements = self.MODEL_REQUIREMENTS[ModelSize.WHISPERX_LARGE_V3]
+        
+        # Base performance estimates from benchmarks (13 minutes of audio)
+        base_times = {
+            "openai_whisper_fp16": 143,  # 2m23s baseline
+            "whisperx_fp16_batch1": 63,  # 1m03s
+            "whisperx_fp16_batch8": 17,  # 17s
+            "whisperx_int8_batch1": 59,  # 59s
+            "whisperx_int8_batch8": 16,  # 16s
+            "whisperx_cpu_int8": 102,    # 1m42s
+            "whisperx_cpu_int8_batch8": 51  # 51s
+        }
+        
+        # Determine expected time based on configuration
+        if hardware.device_type == "cuda":
+            if config["precision"] == "fp16":
+                if config["batch_size"] >= 8:
+                    estimated_time = base_times["whisperx_fp16_batch8"]
+                else:
+                    estimated_time = base_times["whisperx_fp16_batch1"]
+            else:  # int8
+                if config["batch_size"] >= 8:
+                    estimated_time = base_times["whisperx_int8_batch8"]
+                else:
+                    estimated_time = base_times["whisperx_int8_batch1"]
+        elif hardware.device_type == "cpu":
+            if config["batch_size"] >= 8:
+                estimated_time = base_times["whisperx_cpu_int8_batch8"]
+            else:
+                estimated_time = base_times["whisperx_cpu_int8"]
+        else:  # mps or other
+            estimated_time = base_times["whisperx_fp16_batch1"]
+        
+        # Scale based on hardware performance score
+        performance_multiplier = 1.0 / max(hardware.overall_performance_score, 0.1)
+        estimated_time = int(estimated_time * performance_multiplier)
+        
+        speedup_vs_openai = base_times["openai_whisper_fp16"] / estimated_time
+        
+        return {
+            "estimated_time_seconds": estimated_time,
+            "speedup_vs_openai_whisper": round(speedup_vs_openai, 1),
+            "memory_efficiency": requirements.memory_efficiency,
+            "recommended_for_production": speedup_vs_openai >= 2.0
+        }
     
     def get_hardware_summary(self) -> Dict[str, Any]:
         """Get a summary of detected hardware capabilities."""

@@ -178,6 +178,8 @@ def _display_model_comparison(detector, hardware, priority, audio_duration) -> N
             model_display_name = "large-v3"
         elif model_display_name == "whisper-large-v3-turbo":
             model_display_name = "turbo"
+        elif model.value == "whisperx/large-v3":
+            model_display_name = "whisperX/large-v3"
         elif model_display_name.startswith("whisper-"):
             model_display_name = model_display_name.replace("whisper-", "")
         

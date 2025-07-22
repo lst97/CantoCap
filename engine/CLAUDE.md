@@ -144,7 +144,10 @@ All business operations flow through use cases:
 
 ### Phase Development
 - **Phase 1** (Complete): Basic Cantonese transcription to SRT
-- **Phase 2** (Current): Speaker diarization, music detection, LLM-based style conversion, character set conversion
+- **Phase 2** (Complete): Speaker diarization, music detection, LLM-based style conversion, character set conversion
+- **Phase 3** (Complete): Polishing, Localization, and Error Handling
+- **Phase 4** (Current): Distribution and Future-Proofing
+- **Phase 5** (Future): Comprehansive unit, integration, and end-to-end testing and CI/CD
 
 ## Testing Strategy
 

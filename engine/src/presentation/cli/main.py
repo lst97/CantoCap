@@ -192,7 +192,7 @@ def main(
 To eliminate the time-consuming and tedious process of creating subtitles, allowing creators to focus on their content specially for Hong Kong and Cantonese community.
 License: Free and open-source. Use your own API key. Paid services may be available in the future for users how want more seamless experience.
 
-整字幕嘥時間又麻煩, 純粹想 Youtuber 可以專心搞好啲片, 特別為香港同講廣東話嘅朋友整。
+整字幕嘥時間又麻煩, 純粹想 YouTuber 可以專心搞好啲片, 特別為香港同講廣東話嘅朋友整。
 授權: 費用全免, 而且係開源嘅。用返你自己條 API Key 就得。將來可能會出收費服務, 畀啲手殘想撳個掣就用到嘅朋友仔。
 
 [bold]Author:[/bold] lst97 - SIO TOU (Nelson) LAI

@@ -216,11 +216,6 @@ class VideoCompressionService:
             local_ffmpeg = project_root / "lib" / "ffmpeg" / "bin" / "win" / "ffmpeg.exe"
             if local_ffmpeg.exists():
                 return str(local_ffmpeg)
-        else:
-            # Unix/Linux/Mac local installation
-            local_ffmpeg = project_root / "lib" / "ffmpeg"
-            if local_ffmpeg.exists():
-                return str(local_ffmpeg)
         
         return None
     

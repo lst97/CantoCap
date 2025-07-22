@@ -30,28 +30,74 @@ An advanced CLI tool for generating accurate Cantonese subtitles from audio/vide
 
 ### Prerequisites
 
-- Python 3.9 <= 3.12
+- Python 3.9 - 3.12
 - FFmpeg (for audio extraction)
 - Google Gemini API key (optional, for AI-powered features)
 - CUDA-compatible GPU (optional, for faster processing)
 
-### Install Dependencies
+### Method 1: Package Installation (Recommended)
 
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd cantocap
+cd canton-cap/engine
 
 # Create virtual environment
-python -m venv .venv
+python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install dependencies
+# Install CantoCap Engine package with all dependencies
+pip install -e .
+
+# Optional: Install with GPU support for CUDA acceleration
+pip install -e .[gpu]
+
+# Optional: Install development dependencies
+pip install -e .[dev]
+```
+
+### Method 2: Legacy Installation
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd canton-cap/engine
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies using requirements.txt
 pip install -r requirements.txt
 
-# For Gemini Flash AI features (optional)
-pip install -r requirements-gemini.txt
+# Install in development mode
+pip install -e .
 ```
+
+### Method 3: Development Setup with Makefile
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd canton-cap/engine
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Complete development setup (installs package + dev dependencies)
+make dev-setup
+```
+
+### Installation Notes
+
+- **Package Name**: The project is now packaged as `cantocap-engine` with the CLI command `cantocap-engine`
+- **Optional Dependencies**: 
+  - `[gpu]` - Installs CUDA-enabled PyTorch for GPU acceleration
+  - `[dev]` - Installs development tools (pytest, black, mypy, etc.)
+  - `[test]` - Installs only testing dependencies
+- **Python Version**: Requires Python 3.9-3.12 (recommended: Python 3.11+)
+- **Virtual Environment**: Highly recommended to avoid dependency conflicts
 
 ### Install FFmpeg
 
@@ -77,46 +123,46 @@ sudo apt install ffmpeg
 
 ```bash
 # Generate subtitles for a video file
-cantocap video.mp4
+cantocap-engine video.mp4
 
 # Specify custom output path
-cantocap video.mp4 --output subtitles.srt
+cantocap-engine video.mp4 --output subtitles.srt
 
 # Use different language (if needed)
-cantocap audio.wav --language zh
+cantocap-engine audio.wav --language zh
 
 # Use specific Whisper model
-cantocap video.mkv --model openai/whisper-medium
+cantocap-engine video.mkv --model openai/whisper-medium
 
 # Prioritize speed over quality
-cantocap video.mp4 --priority speed
+cantocap-engine video.mp4 --priority speed
 
 # Prioritize quality over speed
-cantocap video.mp4 --priority quality
+cantocap-engine video.mp4 --priority quality
 ```
 
 ### AI-Enhanced Usage
 
 ```bash
 # Enable automatic speaker identification and AI refinement
-cantocap video.mp4 --speakers --gemini-key YOUR_API_KEY
+cantocap-engine video.mp4 --speakers --gemini-key YOUR_API_KEY
 
 # Convert to formal written Cantonese style
-cantocap video.mp4 --written --gemini-key YOUR_API_KEY
+cantocap-engine video.mp4 --written --gemini-key YOUR_API_KEY
 
 # Full AI-powered processing with all features
-cantocap movie.mkv --speakers --written --music --gemini-key YOUR_API_KEY
+cantocap-engine movie.mkv --speakers --written --music --gemini-key YOUR_API_KEY
 
 # Use environment variable for API key
 echo "GEMINI_API_KEY=your_key_here" > .env
-cantocap video.mp4 --speakers --written
+cantocap-engine video.mp4 --speakers --written
 
 # Use custom terminology for mixed language content
-cantocap video.mp4 --terminology-config examples/terminology_config.json
+cantocap-engine video.mp4 --terminology-config examples/terminology_config.json
 
 # Check hardware capabilities
-cantocap hardware
-cantocap hardware --priority speed
+cantocap-engine hardware
+cantocap-engine hardware --priority speed
 ```
 
 ### Command Options
@@ -359,13 +405,13 @@ Create a JSON configuration file (example: `examples/terminology_config.json`) w
 
 ```bash
 # Use custom terminology with written style (converts English to Chinese)
-cantocap video.mp4 --written --terminology-config examples/terminology_config.json
+cantocap-engine video.mp4 --written --terminology-config examples/terminology_config.json
 
 # Use custom terminology with colloquial style (preserves natural speech)
-cantocap video.mp4 --terminology-config examples/terminology_config.json
+cantocap-engine video.mp4 --terminology-config examples/terminology_config.json
 
 # Combined with AI features
-cantocap video.mp4 --speakers --terminology-config my_terms.json --gemini-key YOUR_KEY
+cantocap-engine video.mp4 --speakers --terminology-config my_terms.json --gemini-key YOUR_KEY
 ```
 
 ### Terminology Categories
@@ -390,14 +436,14 @@ cantocap video.mp4 --speakers --terminology-config my_terms.json --gemini-key YO
 **Model Selection Not Working:**
 ```bash
 # Ensure you're using the correct flags
-cantocap video.mp4 --model openai/whisper-small  # Specific model
-cantocap video.mp4 --priority speed              # Priority-based selection
+cantocap-engine video.mp4 --model openai/whisper-small  # Specific model
+cantocap-engine video.mp4 --priority speed              # Priority-based selection
 ```
 
 **Gemini Features Not Working:**
 ```bash
 # Check API key configuration
-cantocap video.mp4 --speakers --gemini-key YOUR_KEY
+cantocap-engine video.mp4 --speakers --gemini-key YOUR_KEY
 
 # Verify environment setup
 echo $GEMINI_API_KEY
@@ -407,22 +453,22 @@ cat .env
 **Performance Issues:**
 ```bash
 # Check hardware capabilities
-cantocap hardware
+cantocap-engine hardware
 
 # Use faster model for speed
-cantocap video.mp4 --priority speed
+cantocap-engine video.mp4 --priority speed
 
 # Reduce video quality for AI processing
-cantocap video.mp4 --speakers --video-quality 360p
+cantocap-engine video.mp4 --speakers --video-quality 360p
 ```
 
 **Large File Processing:**
 ```bash
 # Adjust chunk duration for very large files
-cantocap large_video.mp4 --max-chunk-duration 10
+cantocap-engine large_video.mp4 --max-chunk-duration 10
 
 # Monitor processing with verbose output
-cantocap video.mp4 --verbose
+cantocap-engine video.mp4 --verbose
 ```
 
 **Terminology Configuration Issues:**
@@ -431,13 +477,13 @@ cantocap video.mp4 --verbose
 cat examples/terminology_config.json | python -m json.tool
 
 # Test with specific terminology file
-cantocap video.mp4 --terminology-config my_terms.json --verbose
+cantocap-engine video.mp4 --terminology-config my_terms.json --verbose
 ```
 
 ### Getting Help
 
-- Use `cantocap --help` for command reference
-- Use `cantocap hardware` to check system capabilities
+- Use `cantocap-engine --help` for command reference
+- Use `cantocap-engine hardware` to check system capabilities
 - Enable `--verbose` for detailed processing information
 - Check `.env` file configuration for API keys
 
