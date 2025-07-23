@@ -139,6 +139,12 @@ def generate_command(
         help="Path to JSON file with custom terminology and language style rules"
     ),
     
+    ffmpeg_path: Optional[str] = typer.Option(
+        None,
+        "--ffmpeg-path",
+        help="Custom path to FFmpeg executable (overrides system PATH)"
+    ),
+    
     verbose: bool = typer.Option(
         False,
         "--verbose",
@@ -259,7 +265,7 @@ def generate_command(
         
         # Initialize container and get use case
         def init_services():
-            container = Container()
+            container = Container(ffmpeg_path=ffmpeg_path)
             # Pre-configure whisper service with correct model/priority
             container.get_whisper_service(model_name=model, priority=priority)
             return container.get_enhanced_generate_subtitles_use_case(
@@ -517,7 +523,7 @@ def _execute_processing_steps(command, use_case, verbose: bool, model: Optional[
         
         # Try to configure Whisper service for progress tracking
         # Use the same container that was used for the use case
-        temp_container = Container()
+        temp_container = Container(ffmpeg_path=ffmpeg_path)
         whisper_service = temp_container.get_whisper_service(model_name=model, priority=priority)
         setup_whisper_progress_callback(whisper_service, unified_manager)
         

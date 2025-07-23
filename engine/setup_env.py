@@ -12,11 +12,43 @@ from pathlib import Path
 
 
 # Configuration
-PYTHON_VERSION = "3.12"
+PYTHON_VERSION = "3.12"  # Recommended version
 REQUIRED_PYTHON_MIN = (3, 9)
-FFMPEG_WINDOWS_URL = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+REQUIRED_PYTHON_MAX = (3, 12)
+FFMPEG_URLS = {
+    "win": {
+        "amd64": "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
+        "arm64": "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"  # Same for now
+    },
+    "linux": {
+        "amd64": "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz",
+        "arm64": "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz"
+    },
+    "macos": {
+        "amd64": "https://evermeet.cx/ffmpeg/getrelease/zip",
+        "arm64": "https://evermeet.cx/ffmpeg/getrelease/zip"
+    }
+}
+
 LIB_DIR = Path("lib")
-FFMPEG_WINDOWS_DIR = LIB_DIR / "ffmpeg" / "bin" / "win"
+
+def get_ffmpeg_dir():
+    """Get FFmpeg directory based on system and architecture."""
+    system = platform.system().lower()
+    if system == "windows":
+        system = "win"
+    elif system == "darwin":
+        system = "macos"
+    
+    machine = platform.machine().lower()
+    if machine in ["x86_64", "amd64"]:
+        arch = "amd64"
+    elif machine in ["arm64", "aarch64"]:
+        arch = "arm64"
+    else:
+        arch = "amd64"  # Default fallback
+    
+    return LIB_DIR / "ffmpeg" / "bin" / system / arch
 
 
 def print_status(message, status="INFO"):
@@ -36,8 +68,17 @@ def check_python_version():
     current_version = sys.version_info[:2]
     if current_version < REQUIRED_PYTHON_MIN:
         print_status(f"Python {REQUIRED_PYTHON_MIN[0]}.{REQUIRED_PYTHON_MIN[1]}+ required, got {current_version[0]}.{current_version[1]}", "ERROR")
+        suggest_pyenv_installation()
         sys.exit(1)
-    print_status(f"Python version {current_version[0]}.{current_version[1]} ✓", "SUCCESS")
+    elif current_version > REQUIRED_PYTHON_MAX:
+        print_status(f"Python version {current_version[0]}.{current_version[1]} detected, but only versions ≤{REQUIRED_PYTHON_MAX[0]}.{REQUIRED_PYTHON_MAX[1]} are supported", "WARNING")
+        print_status(f"Recommended: Python {PYTHON_VERSION}", "INFO")
+        suggest_pyenv_installation()
+        sys.exit(1)
+    elif current_version < (3, 12):
+        print_status(f"Python version {current_version[0]}.{current_version[1]} ✓ (Python {PYTHON_VERSION} recommended)", "SUCCESS")
+    else:
+        print_status(f"Python version {current_version[0]}.{current_version[1]} ✓", "SUCCESS")
 
 
 def run_command(command, shell=False, capture_output=True):
@@ -60,6 +101,31 @@ def run_command(command, shell=False, capture_output=True):
     except FileNotFoundError:
         print_status(f"Command not found: {command[0] if isinstance(command, list) else command.split()[0]}", "ERROR")
         return None
+
+
+def suggest_pyenv_installation():
+    """Suggest pyenv installation for managing Python versions."""
+    print_status("", "INFO")
+    print_status("💡 Tip: Use pyenv to manage Python versions easily", "INFO")
+    print_status("Installation instructions:", "INFO")
+    
+    system = platform.system().lower()
+    if system == "darwin":  # macOS
+        print_status("  brew install pyenv", "INFO")
+        print_status("  echo 'export PATH=\"$HOME/.pyenv/bin:$PATH\"' >> ~/.zshrc", "INFO")
+        print_status("  echo 'eval \"$(pyenv init --path)\"' >> ~/.zshrc", "INFO")
+    elif system == "linux":
+        print_status("  curl https://pyenv.run | bash", "INFO")
+        print_status("  echo 'export PATH=\"$HOME/.pyenv/bin:$PATH\"' >> ~/.bashrc", "INFO")
+        print_status("  echo 'eval \"$(pyenv init --path)\"' >> ~/.bashrc", "INFO")
+    elif system == "windows":
+        print_status("  Install pyenv-win: https://github.com/pyenv-win/pyenv-win", "INFO")
+        print_status("  Or use Python.org installer directly", "INFO")
+    
+    print_status("", "INFO")
+    print_status(f"After installing pyenv, run:", "INFO")
+    print_status(f"  pyenv install {PYTHON_VERSION}", "INFO")
+    print_status(f"  pyenv local {PYTHON_VERSION}", "INFO")
 
 
 def check_command_exists(command):
@@ -147,38 +213,72 @@ def install_build_tools(venv_path):
             print_status(f"Installed {tool} ✓", "SUCCESS")
 
 
-def install_ffmpeg():
-    """Install FFmpeg based on the operating system."""
+def get_system_info():
+    """Get standardized system and architecture info."""
     system = platform.system().lower()
-    
-    print_status(f"Installing FFmpeg for {system}...", "INFO")
-    
     if system == "windows":
-        return install_ffmpeg_windows()
-    elif system in ["darwin", "linux"]:
-        return install_ffmpeg_unix(system)
+        system = "win"
+    elif system == "darwin":
+        system = "macos"
+    
+    machine = platform.machine().lower()
+    if machine in ["x86_64", "amd64"]:
+        arch = "amd64"
+    elif machine in ["arm64", "aarch64"]:
+        arch = "arm64"
+    else:
+        arch = "amd64"  # Default fallback
+        print_status(f"Unknown architecture {machine}, defaulting to amd64", "WARNING")
+    
+    return system, arch
+
+
+def install_ffmpeg():
+    """Install FFmpeg based on the operating system and architecture."""
+    system, arch = get_system_info()
+    
+    print_status(f"Installing FFmpeg for {system} {arch}...", "INFO")
+    
+    # Check if FFmpeg is already in PATH
+    if check_command_exists("ffmpeg"):
+        print_status("FFmpeg already installed in system PATH ✓", "SUCCESS")
+        return True
+    
+    # Check if FFmpeg is in our lib directory
+    ffmpeg_dir = get_ffmpeg_dir()
+    ffmpeg_exe = ffmpeg_dir / ("ffmpeg.exe" if system == "win" else "ffmpeg")
+    if ffmpeg_exe.exists():
+        print_status(f"FFmpeg already installed in {ffmpeg_dir} ✓", "SUCCESS")
+        return True
+    
+    # Try to download and install FFmpeg
+    if system == "win":
+        return download_ffmpeg_windows(ffmpeg_dir, arch)
+    elif system == "macos":
+        return install_ffmpeg_macos(ffmpeg_dir, arch)
+    elif system == "linux":
+        return download_ffmpeg_linux(ffmpeg_dir, arch)
     else:
         print_status(f"Unsupported operating system: {system}", "ERROR")
         return False
 
 
-def install_ffmpeg_windows():
-    """Install FFmpeg on Windows by downloading and extracting."""
+def download_ffmpeg_windows(target_dir: Path, arch: str):
+    """Download and install FFmpeg on Windows."""
+    import tarfile
+    
     try:
         # Create directories
-        FFMPEG_WINDOWS_DIR.mkdir(parents=True, exist_ok=True)
+        target_dir.mkdir(parents=True, exist_ok=True)
         
-        # Check if FFmpeg already exists
-        ffmpeg_exe = FFMPEG_WINDOWS_DIR / "ffmpeg.exe"
-        if ffmpeg_exe.exists():
-            print_status("FFmpeg already installed on Windows ✓", "SUCCESS")
-            return True
+        ffmpeg_exe = target_dir / "ffmpeg.exe"
+        url = FFMPEG_URLS["win"][arch]
         
         print_status("Downloading FFmpeg for Windows...", "INFO")
         
         # Download FFmpeg
         zip_path = LIB_DIR / "ffmpeg-release-essentials.zip"
-        urllib.request.urlretrieve(FFMPEG_WINDOWS_URL, zip_path)
+        urllib.request.urlretrieve(url, zip_path)
         
         print_status("Extracting FFmpeg...", "INFO")
         
@@ -192,7 +292,7 @@ def install_ffmpeg_windows():
                     if file_info.filename.endswith('.exe'):
                         # Extract to our bin directory
                         filename = Path(file_info.filename).name
-                        with zip_ref.open(file_info) as source, open(FFMPEG_WINDOWS_DIR / filename, "wb") as target:
+                        with zip_ref.open(file_info) as source, open(target_dir / filename, "wb") as target:
                             target.write(source.read())
         
         # Clean up zip file
@@ -200,7 +300,7 @@ def install_ffmpeg_windows():
         
         # Verify installation
         if ffmpeg_exe.exists():
-            print_status("FFmpeg installed successfully on Windows ✓", "SUCCESS")
+            print_status(f"FFmpeg installed successfully to {target_dir} ✓", "SUCCESS")
             return True
         else:
             print_status("FFmpeg installation failed", "ERROR")
@@ -208,6 +308,100 @@ def install_ffmpeg_windows():
             
     except Exception as e:
         print_status(f"Failed to install FFmpeg on Windows: {e}", "ERROR")
+        return False
+
+
+def download_ffmpeg_linux(target_dir: Path, arch: str):
+    """Download and install FFmpeg on Linux."""
+    import tarfile
+    
+    try:
+        # Create directories
+        target_dir.mkdir(parents=True, exist_ok=True)
+        
+        ffmpeg_exe = target_dir / "ffmpeg"
+        url = FFMPEG_URLS["linux"][arch]
+        
+        print_status("Downloading FFmpeg for Linux...", "INFO")
+        
+        # Download FFmpeg
+        tar_path = LIB_DIR / f"ffmpeg-{arch}-static.tar.xz"
+        urllib.request.urlretrieve(url, tar_path)
+        
+        print_status("Extracting FFmpeg...", "INFO")
+        
+        # Extract FFmpeg
+        with tarfile.open(tar_path, 'r:xz') as tar_ref:
+            for member in tar_ref.getmembers():
+                if member.name.endswith('/ffmpeg') or member.name.endswith('\\ffmpeg'):
+                    # Extract to our bin directory
+                    member.name = 'ffmpeg'  # Rename to just 'ffmpeg'
+                    tar_ref.extract(member, target_dir)
+                    # Make executable
+                    ffmpeg_exe.chmod(0o755)
+                    break
+        
+        # Clean up tar file
+        tar_path.unlink()
+        
+        # Verify installation
+        if ffmpeg_exe.exists():
+            print_status(f"FFmpeg installed successfully to {target_dir} ✓", "SUCCESS")
+            return True
+        else:
+            print_status("FFmpeg installation failed", "ERROR")
+            return False
+            
+    except Exception as e:
+        print_status(f"Failed to install FFmpeg on Linux: {e}", "ERROR")
+        # Fallback to package manager
+        print_status("Falling back to package manager installation...", "INFO")
+        return install_ffmpeg_unix("linux")
+
+
+def install_ffmpeg_macos(target_dir: Path, arch: str):
+    """Install FFmpeg on macOS, preferring Homebrew."""
+    # First try Homebrew
+    if check_command_exists("brew"):
+        print_status("Installing FFmpeg via Homebrew...", "INFO")
+        if run_command("brew install ffmpeg", capture_output=False):
+            print_status("FFmpeg installed successfully via Homebrew ✓", "SUCCESS")
+            return True
+    
+    # If Homebrew fails, try direct download
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        
+        ffmpeg_exe = target_dir / "ffmpeg"
+        url = FFMPEG_URLS["macos"][arch]
+        
+        print_status("Downloading FFmpeg for macOS...", "INFO")
+        
+        # Download FFmpeg
+        zip_path = LIB_DIR / "ffmpeg-macos.zip"
+        urllib.request.urlretrieve(url, zip_path)
+        
+        print_status("Extracting FFmpeg...", "INFO")
+        
+        # Extract FFmpeg
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extract('ffmpeg', target_dir)
+            # Make executable
+            ffmpeg_exe.chmod(0o755)
+        
+        # Clean up zip file
+        zip_path.unlink()
+        
+        # Verify installation
+        if ffmpeg_exe.exists():
+            print_status(f"FFmpeg installed successfully to {target_dir} ✓", "SUCCESS")
+            return True
+        else:
+            print_status("FFmpeg installation failed", "ERROR")
+            return False
+            
+    except Exception as e:
+        print_status(f"Failed to install FFmpeg on macOS: {e}", "ERROR")
         return False
 
 
@@ -350,9 +544,11 @@ def setup_environment():
     print_status("To build the package:", "INFO")
     print_status("  python -m build", "INFO")
     
-    # Update PATH for Windows FFmpeg
-    if platform.system().lower() == "windows" and FFMPEG_WINDOWS_DIR.exists():
-        print_status("Note: FFmpeg installed to lib/ffmpeg/bin/win/", "INFO")
+    # Update PATH for local FFmpeg installation
+    ffmpeg_dir = get_ffmpeg_dir()
+    if ffmpeg_dir.exists():
+        system, arch = get_system_info()
+        print_status(f"Note: FFmpeg installed to {ffmpeg_dir}", "INFO")
         print_status("You may need to add this directory to your PATH", "INFO")
 
 
@@ -363,10 +559,19 @@ def main():
     parser = argparse.ArgumentParser(description="CantoCap Engine Environment Setup")
     parser.add_argument("--dev", action="store_true", help="Install development dependencies")
     parser.add_argument("--build-only", action="store_true", help="Build package instead of installing in dev mode")
+    parser.add_argument("--ffmpeg-only", action="store_true", help="Install FFmpeg only")
     
     args = parser.parse_args()
     
-    if args.build_only:
+    if args.ffmpeg_only:
+        print_status("Installing FFmpeg only...", "INFO")
+        if install_ffmpeg():
+            print_status("FFmpeg installation completed successfully ✓", "SUCCESS")
+            sys.exit(0)
+        else:
+            print_status("FFmpeg installation failed", "ERROR")
+            sys.exit(1)
+    elif args.build_only:
         print_status("Building package only...", "INFO")
         venv_path = Path("venv")
         if not venv_path.exists():

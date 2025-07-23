@@ -1,7 +1,20 @@
 {
   "permissions": {
     "allow": [
-      "mcp__sequential-thinking__sequentialthinking"
+      "mcp__sequential-thinking__sequentialthinking",
+      "Bash(flutter pub run build_runner build:*)",
+      "Bash(flutter pub:*)",
+      "Bash(ls:*)",
+      "Bash(python:*)",
+      "Bash(flutter build:*)",
+      "Bash(bash:*)",
+      "Bash(/dev/null)",
+      "Bash(dart:*)",
+      "Bash(rm:*)",
+      "Bash(find:*)",
+      "Bash(echo:*)",
+      "Bash(sudo rm:*)",
+      "Bash(mkdir:*)"
     ],
     "deny": []
   }

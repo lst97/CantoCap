@@ -49,8 +49,13 @@ except ImportError:
 class Container:
     """Dependency injection container for CantoCap application."""
     
-    def __init__(self):
-        """Initialize container with lazy-loaded singletons."""
+    def __init__(self, ffmpeg_path: Optional[str] = None):
+        """Initialize container with lazy-loaded singletons.
+        
+        Args:
+            ffmpeg_path: Optional custom path to FFmpeg executable
+        """
+        self._custom_ffmpeg_path = ffmpeg_path
         self._ffmpeg_service: Optional[FFmpegService] = None
         self._whisper_service: Optional[WhisperService] = None
         self._whisperx_service: Optional[WhisperXService] = None
@@ -93,8 +98,11 @@ class Container:
     def get_ffmpeg_service(self) -> FFmpegService:
         """Get FFmpeg service instance."""
         if self._ffmpeg_service is None:
-            # Look for local ffmpeg.exe first
-            ffmpeg_path = self._find_local_ffmpeg()
+            # Use custom path if provided, otherwise look for local ffmpeg
+            if self._custom_ffmpeg_path:
+                ffmpeg_path = self._custom_ffmpeg_path
+            else:
+                ffmpeg_path = self._find_local_ffmpeg()
             
             self._ffmpeg_service = FFmpegService(ffmpeg_path=ffmpeg_path)
         return self._ffmpeg_service

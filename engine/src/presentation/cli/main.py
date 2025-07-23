@@ -112,6 +112,12 @@ def main(
         help="Path to JSON file with custom terminology and language style rules"
     ),
     
+    ffmpeg_path: Optional[str] = typer.Option(
+        None,
+        "--ffmpeg-path",
+        help="Custom path to FFmpeg executable (overrides system PATH)"
+    ),
+    
     version: bool = typer.Option(
         False,
         "--version",
@@ -247,6 +253,7 @@ License: Free and open-source. Use your own API key. Paid services may be availa
         max_chunk_duration=max_chunk_duration,
         video_quality=video_quality,
         terminology_config=terminology_config,
+        ffmpeg_path=ffmpeg_path,
         verbose=verbose,
         ipc_mode=ipc_mode,
         subtitle=subtitle,
