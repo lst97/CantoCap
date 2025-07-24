@@ -27,12 +27,12 @@ class WhisperTranscriptionRepository(ITranscriptionRepository):
         """
         self.whisper_service = whisper_service
     
-    def load_model(self, model_name: str = "openai/whisper-large-v3", language: str = "zh") -> bool:
+    def load_model(self, model_name: Optional[str] = None, language: str = "zh") -> bool:
         """
         Load Whisper model.
         
         Args:
-            model_name: Model name/path to load (e.g., "openai/whisper-large-v3" or "whisperX/large-v3")
+            model_name: Model name/path to load (e.g., "openai/whisper-large-v3", "whisperX/large-v3", or short names like "small")
             language: Language code for WhisperX (eliminates auto-detection warning)
             
         Returns:
@@ -45,6 +45,7 @@ class WhisperTranscriptionRepository(ITranscriptionRepository):
             return self.whisper_service.load_model(language=language)
         else:
             # Standard WhisperService: load_model() takes optional model_name parameter
+            # Model name should already be in full format (validation enforces this)
             return self.whisper_service.load_model(model_name)
     
     def transcribe_audio(

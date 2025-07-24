@@ -14,7 +14,12 @@
       "Bash(find:*)",
       "Bash(echo:*)",
       "Bash(sudo rm:*)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(./venv/bin/python -m pytest tests/unit/test_argument_validator.py -v)",
+      "Bash(/Users/lst97/Desktop/Work/Code/Projects/canton-cap/engine/venv/bin/python -m pytest tests/unit/test_argument_validator.py -v)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__get-library-docs",
+      "Bash(source:*)"
     ],
     "deny": []
   }

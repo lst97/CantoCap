@@ -1,7 +1,6 @@
 """Dependency injection container for CantoCap."""
 
 import os
-import platform
 from pathlib import Path
 from typing import Optional
 
@@ -49,11 +48,11 @@ except ImportError:
 class Container:
     """Dependency injection container for CantoCap application."""
     
-    def __init__(self, ffmpeg_path: Optional[str] = None):
+    def __init__(self, ffmpeg_path: str):
         """Initialize container with lazy-loaded singletons.
         
         Args:
-            ffmpeg_path: Optional custom path to FFmpeg executable
+            ffmpeg_path: Path to FFmpeg executable (required)
         """
         self._custom_ffmpeg_path = ffmpeg_path
         self._ffmpeg_service: Optional[FFmpegService] = None
@@ -98,33 +97,10 @@ class Container:
     def get_ffmpeg_service(self) -> FFmpegService:
         """Get FFmpeg service instance."""
         if self._ffmpeg_service is None:
-            # Use custom path if provided, otherwise look for local ffmpeg
-            if self._custom_ffmpeg_path:
-                ffmpeg_path = self._custom_ffmpeg_path
-            else:
-                ffmpeg_path = self._find_local_ffmpeg()
-            
-            self._ffmpeg_service = FFmpegService(ffmpeg_path=ffmpeg_path)
+            # Use the required ffmpeg path
+            self._ffmpeg_service = FFmpegService(ffmpeg_path=self._custom_ffmpeg_path)
         return self._ffmpeg_service
     
-    def _find_local_ffmpeg(self) -> Optional[str]:
-        """Find local ffmpeg executable in project lib directory."""
-        # Get project root directory (assuming container.py is in src/cantocap/presentation/di)
-        project_root = Path(__file__).resolve().parent.parent.parent.parent
-
-        # Define potential paths for ffmpeg
-        ffmpeg_paths = []
-        if platform.system() == "Windows":
-            # Windows-specific path provided by user
-            ffmpeg_paths.append(project_root / "lib" / "ffmpeg" / "bin" / "win" / "ffmpeg.exe")
-        
-        # Check each path for existence
-        for ffmpeg_path in ffmpeg_paths:
-            if ffmpeg_path.exists():
-                return str(ffmpeg_path.absolute())
-
-        # Fallback to system PATH
-        return None
     
     def get_whisper_service(self, model_name: Optional[str] = None, priority: str = "balanced"):
         """
@@ -136,12 +112,10 @@ class Container:
             priority: "speed", "quality", or "balanced" for auto-selection
             
         Returns:
-            WhisperService or WhisperXService depending on model_name
+            WhisperService or WhisperXService depending on model_name or auto-selected model
         """
-        # Determine if we should use WhisperX
-        use_whisperx = model_name and model_name.startswith("whisperX/")
-        
-        if use_whisperx:
+        # Handle explicit WhisperX model specification
+        if model_name and model_name.startswith("whisperX/"):
             # Extract the actual model name from whisperX/model-name format
             actual_model = model_name.replace("whisperX/", "")
             
@@ -159,25 +133,49 @@ class Container:
                     model_name=actual_model
                 )
             return self._whisperx_service
-        else:
-            # Use standard Whisper service
-            # Check if we need to create a new service with different parameters
-            if (self._whisper_service is None or 
-                getattr(self, '_whisper_model_name', None) != model_name or
-                getattr(self, '_whisper_priority', None) != priority):
+        
+        # Handle standard Whisper models and auto-selection
+        # Create a unique cache key for service comparison
+        cache_key = f"{model_name}_{priority}"
+        
+        if (self._whisper_service is None or 
+            getattr(self, '_whisper_cache_key', None) != cache_key):
+            
+            # Store cache key for comparison
+            self._whisper_cache_key = cache_key
+            
+            # Enable auto-selection when model_name is None
+            auto_select = model_name is None
+            
+            if not WhisperService:
+                raise RuntimeError("WhisperService not available. Please check installation.")
+            
+            # Create WhisperService first to see what model gets auto-selected
+            temp_service = WhisperService(
+                model_name=model_name,
+                auto_select_model=auto_select,
+                priority=priority
+            )
+            
+            # If auto-selection chose a WhisperX model, create WhisperXService instead
+            if auto_select and temp_service.model_name and temp_service.model_name.startswith("whisperx/"):
+                actual_model = temp_service.model_name.replace("whisperx/", "")
                 
-                # Store parameters for comparison
-                self._whisper_model_name = model_name
-                self._whisper_priority = priority
-                
-                # Enable auto-selection by default, allow manual override
-                auto_select = model_name is None
-                self._whisper_service = WhisperService(
-                    model_name=model_name,
-                    auto_select_model=auto_select,
-                    priority=priority
-                )
-            return self._whisper_service
+                if not WhisperXService:
+                    # WhisperX not available, keep the WhisperService but log warning
+                    import warnings
+                    warnings.warn("WhisperX model was recommended but WhisperX is not installed. Using standard Whisper instead.")
+                    self._whisper_service = temp_service
+                else:
+                    # Create WhisperXService with the auto-selected model
+                    self._whisperx_model_name = actual_model
+                    self._whisperx_service = WhisperXService(model_name=actual_model)
+                    return self._whisperx_service
+            else:
+                # Use the standard WhisperService
+                self._whisper_service = temp_service
+        
+        return self._whisper_service
     
     def get_audio_repository(self) -> FFmpegAudioRepository:
         """Get audio repository instance."""

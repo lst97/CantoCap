@@ -86,8 +86,15 @@ class FFmpegService:
             return True
             
         except ffmpeg.Error as e:
-            error_msg = f"FFmpeg error: {e.stderr.decode() if e.stderr else str(e)}"
-            raise subprocess.CalledProcessError(e.returncode, "ffmpeg", error_msg)
+            # Extract error details safely
+            stderr_msg = ""
+            if hasattr(e, 'stderr') and e.stderr:
+                stderr_msg = e.stderr.decode() if isinstance(e.stderr, bytes) else str(e.stderr)
+            
+            error_msg = f"FFmpeg error: {stderr_msg}" if stderr_msg else f"FFmpeg error: {str(e)}"
+            returncode = getattr(e, 'returncode', 1)  # Default to 1 if missing
+            
+            raise subprocess.CalledProcessError(returncode, "ffmpeg", error_msg)
     
     def get_media_info(self, file_path: str) -> Dict[str, Any]:
         """
@@ -105,8 +112,18 @@ class FFmpegService:
         try:
             # Use custom ffprobe path if custom ffmpeg is specified
             if self.ffmpeg_path and self.ffmpeg_path != shutil.which("ffmpeg"):
-                # Assume ffprobe.exe is in the same directory as ffmpeg.exe
-                ffprobe_path = self.ffmpeg_path.replace("ffmpeg.exe", "ffprobe.exe")
+                # Derive ffprobe path from ffmpeg path (cross-platform)
+                ffmpeg_dir = os.path.dirname(self.ffmpeg_path)
+                ffmpeg_basename = os.path.basename(self.ffmpeg_path)
+                
+                # Handle both Windows (.exe) and Unix (no extension) executables
+                if ffmpeg_basename.endswith('.exe'):
+                    ffprobe_name = ffmpeg_basename.replace('ffmpeg.exe', 'ffprobe.exe')
+                else:
+                    ffprobe_name = ffmpeg_basename.replace('ffmpeg', 'ffprobe')
+                
+                ffprobe_path = os.path.join(ffmpeg_dir, ffprobe_name)
+                
                 if os.path.exists(ffprobe_path):
                     probe = ffmpeg.probe(file_path, cmd=ffprobe_path)
                 else:
@@ -116,8 +133,15 @@ class FFmpegService:
                 probe = ffmpeg.probe(file_path)
             return probe
         except ffmpeg.Error as e:
-            error_msg = f"FFprobe error: {e.stderr.decode() if e.stderr else str(e)}"
-            raise subprocess.CalledProcessError(e.returncode, "ffprobe", error_msg)
+            # Extract error details safely
+            stderr_msg = ""
+            if hasattr(e, 'stderr') and e.stderr:
+                stderr_msg = e.stderr.decode() if isinstance(e.stderr, bytes) else str(e.stderr)
+            
+            error_msg = f"FFprobe error: {stderr_msg}" if stderr_msg else f"FFprobe error: {str(e)}"
+            returncode = getattr(e, 'returncode', 1)  # Default to 1 if missing
+            
+            raise subprocess.CalledProcessError(returncode, "ffprobe", error_msg)
     
     def _get_media_info_fallback(self, file_path: str) -> Dict[str, Any]:
         """

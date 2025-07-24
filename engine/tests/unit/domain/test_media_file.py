@@ -4,8 +4,8 @@ import pytest
 import tempfile
 import os
 
-from cantocap.domain.entities import MediaFile
-from cantocap.domain.value_objects import FilePath
+from src.domain.entities import MediaFile
+from src.domain.value_objects import FilePath
 
 
 class TestMediaFile:

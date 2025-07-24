@@ -1,10 +1,13 @@
 """Transcription refinement service for converting spoken audio to written text."""
 
 from dataclasses import dataclass
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
 import re
 import time
+import json
+import os
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 try:
     import google.generativeai as genai
@@ -14,6 +17,8 @@ except ImportError:
 
 from ...domain.value_objects import FilePath
 from ...application.services.terminology_config_service import TerminologyConfigService
+from ..utils.llm_text_cleaning_util import GeminiResponseCleaner
+from .prompt_service import prompt_service
 
 
 @dataclass 
@@ -45,66 +50,12 @@ class ITranscriptionRefinementService(ABC):
 
 
 class GeminiTranscriptionRefinementService(ITranscriptionRefinementService):
-    """Google Gemini-based transcription refinement service."""
+    """Google Gemini-based transcription refinement service.
     
-    # Configuration constants for SRT splitting
-    MAX_SRT_LENGTH = 60000  # Maximum characters in SRT content for single request
-    MIN_SPLIT_SIZE = 10000  # Minimum size for a split chunk
-    SPLIT_OVERLAP = 200     # Character overlap between chunks for continuity
+    This service uses configuration-driven prompts loaded from JSON file for better maintainability.
+    All prompts, language styles, and validation instructions are externalized to configuration.
+    """
     
-    # File upload and processing constants
-    FILE_UPLOAD_TIMEOUT = 300  # Maximum seconds to wait for file processing
-    FILE_CHECK_INTERVAL = 5    # Seconds between file state checks
-    MAX_UPLOAD_RETRIES = 3     # Maximum upload attempts
-    
-    # System instruction for transcription refinement model
-    TRANSCRIPTION_REFINEMENT_SYSTEM = '''You are a specialized Cantonese linguistics and transcription refinement expert working in a two-stage workflow.
-
-## Your Role in the Pipeline
-You receive:
-1. AUDIO/VIDEO: The definitive source of truth for what was actually said
-2. SRT SCAFFOLD: A preliminary transcription from OpenAI Whisper providing timing structure and rough content
-
-Your mission is to refine the SRT scaffold by listening to the actual audio and producing a perfectly accurate, contextually appropriate Cantonese subtitle file.
-
-## Core Expertise & Workflow
-1. **Audio-First Analysis**: Always listen to the audio first to understand what was actually spoken
-2. **SRT Scaffold Utilization**: Use the Whisper-generated SRT as a structural foundation (timing, segmentation) but verify and correct all content against the audio
-3. **Cantonese Language Mastery**: Deep understanding of both colloquial and written Cantonese
-4. **Contextual Refinement**: Understand emotional tone, relationships, and situational context from audio-visual cues
-5. **Quality Enhancement**: Fix common Whisper artifacts while preserving accurate timing structure
-
-## Whisper→Gemini Cooperation Protocol
-The provided SRT scaffold from Whisper gives you:
-✓ Timing structure and segment boundaries (use as foundation)
-✓ Rough phonetic approximations (verify against audio)
-✓ Speaker change indicators (when present)
-✗ Content accuracy (must be verified against audio)
-✗ Cantonese language nuances (requires your expertise)
-✗ Cultural context (requires your analysis)
-
-## Common Whisper Artifacts to Fix
-- Phonetic approximations that don't match proper Chinese characters
-- Incorrect character choices for Cantonese sounds
-- Missing or misplaced punctuation
-- Wrong word boundaries or segmentation
-- Misrecognized proper nouns or specialized terms
-- Inconsistent romanization mixed with Chinese characters
-
-## Processing Standards
-- **Audio is Ultimate Truth**: When audio and SRT scaffold conflict, always trust the audio
-- **Preserve Timing Structure**: Maintain the timing boundaries from Whisper unless audio clearly indicates different natural breaks
-- **Enhance Content Quality**: Correct transcription errors while preserving the structural framework
-- **Cultural Context Integration**: Use audio-visual context to choose appropriate language register and expressions
-- **Validation Tag Processing**: Handle [TRIM], [REPEAT] and other validation tags by analyzing actual audio content
-
-## Quality Gates
-- Final output must accurately reflect what was spoken in the audio
-- Timing must remain synchronized with speech patterns
-- Language must be natural and culturally appropriate Cantonese
-- NO validation tags ([TRIM], [REPEAT]) in final output
-- Preserve speaker identification when present'''
-
     def __init__(self, api_key: str, terminology_service: Optional[TerminologyConfigService] = None):
         """Initialize Gemini transcription refinement service."""
         if not _GEMINI_AVAILABLE:
@@ -131,71 +82,63 @@ The provided SRT scaffold from Whisper gives you:
             max_output_tokens=50000,  # Long outputs for complete transcriptions
         )
         
+        # Get system instruction from prompt service
+        system_instruction = prompt_service.get_transcription_system_instruction()
+        
         self.refinement_model = genai.GenerativeModel(
             model_name='models/gemini-2.5-flash',
             generation_config=refinement_config,
-            system_instruction=self.TRANSCRIPTION_REFINEMENT_SYSTEM,
+            system_instruction=system_instruction,
             safety_settings=safety_settings
         )
         
         self.api_key = api_key
         self.terminology_service = terminology_service
+        
+        # Configuration constants from prompt service
+        config = prompt_service.get_configuration()
+        self.MAX_SRT_LENGTH = config.get("max_srt_length", 60000)
+        self.MIN_SPLIT_SIZE = config.get("min_split_size", 10000)
+        self.SPLIT_OVERLAP = config.get("split_overlap", 200)
+        self.FILE_UPLOAD_TIMEOUT = config.get("file_upload_timeout", 300)
+        self.FILE_CHECK_INTERVAL = config.get("file_check_interval", 5)
+        self.MAX_UPLOAD_RETRIES = config.get("max_upload_retries", 3)
+        
+        # Initialize config for template access (fixes missing config attribute error)
+        self.config = self._load_prompt_config()
+    
+    def _load_prompt_config(self) -> Dict:
+        """Load prompt configuration from prompt service (for backward compatibility)."""
+        # This method is kept for backward compatibility but now uses the prompt service
+        return {
+            "language_styles": {
+                "written": prompt_service.get_language_style("written"),
+                "colloquial": prompt_service.get_language_style("colloquial")
+            },
+            "speaker_instructions": {
+                "with_speaker_tags": prompt_service.get_speaker_instructions(True),
+                "without_speaker_tags": prompt_service.get_speaker_instructions(False)
+            },
+            "validation_tag_instructions": prompt_service.get_validation_tag_instructions(),
+            "prompt_template": prompt_service._prompts_cache.get("prompt_template", {}),
+            "automatic_terminology": prompt_service._prompts_cache.get("automatic_terminology", {})
+        }
     
     def _get_transcription_refinement_prompt(self, language_style: str, has_speaker_tags: bool) -> str:
         """Get transcription refinement prompt based on language style and speaker tag presence."""
         
-        style_instructions = {
-            "written": """formal written Cantonese following these specific guidelines:
-1. Primary Objective
-    Your goal is to convert spoken Cantonese audio into a perfectly synchronized SRT subtitle file using Standard Written Chinese (書面語).
-2. Core Principles
-    Audio is Truth: The Cantonese audio is the definitive source. The provided text is only a reference.
-    Context is Key: Before transcribing, analyze the video to understand the situation, emotions, and character relationships. This context must inform your choice of words and phrasing.
-    Meaning Over Literal Translation: Focus on conveying the speaker's true meaning and intent. Rephrase sentences to sound natural and grammatically correct in formal written Chinese.
-3. Execution Checklist: Conversion from Colloquial to Written
-    Vocabulary & Characters: You must convert Cantonese-specific words to their Standard Written Chinese equivalents.
-        佢 (keoi5) → 他 / 她
-        哋 (dei6) → 們 (e.g., 佢哋 → 他們)
-        喺 (hai2) → 在
-        係 (hai6) → 是
-        唔 (m4) → 不
-        冇 (mou5) → 沒有
-        嘅 (ge3) → 的
-        咗 (zo2) → 了
-        啲 (di1) → 些 / 一點
-        乜 / 咩 (mat1 / me1) → 什麼
-    Grammar & Sentence Structure: Restructure entire sentences to follow formal written grammar.
-        Example: Spoken "你食咗飯未呀?" becomes Written "你吃飯了嗎？"
-    Proper Nouns: Retain original proper nouns, such as character names (e.g., "荷媽") or specific locations.
-""",
-            "colloquial": """natural spoken Cantonese preserving authentic conversational elements:
-1. Primary Objective
-    Your goal is to accurately transcribe spoken Cantonese audio into a perfectly synchronized SRT subtitle file using Written Colloquial Cantonese (口語).
-2. Core Principles
-    Audio is Truth: The Cantonese audio is the definitive source. The provided text is only a reference.
-    Context is Key: Before transcribing, analyze the video to understand the situation, emotions, and character relationships. This is crucial for interpreting slang, tone, and intent.
-    Reflect Natural Speech: The final text must match how the characters actually talk, including their specific phrasing and expressions.
-3. Execution Checklist: Accurate Colloquial Transcription
-    Use Cantonese-Specific Characters: You must use characters that represent spoken Cantonese.
-        係 (hai6)
-        嘅 (ge3)
-        喺 (hai2)
-        佢 (keoi5)
-        冇 (mou5)
-        啲 (di1)
-        唔 (m4)
-        咗 (zo2)
-    Correct Phonetic/Typing Errors: Replace incorrect or phonetic approximations in the original text with the correct characters based on the audio (e.g., correct "ho ma" to "荷媽" or "ge" to "嘅").
-    Match Cantonese Grammar: Ensure the sentence structure aligns with natural, spoken Cantonese, not formal written Chinese."""
-        }
+        # Validate language style
+        supported_styles = ["written", "colloquial"]
+        if language_style not in supported_styles:
+            raise ValueError(
+                f"Unsupported language style: '{language_style}'. "
+                f"Supported styles: {supported_styles}"
+            )
         
-        speaker_instructions = (
-            "CRITICAL: You MUST preserve ALL existing [SPEAKER_XX] tags in your output. "
-            "Each line that starts with a speaker tag (like [SPEAKER_01], [SPEAKER_02], etc.) must maintain that exact tag format. "
-            "Verify that the speaker assignments are correct by listening to the audio, but always keep the speaker tags in the final output."
-        ) if has_speaker_tags else (
-            "Do not add speaker identification tags. Focus only on transcription accuracy."
-        )
+        style_config = prompt_service.get_language_style(language_style)
+        
+        # Get speaker instructions from prompt service
+        speaker_instructions = prompt_service.get_speaker_instructions(has_speaker_tags)
         
         # Generate terminology configuration section if available
         terminology_section = ""
@@ -205,166 +148,107 @@ The provided SRT scaffold from Whisper gives you:
             # Generate automatic terminology detection instructions when no config is provided
             terminology_section = self._generate_automatic_terminology_section(language_style)
         
-        validation_tag_instructions = '''
-    Validation Tag Processing (CRITICAL):
-        The provided text may contain validation tags that must be processed and removed:
+        validation_tag_instructions = prompt_service.get_validation_tag_instructions()
         
-        [TRIM] Tag Processing:
-        - Indicates text was truncated due to excessive length
-        - Analyze the actual audio to provide the complete, accurate transcription
-        - Break long content into properly timed subtitle segments
-        - Ensure each segment aligns with natural speech pauses
-        - Remove the [TRIM] tag from final output
+        return self._build_prompt_from_template(style_config, speaker_instructions, validation_tag_instructions, terminology_section)
+    
+    def _build_prompt_from_template(self, style_config: Dict, speaker_instructions: str, validation_tag_instructions: str, terminology_section: str) -> str:
+        """Build the complete prompt from template and configuration."""
+        template = self.config["prompt_template"]
         
-        [REPEAT] Tag Processing:
-        - Indicates detected repetitive patterns in the original text
-        - Listen to the actual audio to determine the correct transcription
-        - If the speaker actually repeats words/phrases, transcribe accurately
-        - If the repetition was a transcription error, provide the correct text
-        - Remove the [REPEAT] tag from final output
+        # Build style description from config
+        style_description = self._build_style_description(style_config)
         
-        MANDATORY: Your final output must contain NO validation tags ([TRIM] or [REPEAT])
-        '''
+        # Build all phases
+        phases_text = self._build_phases_text(template["phases"], style_description, speaker_instructions)
         
-        return f'''
-## Your Mission: Whisper→Gemini Transcription Refinement Partnership
-
-You are an expert Cantonese linguistics specialist working in an **intelligent two-stage pipeline** where OpenAI Whisper provides the structural foundation and you provide content expertise.
-
-### Understanding the Cooperation Framework
-
-**Whisper's Contribution (Your Foundation):**
-✓ **Timing Structure**: Precise start/end timestamps that align with actual speech
-✓ **Segment Boundaries**: Natural speech breaks and subtitle divisions  
-✓ **Duration Alignment**: Overall flow and pacing of the conversation
-✓ **Speaker Indicators**: Change detection between different voices (when present)
-✓ **Phonetic Approximations**: Sound-based interpretation of spoken words
-
-**Your Refinement Mission (Content Expertise):**
-✗ **Content Accuracy**: Verify every word against actual audio (Whisper may have errors)
-✗ **Language Quality**: Replace phonetic approximations with proper Cantonese characters
-✗ **Cultural Context**: Apply appropriate language register and cultural expressions
-✗ **Grammar Correction**: Fix sentence structure and word choice issues
-✗ **Validation Processing**: Handle [TRIM], [REPEAT] tags by analyzing actual audio
-
-### Phase 1: Intelligent Foundation Analysis
-
-**Step 1 - Evaluate Whisper's Structural Work:**
-The SRT scaffold from Whisper provides excellent timing and segmentation. Analyze:
-- Timing boundaries → Trust these unless audio clearly suggests different natural breaks
-- Segment count → Maintain similar number of subtitles for consistency
-- Speaker transitions → Preserve existing speaker change indicators
-- Overall flow → Keep the natural conversation rhythm Whisper detected
-
-**Step 2 - Identify Content Refinement Opportunities:**
-Listen to actual audio and compare against Whisper's text interpretation:
-- **Phonetic Mismatches**: Where Whisper approximated sounds but chose wrong characters
-- **Grammar Issues**: Sentence structure that doesn't match natural Cantonese
-- **Missing Context**: Emotional tone or cultural expressions Whisper couldn't detect
-- **Technical Errors**: Common Whisper artifacts like romanization mixed with Chinese
-
-### Phase 2: Audio-First Content Verification
-
-**Audio Truth Protocol:**
-🎵 **Primary Source**: Audio/video content is the definitive truth for what was actually said
-📝 **Secondary Reference**: Whisper SRT provides structural guidance and rough content hints
-🔄 **Intelligent Synthesis**: Combine Whisper's timing expertise with your content expertise
-
-**Contextual Analysis (Listen First, Then Refine):**
-Before modifying any text, analyze the audio to understand:
-- **Actual Words Spoken**: What is really being said (may differ from Whisper's interpretation)
-- **Scene Context**: Conversation type, setting, relationship dynamics
-- **Emotional Register**: Tone, formality level, intimacy, excitement, etc.
-- **Cultural Elements**: Expressions, references, or terms specific to Cantonese culture
-
-### Phase 3: Cooperative Enhancement Strategy
-
-**Preserve Whisper's Strengths:**
-- **Timing Accuracy**: Keep start/end timestamps unless audio clearly indicates different breaks
-- **Segmentation Logic**: Maintain subtitle boundaries that Whisper identified as natural
-- **Overall Structure**: Preserve the conversation flow and pacing
-- **Speaker Organization**: Keep existing speaker change patterns
-
-**Apply Your Content Expertise:**
-- **Character Accuracy**: Replace phonetic approximations with correct Chinese characters
-- **Grammar Enhancement**: Fix sentence structure to match natural Cantonese patterns  
-- **Cultural Adaptation**: Apply appropriate expressions and language register
-- **Style Consistency**: Ensure every line follows the specified language style requirements
-
-### Phase 4: Language Style Implementation
-
-**Mandatory Style Compliance:**
-Every subtitle line must strictly follow these requirements:
-{style_instructions[language_style]}
-
-**Whisper→Gemini Style Application:**
-- Use Whisper's timing and structure as the foundation
-- Apply style requirements to the content while preserving the scaffold
-- Maintain conversation flow that Whisper identified
-- Ensure cultural and linguistic accuracy in every correction
-
-### Phase 5: Cooperative Error Correction
-
-**Whisper Artifact Recognition & Correction:**
-Common Whisper patterns to identify and fix:
-- **Phonetic Romanization**: "ho ma" → "荷媽", "ge" → "嘅", "hai" → "係"
-- **Character Misselection**: Wrong Chinese characters chosen for Cantonese sounds
-- **Grammar Inconsistency**: Sentence structure that doesn't match natural Cantonese flow
-- **Missing Punctuation**: Add appropriate punctuation based on audio tone and pauses
-- **Word Boundary Errors**: Correct word splitting or merging based on actual speech
-
-**Content Verification Against Audio:**
-- **Addition**: Add words/phrases spoken in audio but missing from Whisper SRT
-- **Deletion**: Remove words/sentences from Whisper SRT that weren't actually spoken
-- **Correction**: Replace incorrect words with what was actually said in the audio
-- **Restructuring**: Reorganize sentence structure to match natural Cantonese patterns
-
-**Language Style Implementation:**
-Apply these requirements to EVERY subtitle line while preserving Whisper's timing structure:
-{style_instructions[language_style]}
-
-### Phase 6: Cooperative Timing & Structure Management
-
-**Timing Preservation Protocol:**
-- **Primary Rule**: Keep Whisper's timestamps unless audio clearly indicates different natural breaks
-- **Fine-Tuning**: Adjust timing only when audio reveals more precise start/end points
-- **Segment Respect**: Maintain the number of subtitle segments Whisper identified
-- **Natural Breaks**: Preserve conversation flow and natural speech rhythm
-
-**Structure Maintenance:**
-- **Subtitle Numbering**: Keep sequential numbering consistent with SRT format
-- **Line Organization**: Each subtitle should represent a complete thought or natural speech unit
-- **Speaker Continuity**: {speaker_instructions}
-
-### Phase 7: Validation Processing
-
-{validation_tag_instructions}
-
-**Quality Assurance Checklist:**
-✓ Every word accurately reflects what was spoken in the audio
-✓ All Cantonese characters are contextually correct and culturally appropriate
-✓ Timing structure preserved from Whisper's excellent segmentation work
-✓ Language style requirements applied consistently throughout
-✓ No validation tags ([TRIM], [REPEAT]) remain in final output
-✓ Speaker tags preserved when present in original SRT
-
-### Final Output Requirements
-
-**SRT Format Compliance:**
-Return the complete refined SRT file following standard format:
-
-[Subtitle Number]
-[Start Time] --> [End Time]  
-[Refined Cantonese Text - Audio Accurate & Style Compliant]
-
-**Cooperation Success Metrics:**
-- ✅ Whisper's timing expertise + Your content expertise = Perfect subtitle file
-- ✅ Structural foundation preserved + Content accuracy achieved
-- ✅ Technical precision + Cultural authenticity combined
-- ✅ Audio truth maintained + Style requirements satisfied
-
-{terminology_section}
-'''
+        # Combine all sections
+        prompt_parts = [
+            template["mission_header"],
+            "\n" + template["cooperation_framework"]["title"],
+            "\n" + template["cooperation_framework"]["whisper_contribution"]["title"],
+            "\n".join(template["cooperation_framework"]["whisper_contribution"]["items"]),
+            "\n" + template["cooperation_framework"]["refinement_mission"]["title"],
+            "\n".join(template["cooperation_framework"]["refinement_mission"]["items"]),
+            phases_text,
+            "\n### Phase 7: Validation Processing",
+            "\n" + validation_tag_instructions,
+            "\n" + "\n".join(template["phases"]["phase_7"]["quality_checklist"]["items"]),
+            "\n" + template["final_output_requirements"]["title"],
+            "\n" + template["final_output_requirements"]["srt_format"]["title"],
+            template["final_output_requirements"]["srt_format"]["description"],
+            "\n" + template["final_output_requirements"]["srt_format"]["format"],
+            "\n" + template["final_output_requirements"]["success_metrics"]["title"],
+            "\n".join(template["final_output_requirements"]["success_metrics"]["items"]),
+            terminology_section
+        ]
+        
+        return "\n".join(prompt_parts)
+    
+    def _build_style_description(self, style_config: Dict) -> str:
+        """Build style description from configuration."""
+        parts = [style_config["description"]]
+        
+        # Add objectives
+        if "objectives" in style_config:
+            parts.extend(style_config["objectives"])
+        
+        # Add principles
+        if "principles" in style_config:
+            parts.append("2. Core Principles")
+            parts.extend([f"    {principle}" for principle in style_config["principles"]])
+        
+        # Add execution checklist
+        if "execution_checklist" in style_config:
+            parts.append("3. Execution Checklist:")
+            for key, value in style_config["execution_checklist"].items():
+                if isinstance(value, dict):
+                    parts.append(f"    {value['description']}")
+                    if "mappings" in value:
+                        for k, v in value["mappings"].items():
+                            parts.append(f"        {k} → {v}")
+                    elif "example" in value:
+                        parts.append(f"        Example: {value['example']}")
+                    elif "characters" in value:
+                        parts.extend([f"        {char}" for char in value["characters"]])
+        
+        return "\n".join(parts)
+    
+    def _build_phases_text(self, phases: Dict, style_description: str, speaker_instructions: str) -> str:
+        """Build phases text from template."""
+        phases_parts = []
+        
+        for phase_key, phase_data in phases.items():
+            if phase_key == "phase_7":  # Skip phase 7 as it's handled separately
+                continue
+                
+            phases_parts.append("\n" + phase_data["title"])
+            
+            for key, value in phase_data.items():
+                if key == "title":
+                    continue
+                
+                # Handle direct compliance_note (like in phase_4)
+                if key == "compliance_note":
+                    phases_parts.append("\n" + value)
+                    phases_parts.append(style_description)
+                    continue
+                    
+                if isinstance(value, dict):
+                    if "title" in value:
+                        phases_parts.append("\n" + value["title"])
+                    if "description" in value:
+                        phases_parts.append(value["description"])
+                    if "items" in value:
+                        phases_parts.extend(value["items"])
+                    if "compliance_note" in value:  # Handle nested compliance_note
+                        phases_parts.append(value["compliance_note"])
+                        phases_parts.append(style_description)
+                        
+        # Add speaker continuity instruction where needed
+        phases_parts.append(f"- **Speaker Continuity**: {speaker_instructions}")
+        
+        return "\n".join(phases_parts)
 
     def _upload_and_wait_for_active(self, file_path: str, file_description: str = "video file") -> Any:
         """
@@ -506,7 +390,13 @@ Return the complete refined SRT file following standard format:
             if not response.parts:
                 raise RuntimeError(f"Gemini Flash returned no parts. Full response: {response}")
 
-            refined_srt = response.text.strip()
+            # Clean the Gemini response to remove invalid characters like ```
+            try:
+                refined_srt = GeminiResponseCleaner.clean_and_validate_srt(response.text)
+            except ValueError as e:
+                print(f"Warning: Gemini response cleaning failed: {e}")
+                # Fallback to basic cleaning if validation fails
+                refined_srt = GeminiResponseCleaner.clean_gemini_response(response.text, preserve_srt_format=True)
             
             # Verify speaker tags are preserved if they existed
             if has_speaker_tags:
@@ -689,7 +579,13 @@ Return the complete refined SRT file following standard format:
                         print(f"Warning: Chunk {i+1} refinement failed, using original")
                         continue
                     
-                    refined_chunk = response.text.strip()
+                    # Clean the Gemini response to remove invalid characters like ```
+                    try:
+                        refined_chunk = GeminiResponseCleaner.clean_and_validate_srt(response.text)
+                    except ValueError as e:
+                        print(f"Warning: Chunk {i+1} response cleaning failed: {e}")
+                        # Fallback to basic cleaning if validation fails
+                        refined_chunk = GeminiResponseCleaner.clean_gemini_response(response.text, preserve_srt_format=True)
                     refined_chunks.append(refined_chunk)
                     
                     # Count changes (simple heuristic)
@@ -846,78 +742,41 @@ Return the complete refined SRT file following standard format:
     
     def _generate_automatic_terminology_section(self, language_style: str) -> str:
         """Generate automatic terminology detection instructions when no terminology config is provided."""
+        auto_term_config = self.config["automatic_terminology"]
         
-        return f'''
-### Automatic Terminology Detection & Application
-
-Since no specific terminology configuration is provided, you must **intelligently analyze the video content** to identify common terms, proper nouns, and context-specific vocabulary that require consistent handling.
-
-**Your Analytical Responsibilities:**
-
-**1. Content Analysis Protocol:**
-- **Scene Context**: Identify the setting (workplace, home, restaurant, medical, educational, etc.)
-- **Relationship Dynamics**: Analyze formality levels between speakers
-- **Subject Matter**: Determine topics being discussed (business, family, technology, etc.)
-- **Cultural References**: Note Hong Kong-specific places, brands, or cultural terms
-
-**2. Automatic Terminology Categories to Detect:**
-
-**Names & Proper Nouns:**
-- **Character Names**: Maintain consistent spelling/writing for all people mentioned
-- **Place Names**: Hong Kong locations, streets, districts, buildings (e.g., 中環, 旺角, 海港城)
-- **Company Names**: Organizations, brands, stores mentioned in dialogue
-- **Institutions**: Schools, hospitals, government departments
-
-**Technical & Professional Terms:**
-- **Workplace Vocabulary**: Job titles, company processes, industry terms
-- **Technology Terms**: Apps, software, devices commonly used in Hong Kong
-- **Financial Terms**: Banking, payments, investments (HSBC, 八達通, etc.)
-- **Medical Terms**: Hospitals, treatments, body parts
-
-**Cultural & Social Terms:**
-- **Food & Dining**: Restaurant names, local dishes, dining culture
-- **Transportation**: MTR stations, bus routes, taxi references
-- **Entertainment**: Local celebrities, TV shows, movies, venues
-- **Shopping**: Malls, markets, retail chains specific to Hong Kong
-
-**3. Style-Specific Application ({language_style.title()} Mode):**
-
-{"**Written Style Guidelines:**" if language_style.lower() == "written" else "**Colloquial Style Guidelines:**"}
-{'''- Convert proper nouns to appropriate written Chinese forms when standard exists
-- Use formal terminology for institutions and organizations
-- Apply consistent written conventions for place names
-- Maintain professional terminology in business contexts''' if language_style.lower() == "written" else '''- Preserve natural spoken forms of proper nouns as actually pronounced
-- Keep colloquial pronunciation patterns for place names (e.g., "啟德" as naturally spoken)
-- Maintain code-switching patterns for English terms in natural conversation
-- Preserve informal nicknames and slang when appropriate to speaker relationship'''}
-
-**4. Consistency Management:**
-- **First Occurrence Analysis**: When you encounter a term for the first time, establish the correct form based on context
-- **Subsequent Applications**: Use the same form consistently throughout the subtitle file
-- **Ambiguity Resolution**: If unclear, choose the form that best fits the speaker's education level and context
-
-**5. Priority Guidelines:**
-1. **Character Names**: Always highest priority - establish and maintain consistency
-2. **Location Names**: High priority - use locally recognized forms
-3. **Institution Names**: High priority - use official names when identifiable
-4. **Technical Terms**: Medium priority - apply consistent translation patterns
-5. **Cultural References**: Medium priority - preserve cultural context appropriately
-
-**6. Decision Framework:**
-- **Audio Truth**: What the speaker actually says takes precedence
-- **Context Clues**: Use visual and conversational context to inform decisions
-- **Cultural Authenticity**: Choose forms that authentic Hong Kong speakers would use
-- **Natural Flow**: Ensure terminology choices don't disrupt conversation naturalness
-
-**Implementation Process:**
-1. **Listen First**: Analyze the complete video to understand overall context
-2. **Identify Patterns**: Note recurring terms and their usage contexts
-3. **Establish Standards**: Create consistent handling for each identified term type
-4. **Apply Systematically**: Use your established standards throughout the transcription
-5. **Validate Consistency**: Ensure all instances of terms follow your established patterns
-
-This automatic terminology detection ensures professional, culturally appropriate, and contextually consistent subtitles even without predefined terminology configuration.
-'''
+        # Build style-specific guidelines
+        style_guidelines = ""
+        if language_style.lower() in auto_term_config["style_guidelines"]:
+            guidelines = auto_term_config["style_guidelines"][language_style.lower()]
+            style_guidelines = f"**{language_style.title()} Style Guidelines:**\n" + "\n".join(guidelines)
+        
+        # Build the complete section
+        sections = [
+            f"\n{auto_term_config['title']}",
+            auto_term_config["description"],
+            f"\n{auto_term_config['analysis_protocol']['title']}",
+            "\n".join(auto_term_config["analysis_protocol"]["items"]),
+            f"\n{auto_term_config['terminology_categories']['title']}",
+            f"\n{auto_term_config['terminology_categories']['names_proper_nouns']['title']}",
+            "\n".join(auto_term_config["terminology_categories"]["names_proper_nouns"]["items"]),
+            f"\n{auto_term_config['terminology_categories']['technical_professional']['title']}",
+            "\n".join(auto_term_config["terminology_categories"]["technical_professional"]["items"]),
+            f"\n{auto_term_config['terminology_categories']['cultural_social']['title']}",
+            "\n".join(auto_term_config["terminology_categories"]["cultural_social"]["items"]),
+            f"\n**3. Style-Specific Application ({language_style.title()} Mode):**",
+            style_guidelines,
+            f"\n{auto_term_config['consistency_management']['title']}",
+            "\n".join(auto_term_config["consistency_management"]["items"]),
+            f"\n{auto_term_config['priority_guidelines']['title']}",
+            "\n".join(auto_term_config["priority_guidelines"]["priorities"]),
+            f"\n{auto_term_config['decision_framework']['title']}",
+            "\n".join(auto_term_config["decision_framework"]["items"]),
+            f"\n{auto_term_config['implementation_process']['title']}",
+            "\n".join(auto_term_config["implementation_process"]["steps"]),
+            f"\n{auto_term_config['conclusion']}"
+        ]
+        
+        return "\n".join(sections)
     
     def is_available(self) -> bool:
         """Check if Gemini transcription refinement service is available and configured."""

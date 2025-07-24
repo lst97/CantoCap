@@ -91,7 +91,8 @@ make dev-setup
 
 ### Installation Notes
 
-- **Package Name**: The project is now packaged as `cantocap-engine` with the CLI command `cantocap-engine`
+- **Package Name**: The project is packaged as `python -m src.presentation.cli.main`, but due to import issues, use `python -m src.presentation.cli.main` for execution
+- **FFmpeg Requirement**: FFmpeg is required and must be specified with `--ffmpeg-path` option for subtitle generation
 - **Optional Dependencies**: 
   - `[gpu]` - Installs CUDA-enabled PyTorch for GPU acceleration
   - `[dev]` - Installs development tools (pytest, black, mypy, etc.)
@@ -119,50 +120,59 @@ sudo apt install ffmpeg
 
 ## Usage
 
-### Basic Usage
+### Basic Usage with Module Execution
+
+```bash
+# Generate subtitles for a video file (requires FFmpeg path)
+python -m src.presentation.cli.main video.mp4 --ffmpeg-path ffmpeg
+
+# Specify custom output path
+python -m src.presentation.cli.main video.mp4 --output subtitles.srt --ffmpeg-path /usr/local/bin/ffmpeg
+
+# Use different language (if needed)
+python -m src.presentation.cli.main audio.wav --language zh --ffmpeg-path ffmpeg
+
+# Use specific Whisper model
+python -m src.presentation.cli.main video.mkv --model openai/whisper-medium --ffmpeg-path ffmpeg
+
+# Prioritize speed over quality
+python -m src.presentation.cli.main video.mp4 --priority speed --ffmpeg-path ffmpeg
+
+# Prioritize quality over speed
+python -m src.presentation.cli.main video.mp4 --priority quality --ffmpeg-path ffmpeg
+```
+
+### Alternative: Package Installation Method
+
+If you have the package properly installed, you can use:
 
 ```bash
 # Generate subtitles for a video file
-cantocap-engine video.mp4
-
-# Specify custom output path
-cantocap-engine video.mp4 --output subtitles.srt
-
-# Use different language (if needed)
-cantocap-engine audio.wav --language zh
-
-# Use specific Whisper model
-cantocap-engine video.mkv --model openai/whisper-medium
-
-# Prioritize speed over quality
-cantocap-engine video.mp4 --priority speed
-
-# Prioritize quality over speed
-cantocap-engine video.mp4 --priority quality
+python -m src.presentation.cli.main video.mp4
 ```
 
 ### AI-Enhanced Usage
 
 ```bash
 # Enable automatic speaker identification and AI refinement
-cantocap-engine video.mp4 --speakers --gemini-key YOUR_API_KEY
+python -m src.presentation.cli.main video.mp4 --speakers --gemini-key YOUR_API_KEY --ffmpeg-path ffmpeg
 
 # Convert to formal written Cantonese style
-cantocap-engine video.mp4 --written --gemini-key YOUR_API_KEY
+python -m src.presentation.cli.main video.mp4 --written --gemini-key YOUR_API_KEY --ffmpeg-path ffmpeg
 
 # Full AI-powered processing with all features
-cantocap-engine movie.mkv --speakers --written --music --gemini-key YOUR_API_KEY
+python -m src.presentation.cli.main movie.mkv --speakers --written --music --gemini-key YOUR_API_KEY --ffmpeg-path ffmpeg
 
 # Use environment variable for API key
 echo "GEMINI_API_KEY=your_key_here" > .env
-cantocap-engine video.mp4 --speakers --written
+python -m src.presentation.cli.main video.mp4 --speakers --written --ffmpeg-path ffmpeg
 
 # Use custom terminology for mixed language content
-cantocap-engine video.mp4 --terminology-config examples/terminology_config.json
+python -m src.presentation.cli.main video.mp4 --terminology-config examples/terminology_config.json --ffmpeg-path ffmpeg
 
 # Check hardware capabilities
-cantocap-engine hardware
-cantocap-engine hardware --priority speed
+python -m src.presentation.cli.main hardware
+python -m src.presentation.cli.main hardware --priority speed
 ```
 
 ### Command Options
@@ -201,83 +211,201 @@ cantocap-engine hardware --priority speed
 ### Project Structure
 
 ```bash
-cantocap/
-├── src/cantocap/           # Source code
-│   ├── domain/            # Business logic and entities
-│   ├── application/       # Use cases and commands
-│   ├── infrastructure/    # External service implementations
-│   └── presentation/      # CLI interface and DI container
-├── tests/                 # Test suite
-│   ├── unit/             # Unit tests
-│   ├── integration/      # Integration tests
-│   └── e2e/              # End-to-end tests
-├── requirements.txt       # Production dependencies
-├── requirements-dev.txt   # Development dependencies
-└── pyproject.toml        # Project configuration
+canton-cap/engine/
+├── src/                   # Source code
+│   ├── __main__.py       # Module entry point
+│   ├── application/      # Use cases and commands
+│   │   ├── commands/     # Business commands
+│   │   ├── services/     # Application services
+│   │   └── use_cases/    # Business logic orchestration
+│   ├── cantocap_engine/  # Legacy entry point
+│   ├── domain/           # Business logic and entities
+│   │   ├── entities/     # Business entities
+│   │   ├── repositories/ # Repository interfaces
+│   │   ├── services/     # Domain services
+│   │   └── value_objects/ # Value objects and data types
+│   ├── infrastructure/   # External service implementations
+│   │   ├── config/       # Configuration files
+│   │   ├── repositories/ # Repository implementations
+│   │   ├── services/     # Infrastructure services
+│   │   ├── utils/        # Utility functions
+│   │   └── validation/   # Validation services
+│   └── presentation/     # CLI interface and DI container
+│       ├── cli/          # Command-line interface
+│       └── di/           # Dependency injection
+├── tests/                # Comprehensive test suite
+│   ├── conftest.py       # Test configuration and fixtures
+│   ├── unit/             # Unit tests (fast, isolated)
+│   ├── integration/      # Integration tests (external deps)
+│   └── e2e/              # End-to-end tests (full workflow)
+├── examples/             # Example configuration files
+├── pyproject.toml        # Project configuration and dependencies
+├── requirements.txt      # Production dependencies (legacy)
+├── Makefile             # Development automation
+├── CLAUDE.md            # AI assistant instructions
+├── TESTING.md           # Testing documentation
+└── GPU_SETUP_GUIDE.md   # GPU setup instructions
 ```
 
 ### Running Tests
 
+The project includes comprehensive testing with unit, integration, and end-to-end tests.
+
 ```bash
 # Install development dependencies
-pip install -r requirements-dev.txt
+make install-dev
+# or
+pip install -e .[dev]
 
 # Run all tests
+make test
+# or
 pytest
 
-# Run specific test types
-pytest tests/unit/          # Unit tests only
-pytest tests/integration/   # Integration tests only
-pytest tests/e2e/          # End-to-end tests only
+# Run specific test types using markers
+pytest -m unit              # Unit tests only (fast, isolated)
+pytest -m integration       # Integration tests (external dependencies)
+pytest -m e2e               # End-to-end tests (full workflow)
+pytest -m slow              # Long-running tests
+
+# Run tests by directory
+pytest tests/unit/          # Unit tests
+pytest tests/integration/   # Integration tests  
+pytest tests/e2e/          # End-to-end tests
 
 # Run with coverage
-pytest --cov=src/cantocap --cov-report=html
+make test-cov
+# or
+pytest --cov=src --cov-report=html --cov-report=term-missing
+
+# Run specific test categories
+make test-unit              # Unit tests only
+make test-integration       # Integration tests only
+make test-e2e              # End-to-end tests only
+
+# Skip tests requiring external dependencies
+pytest -m "not slow and not requires_ffmpeg and not requires_api"
 ```
+
+### Test Markers
+
+The test suite uses pytest markers for categorization:
+- `unit`: Fast, isolated unit tests
+- `integration`: Tests requiring external dependencies (FFmpeg, APIs)
+- `e2e`: End-to-end workflow tests
+- `slow`: Long-running tests
+- `requires_ffmpeg`: Tests that need FFmpeg installed
+- `requires_api`: Tests that need API keys
+- `requires_gpu`: Tests that need GPU acceleration
 
 ### Code Quality
 
+The project includes automated code quality tools with configuration in `pyproject.toml`.
+
 ```bash
-# Format code
+# Run all quality checks
+make quality
+
+# Format code (Black with 88 character line length)
+make format
+# or
 black src/ tests/
 
-# Sort imports
+# Sort imports (isort with Black profile)
 isort src/ tests/
 
-# Type checking
+# Type checking (mypy in strict mode)
+make typecheck
+# or
 mypy src/
 
-# Linting
+# Linting (flake8)
+make lint
+# or
 flake8 src/ tests/
+
+# Individual quality tools
+black --check src/ tests/    # Check formatting without changes
+isort --check-only src/ tests/  # Check import sorting
+```
+
+### Development Workflow
+
+```bash
+# Complete development setup
+make dev-setup
+
+# Clean build artifacts
+make clean
+
+# Build distribution packages
+make build
+
+# Install in development mode
+make install-local
+# or
+pip install -e .
 ```
 
 ## Architecture
 
-CantoCap follows Clean Architecture and Domain-Driven Design principles:
+CantoCap follows Clean Architecture and Domain-Driven Design principles with clear separation of concerns:
 
-### Domain Layer
+### Domain Layer (`src/domain/`)
 
-- **Value Objects**: `Timestamp`, `FilePath`, `AudioFormat`
-- **Entities**: `MediaFile`, `AudioStream`, `Transcription`, `Subtitle`, `SubtitleDocument`
-- **Services**: `SubtitleFormattingService`
-- **Repository Interfaces**: Define contracts for external services
+**Value Objects**: Immutable data containers with validation
+- `Timestamp`, `FilePath`, `AudioFormat`, `Charset`, `LanguageCode`, `AlignmentLanguageCode`, `TerminologyTerm`
 
-### Application Layer
+**Entities**: Business objects with identity and behavior  
+- `MediaFile`, `AudioStream`, `Transcription`, `Subtitle`, `Speaker`, `Music`
 
-- **Commands**: `GenerateSubtitlesCommand`
-- **Use Cases**: `GenerateSubtitlesUseCase`
-- **Services**: `MediaFileValidator`
+**Domain Services**: Core business logic
+- `SubtitleFormattingService`, `DualLanguageSubtitleService`
 
-### Infrastructure Layer
+**Repository Interfaces**: Abstract contracts for external services
+- `IAudioRepository`, `ITranscriptionRepository`, `ISubtitleRepository`
 
-- **Services**: `FFmpegService`, `WhisperService`, `GeminiSpeakerCountService`, `GeminiTranscriptionRefinementService`
-- **Repositories**: `FFmpegAudioRepository`, `WhisperTranscriptionRepository`, `FileSubtitleRepository`
-- **AI Services**: `VideoPreprocessingService`, `MediaChunkingService`, `ConfigurationService`
-- **Additional Services**: `SpeakerDiarizationService`, `MusicDetectionService`, `CharsetConversionService`
+### Application Layer (`src/application/`)
 
-### Presentation Layer
+**Commands**: Encapsulated user requests
+- `GenerateSubtitlesCommand`
 
-- **CLI**: Typer-based command-line interface with Rich formatting
-- **DI Container**: Dependency injection for clean separation
+**Use Cases**: Business workflow orchestration
+- `GenerateSubtitlesUseCase`
+
+**Application Services**: Application-specific logic
+- `MediaFileValidator`, `SubtitleValidationService`, `TerminologyConfigService`
+
+### Infrastructure Layer (`src/infrastructure/`)
+
+**External Service Integrations**:
+- `FFmpegService`, `WhisperService`, `WhisperXService`
+- `LLMService`, `PromptService`
+- `HardwareDetector`, `ConfigurationService`
+
+**AI-Powered Services**:
+- `SpeakerCountService`, `TranscriptionRefinementService`, `SubtitleTranslationService`
+- `SpeakerDiarizationService`, `MusicDetectionService`
+- `VideoPreprocessingService`, `MediaChunkingService`, `VideoCompressionService`
+
+**Repository Implementations**:
+- `FFmpegAudioRepository`, `WhisperTranscriptionRepository`, `FileSubtitleRepository`
+
+**Utilities and Validation**:
+- `CharsetConversionService`, `WarningService`, `ParallelAudioService`
+- `ArgumentValidator`, `LLMTextCleaningUtil`
+
+### Presentation Layer (`src/presentation/`)
+
+**CLI Interface**: Rich command-line experience
+- `main.py` - Main application entry point with Typer
+- `commands.py` - Core subtitle generation command
+- `hardware_command.py` - Hardware analysis and recommendations
+- `progress_display.py` - Rich progress indicators and spinners
+- `ipc_handler.py` - Inter-process communication support
+
+**Dependency Injection**: Clean service lifecycle management
+- `Container` - Centralized dependency injection and service management
 
 ## Configuration
 
@@ -405,13 +533,13 @@ Create a JSON configuration file (example: `examples/terminology_config.json`) w
 
 ```bash
 # Use custom terminology with written style (converts English to Chinese)
-cantocap-engine video.mp4 --written --terminology-config examples/terminology_config.json
+python -m src.presentation.cli.main video.mp4 --written --terminology-config examples/terminology_config.json --ffmpeg-path ffmpeg
 
 # Use custom terminology with colloquial style (preserves natural speech)
-cantocap-engine video.mp4 --terminology-config examples/terminology_config.json
+python -m src.presentation.cli.main video.mp4 --terminology-config examples/terminology_config.json --ffmpeg-path ffmpeg
 
 # Combined with AI features
-cantocap-engine video.mp4 --speakers --terminology-config my_terms.json --gemini-key YOUR_KEY
+python -m src.presentation.cli.main video.mp4 --speakers --terminology-config my_terms.json --gemini-key YOUR_KEY --ffmpeg-path ffmpeg
 ```
 
 ### Terminology Categories
@@ -435,15 +563,15 @@ cantocap-engine video.mp4 --speakers --terminology-config my_terms.json --gemini
 
 **Model Selection Not Working:**
 ```bash
-# Ensure you're using the correct flags
-cantocap-engine video.mp4 --model openai/whisper-small  # Specific model
-cantocap-engine video.mp4 --priority speed              # Priority-based selection
+# Ensure you're using the correct flags and FFmpeg path
+python -m src.presentation.cli.main video.mp4 --model openai/whisper-small --ffmpeg-path ffmpeg  # Specific model
+python -m src.presentation.cli.main video.mp4 --priority speed --ffmpeg-path ffmpeg              # Priority-based selection
 ```
 
 **Gemini Features Not Working:**
 ```bash
 # Check API key configuration
-cantocap-engine video.mp4 --speakers --gemini-key YOUR_KEY
+python -m src.presentation.cli.main video.mp4 --speakers --gemini-key YOUR_KEY --ffmpeg-path ffmpeg
 
 # Verify environment setup
 echo $GEMINI_API_KEY
@@ -453,22 +581,22 @@ cat .env
 **Performance Issues:**
 ```bash
 # Check hardware capabilities
-cantocap-engine hardware
+python -m src.presentation.cli.main hardware
 
 # Use faster model for speed
-cantocap-engine video.mp4 --priority speed
+python -m src.presentation.cli.main video.mp4 --priority speed --ffmpeg-path ffmpeg
 
 # Reduce video quality for AI processing
-cantocap-engine video.mp4 --speakers --video-quality 360p
+python -m src.presentation.cli.main video.mp4 --speakers --video-quality 360p --ffmpeg-path ffmpeg
 ```
 
 **Large File Processing:**
 ```bash
 # Adjust chunk duration for very large files
-cantocap-engine large_video.mp4 --max-chunk-duration 10
+python -m src.presentation.cli.main large_video.mp4 --max-chunk-duration 10 --ffmpeg-path ffmpeg
 
 # Monitor processing with verbose output
-cantocap-engine video.mp4 --verbose
+python -m src.presentation.cli.main video.mp4 --verbose --ffmpeg-path ffmpeg
 ```
 
 **Terminology Configuration Issues:**
@@ -477,15 +605,25 @@ cantocap-engine video.mp4 --verbose
 cat examples/terminology_config.json | python -m json.tool
 
 # Test with specific terminology file
-cantocap-engine video.mp4 --terminology-config my_terms.json --verbose
+python -m src.presentation.cli.main video.mp4 --terminology-config my_terms.json --verbose --ffmpeg-path ffmpeg
+```
+
+**FFmpeg Path Issues:**
+```bash
+# Try different FFmpeg paths
+python -m src.presentation.cli.main video.mp4 --ffmpeg-path /usr/local/bin/ffmpeg
+python -m src.presentation.cli.main video.mp4 --ffmpeg-path /opt/homebrew/bin/ffmpeg
+python -m src.presentation.cli.main video.mp4 --ffmpeg-path ffmpeg  # If in PATH
 ```
 
 ### Getting Help
 
-- Use `cantocap-engine --help` for command reference
-- Use `cantocap-engine hardware` to check system capabilities
+- Use `python -m src.presentation.cli.main --help` for command reference
+- Use `python -m src.presentation.cli.main hardware` to check system capabilities
 - Enable `--verbose` for detailed processing information
 - Check `.env` file configuration for API keys
+- Review `TESTING.md` for testing procedures
+- Check `GPU_SETUP_GUIDE.md` for GPU acceleration setup
 
 ## Acknowledgments
 

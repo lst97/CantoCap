@@ -45,7 +45,7 @@ class WhisperService:
         self._hardware_detector = HardwareDetector()
         self._auto_select_model = auto_select_model
         self._priority = priority
-        self._progress_callback: Optional[Callable] = None
+        self._progress_callback: Optional[Callable[[int, int, str], None]] = None
         self._quiet_mode = False
         
         # Initialize model and device
@@ -288,6 +288,19 @@ class WhisperService:
             if force_gpu and torch.cuda.is_available():
                 self._device = self._get_optimal_device()
             
+            # Optimize CPU performance by setting thread counts
+            if self._device == "cpu":
+                # Set optimal thread counts for CPU inference
+                cpu_cores = os.cpu_count() or 4
+                # Use all available cores but cap at 16 for optimal performance
+                optimal_threads = min(cpu_cores, 16)
+                
+                # Set PyTorch thread counts for better CPU utilization
+                torch.set_num_threads(optimal_threads)
+                torch.set_num_interop_threads(optimal_threads)
+                
+                _print(f"🚀 CPU optimization: Using {optimal_threads} threads for inference", "blue")
+            
             _print(f"Loading model '{model_to_load}' on device: {self._device}", "blue")
 
             if model_to_load == "openai/whisper-large-v3-turbo":
@@ -470,6 +483,15 @@ class WhisperService:
         """
         return self.transcribe_audio_file(audio_file_path, language, return_timestamps)
     
+    def set_progress_callback(self, callback: Optional[Callable[[int, int, str], None]]) -> None:
+        """
+        Set progress callback for transcription progress tracking.
+        
+        Args:
+            callback: Function that receives (current_chunk, total_chunks, status)
+        """
+        self._progress_callback = callback
+    
     def transcribe_audio_file(
         self,
         audio_file_path: str,
@@ -521,16 +543,49 @@ class WhisperService:
                     # Create attention_mask
                     attention_mask = torch.ones(inputs["input_features"].shape).to(self._device)
 
-                    result = self.pipeline(
-                        audio_file_path,
-                        return_timestamps=return_timestamps,
-                        generate_kwargs=generate_kwargs,
-                        chunk_length_s=30,
-                        stride_length_s=5,  # Overlap between chunks for better continuity
-                        max_new_tokens=448,  # Ensure complete generation
-                        attention_mask=attention_mask,
-                        pad_token_id=self.pipeline.tokenizer.eos_token_id
-                    )
+                    # Optimize parameters based on device - REDUCED chunk sizes for better sentence length
+                    chunk_length = 15 if self._device == "cpu" else 20
+                    
+                    # Calculate estimated chunks for progress tracking
+                    try:
+                        import librosa
+                        audio_duration = librosa.get_duration(filename=audio_file_path)
+                        estimated_chunks = max(1, int(audio_duration / chunk_length))
+                        if self._progress_callback:
+                            self._progress_callback(0, estimated_chunks, "Starting transcription...")
+                    except Exception:
+                        estimated_chunks = 1
+                        if self._progress_callback:
+                            self._progress_callback(0, 1, "Starting transcription...")
+                    
+                    if self._device == "cpu":
+                        # CPU-optimized parameters for better performance and shorter sentences
+                        result = self.pipeline(
+                            audio_file_path,
+                            return_timestamps=return_timestamps,
+                            generate_kwargs=generate_kwargs,
+                            chunk_length_s=15,  # Reduced from 20s to prevent overly long sentences
+                            stride_length_s=2,  # Reduced overlap for faster processing
+                            max_new_tokens=200,  # Reduced from 256 for shorter sentences
+                            attention_mask=attention_mask,
+                            pad_token_id=self.pipeline.tokenizer.eos_token_id
+                        )
+                    else:
+                        # GPU/MPS optimized parameters with reduced chunk size
+                        result = self.pipeline(
+                            audio_file_path,
+                            return_timestamps=return_timestamps,
+                            generate_kwargs=generate_kwargs,
+                            chunk_length_s=20,  # Reduced from 30s to prevent overly long sentences
+                            stride_length_s=3,  # Reduced overlap for better chronological order
+                            max_new_tokens=300,  # Reduced from 448 for shorter sentences
+                            attention_mask=attention_mask,
+                            pad_token_id=self.pipeline.tokenizer.eos_token_id
+                        )
+                    
+                    # Progress callback after transcription
+                    if self._progress_callback:
+                        self._progress_callback(estimated_chunks, estimated_chunks, "Transcription complete")
                 except Exception as kwargs_error:
                     _print(f"⚠️ Generate kwargs failed: {kwargs_error}", "yellow")
                     _print("🔄 Retrying with minimal parameters...", "blue")
@@ -542,13 +597,33 @@ class WhisperService:
                         "return_timestamps": True
                     }
                     
-                    result = self.pipeline(
-                        audio_file_path,
-                        return_timestamps=return_timestamps,
-                        generate_kwargs=minimal_kwargs,
-                        chunk_length_s=15,  # Shorter chunks for better timestamp accuracy
-                        stride_length_s=3   # Overlap for continuity
-                    )
+                    # CPU-optimized fallback parameters - further reduced for shorter sentences  
+                    chunk_length = 8 if self._device == "cpu" else 12
+                    
+                    # Progress callback for fallback attempt
+                    if self._progress_callback:
+                        self._progress_callback(0, 1, "Retrying with minimal parameters...")
+                    
+                    if self._device == "cpu":
+                        result = self.pipeline(
+                            audio_file_path,
+                            return_timestamps=return_timestamps,
+                            generate_kwargs=minimal_kwargs,
+                            chunk_length_s=8,   # Further reduced from 10s for shorter sentences
+                            stride_length_s=1   # Minimal overlap for CPU performance and better ordering
+                        )
+                    else:
+                        result = self.pipeline(
+                            audio_file_path,
+                            return_timestamps=return_timestamps,
+                            generate_kwargs=minimal_kwargs,
+                            chunk_length_s=12,  # Reduced from 15s for shorter sentences
+                            stride_length_s=2   # Reduced overlap for better chronological order
+                        )
+                        
+                    # Progress callback after fallback transcription
+                    if self._progress_callback:
+                        self._progress_callback(1, 1, "Fallback transcription complete")
             
             # Validate and process result
             validated_result = self._validate_whisper_result(result)
@@ -562,13 +637,13 @@ class WhisperService:
     
     def _validate_whisper_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Validate and fix Whisper result timestamps.
+        Validate and fix Whisper result timestamps, ensuring chronological order.
         
         Args:
             result: Raw Whisper result
             
         Returns:
-            dict: Validated result with fixed timestamps
+            dict: Validated result with fixed timestamps in chronological order
         """
         if not isinstance(result, dict):
             return result
@@ -576,7 +651,6 @@ class WhisperService:
         # Fix chunks with None timestamps
         if "chunks" in result and isinstance(result["chunks"], list):
             fixed_chunks = []
-            current_time = 0.0
             
             for chunk in result["chunks"]:
                 if isinstance(chunk, dict):
@@ -602,6 +676,24 @@ class WhisperService:
                         chunk["timestamp"] = [float(start_time), float(end_time)]
                     
                     fixed_chunks.append(chunk)
+            
+            # CRITICAL FIX: Sort chunks by start timestamp to ensure chronological order
+            fixed_chunks.sort(key=lambda x: x.get("timestamp", [0, 0])[0])
+            
+            # Additional validation: Ensure no temporal overlaps cause ordering issues
+            previous_end = 0.0
+            for i, chunk in enumerate(fixed_chunks):
+                timestamp = chunk.get("timestamp", [0, 0])
+                start_time, end_time = timestamp[0], timestamp[1]
+                
+                # Adjust start time if it's before the previous chunk's end time
+                if start_time < previous_end:
+                    # Slightly offset to maintain chronological order
+                    start_time = previous_end + 0.01
+                    end_time = max(end_time, start_time + 0.1)
+                    chunk["timestamp"] = [float(start_time), float(end_time)]
+                
+                previous_end = end_time
             
             result["chunks"] = fixed_chunks
         

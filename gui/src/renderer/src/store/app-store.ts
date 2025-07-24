@@ -149,12 +149,21 @@ export const useAppStore = create<AppStore>()(
     checkDependencies: async () => {
       try {
         const results = await window.cantocapAPI.checkDependencies()
-        set(state => ({
-          dependencies: {
-            ...state.dependencies,
-            ...results
+        set(state => {
+          const newState = {
+            dependencies: {
+              ...state.dependencies,
+              ...results
+            }
           }
-        }))
+          
+          // Auto-set ffmpegPath when FFmpeg is detected
+          if (results.ffmpeg?.available && results.ffmpeg?.path && !state.config.ffmpegPath) {
+            get().updateConfig('ffmpegPath', results.ffmpeg.path)
+          }
+          
+          return newState
+        })
       } catch (error) {
         console.error('Failed to check dependencies:', error)
         const errorMsg = error instanceof Error ? error.message : 'Unknown error'
@@ -237,10 +246,15 @@ export const useAppStore = create<AppStore>()(
       })),
 
     startTranscription: () => {
-      const { config } = get()
+      const { config, dependencies } = get()
       
       if (!config.inputFile) {
         get().showNotification('Please select an input file', 'error')
+        return
+      }
+
+      if (!dependencies.ffmpeg.available) {
+        get().showNotification('FFmpeg is not available. Please install FFmpeg and restart the app.', 'error')
         return
       }
 

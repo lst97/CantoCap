@@ -366,6 +366,10 @@ def validate_file_path(
     """
     Validate file path with comprehensive checks.
     
+    Note: For more comprehensive validation including dangerous character detection,
+    path traversal prevention, and sanitization, use ArgumentValidator.validate_file_path()
+    from the validation module.
+    
     Args:
         file_path: Path to validate
         must_exist: Whether file must exist

@@ -519,8 +519,12 @@ export class ProcessManager {
       args.push('-c', config.terminologyConfig)
     }
 
+    // FFmpeg path is now required
     if (config.ffmpegPath) {
       args.push('--ffmpeg-path', config.ffmpegPath)
+    } else {
+      // If no custom path is set, use 'ffmpeg' (system PATH)
+      args.push('--ffmpeg-path', 'ffmpeg')
     }
 
     if (config.subtitle) {

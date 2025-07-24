@@ -48,6 +48,7 @@ class WhisperXService:
         self.model_name = model_name
         self._device = device or self._get_optimal_device()
         self._quiet_mode = False
+        self._progress_callback: Optional[Callable[[int, int, str], None]] = None
         
         # WhisperX components
         self.model = None
@@ -78,9 +79,20 @@ class WhisperXService:
                     _print(f"⚠️ GPU {i} test failed: {e}", "yellow")
                     continue
         
-        # Check for Apple Metal Performance Shaders (but WhisperX doesn't support MPS)
+        # Check for Apple Metal Performance Shaders (WhisperX historically doesn't support MPS)
         elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-            _print("⚠️ WhisperX does not support MPS, falling back to CPU", "yellow")
+            # Try to detect if WhisperX now supports MPS in newer versions
+            try:
+                import whisperx
+                # Test MPS compatibility by attempting to create a model with MPS device
+                _print("🧪 Testing WhisperX MPS compatibility...", "blue")
+                test_model = whisperx.load_model("base", "mps", compute_type="float32")
+                if test_model is not None:
+                    _print("✅ WhisperX MPS support detected! Using MPS acceleration", "green")
+                    return "mps"
+            except Exception as e:
+                _print(f"⚠️ WhisperX MPS test failed: {e}", "yellow")
+                _print("ℹ️ WhisperX does not support MPS, falling back to CPU", "blue")
         
         _print("ℹ️ Using CPU for inference", "blue")
         return "cpu"
@@ -98,13 +110,28 @@ class WhisperXService:
         """
         try:
             import whisperx
+            import os
             
-            # Auto-select compute type based on device
+            # Auto-select compute type based on device with CPU optimization
             if compute_type is None:
                 if self._device == "cpu":
                     compute_type = "float32"  # CPU doesn't support efficient float16
                 else:
                     compute_type = "float16"  # GPU can use float16
+            
+            # Optimize CPU performance by setting thread counts
+            if self._device == "cpu":
+                # Set optimal thread counts for CPU inference
+                cpu_cores = os.cpu_count() or 4
+                # Use all available cores but cap at 16 for optimal performance
+                optimal_threads = min(cpu_cores, 16)
+                
+                # Set PyTorch thread counts for better CPU utilization
+                import torch
+                torch.set_num_threads(optimal_threads)
+                torch.set_num_interop_threads(optimal_threads)
+                
+                _print(f"🚀 CPU optimization: Using {optimal_threads} threads for inference", "blue")
             
             _print(f"Loading WhisperX model '{self.model_name}' on device: {self._device} with language: {language}, compute_type: {compute_type}", "blue")
             
@@ -163,6 +190,15 @@ class WhisperXService:
             _print(f"⚠️ Could not load diarization model: {e}", "yellow")
             return False
     
+    def set_progress_callback(self, callback: Optional[Callable[[int, int, str], None]]) -> None:
+        """
+        Set progress callback for transcription progress tracking.
+        
+        Args:
+            callback: Function that receives (current_step, total_steps, status)
+        """
+        self._progress_callback = callback
+    
     def is_model_loaded(self) -> bool:
         """Check if model is loaded and ready."""
         return self.model is not None
@@ -172,7 +208,7 @@ class WhisperXService:
         audio_file_path: str,
         language: str = "zh",
         return_timestamps: bool = True,
-        batch_size: int = 16,
+        batch_size: int = None,
         enable_diarization: bool = False,
         min_speakers: Optional[int] = None,
         max_speakers: Optional[int] = None
@@ -205,17 +241,36 @@ class WhisperXService:
         
         try:
             import whisperx
+            import os
             
-            # Load audio
+            # Optimize batch size for CPU performance if not specified
+            if batch_size is None:
+                if self._device == "cpu":
+                    # For CPU, smaller batch sizes often perform better
+                    cpu_cores = os.cpu_count() or 4
+                    # Use 1-4 batch size based on CPU cores for optimal memory usage
+                    batch_size = min(max(1, cpu_cores // 4), 4)
+                    _print(f"🚀 CPU-optimized batch size: {batch_size}", "blue")
+                else:
+                    # Default for GPU
+                    batch_size = 16
+            
+            # Step 1: Load audio
+            if self._progress_callback:
+                self._progress_callback(1, 4, "Loading audio...")
             _print("Loading audio...", "blue")
             audio = whisperx.load_audio(audio_file_path)
             
-            # Transcribe with Whisper (language was specified in load_model)
-            _print(f"Transcribing with WhisperX...", "blue")
+            # Step 2: Transcribe with Whisper (language was specified in load_model)
+            if self._progress_callback:
+                self._progress_callback(2, 4, "Transcribing audio...")
+            _print(f"Transcribing with WhisperX (batch_size={batch_size})...", "blue")
             result = self.model.transcribe(audio, batch_size=batch_size)
             
-            # Load alignment model and align whisper output for better timestamps
+            # Step 3: Load alignment model and align whisper output for better timestamps
             if return_timestamps:
+                if self._progress_callback:
+                    self._progress_callback(3, 4, "Aligning timestamps...")
                 try:
                     # Detect language from transcription result
                     detected_language = result.get("language", language)
@@ -242,9 +297,14 @@ class WhisperXService:
                 except Exception as e:
                     _print(f"⚠️ Could not align timestamps: {e}", "yellow")
                     # Continue without alignment
+            else:
+                if self._progress_callback:
+                    self._progress_callback(3, 4, "Skipping timestamp alignment...")
             
-            # Speaker diarization
+            # Step 4: Speaker diarization (if enabled)
             if enable_diarization and self.diarize_model is not None:
+                if self._progress_callback:
+                    self._progress_callback(4, 4, "Performing speaker diarization...")
                 _print("Performing speaker diarization...", "blue")
                 
                 # Create diarization segments
@@ -256,6 +316,13 @@ class WhisperXService:
                 
                 # Assign speaker labels to segments
                 result = whisperx.assign_word_speakers(diarize_segments, result)
+            else:
+                if self._progress_callback:
+                    self._progress_callback(4, 4, "Processing results...")
+                
+            # Final progress update
+            if self._progress_callback:
+                self._progress_callback(4, 4, "Transcription complete!")
                 
             # Process result into standard format
             return self._process_whisperx_result(result, audio_file_path, enable_diarization)

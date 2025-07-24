@@ -17,6 +17,7 @@ from ...infrastructure.error_handling import (
     AudioProcessingError, TranscriptionError, FileSystemError,
     setup_global_error_handler
 )
+from ...infrastructure.validation import ArgumentValidator, ValidationSeverity
 from .progress_display import (
     create_enhanced_progress_context, ProcessingStage, WhisperProgressTracker, ProgressDisplayManager
 )
@@ -64,13 +65,13 @@ def generate_command(
         "zh",
         "--language",
         "-l",
-        help="Language code for transcription (default: zh for Chinese)"
+        help="Language code for transcription alignment models (e.g., 'zh', 'ja', 'en')"
     ),
     model: Optional[str] = typer.Option(
         None,
         "--model",
         "-m",
-        help="Whisper model to use (auto-selects optimal model if not specified). Use 'whisperX/large-v3' for WhisperX"
+        help="Whisper model to use (auto-selects optimal model if not specified). Use full format: 'openai/whisper-large-v3' or 'whisperX/large-v3'"
     ),
     priority: str = typer.Option(
         "balanced",
@@ -139,10 +140,10 @@ def generate_command(
         help="Path to JSON file with custom terminology and language style rules"
     ),
     
-    ffmpeg_path: Optional[str] = typer.Option(
-        None,
+    ffmpeg_path: str = typer.Option(
+        ...,
         "--ffmpeg-path",
-        help="Custom path to FFmpeg executable (overrides system PATH)"
+        help="Path to FFmpeg executable (required)"
     ),
     
     verbose: bool = typer.Option(
@@ -187,35 +188,77 @@ def generate_command(
             show_translation_help()
             raise typer.Exit(0)
         
+        # Comprehensive argument validation
+        args_to_validate = {
+            'input_file': input_file,
+            'output_file': output_file,
+            'language': language,
+            'model': model,
+            'priority': priority,
+            'video_quality': video_quality,
+            'charset': charset,
+            'ffmpeg_path': ffmpeg_path,
+            'terminology_config': terminology_config,
+            'max_chunk_duration': max_chunk_duration,
+            'gemini_api_key': gemini_api_key,
+            'hf_token': hf_token,
+            'subtitle': subtitle,
+            # Boolean flags
+            'speakers': speakers,
+            'written': written,
+            'music': music,
+            'disable_gemini_refinement': disable_gemini_refinement,
+            'verbose': verbose,
+            'ipc_mode': ipc_mode
+        }
+        
+        # Validate all arguments
+        is_valid, validation_issues, sanitized_args = ArgumentValidator.validate_all_arguments(args_to_validate)
+        
+        # Display validation errors and warnings
+        if validation_issues:
+            errors = [issue for issue in validation_issues if issue.severity == ValidationSeverity.ERROR]
+            warnings = [issue for issue in validation_issues if issue.severity == ValidationSeverity.WARNING]
+            
+            # Show errors first
+            if errors:
+                console.print("\n[red]Validation Errors:[/red]")
+                for issue in errors:
+                    console.print(f"  • {issue.field}: {issue.message}")
+                    if issue.suggestion:
+                        console.print(f"    [yellow]→ {issue.suggestion}[/yellow]")
+            
+            # Show warnings
+            if warnings and not ipc_mode:
+                console.print("\n[yellow]Warnings:[/yellow]")
+                for issue in warnings:
+                    console.print(f"  • {issue.field}: {issue.message}")
+                    if issue.suggestion:
+                        console.print(f"    → {issue.suggestion}")
+            
+            # Exit if there are errors
+            if not is_valid:
+                raise typer.Exit(1)
+        
+        # Use sanitized arguments
+        input_file = Path(sanitized_args.get('input_file', input_file))
+        if 'output_file' in sanitized_args:
+            output_file = Path(sanitized_args['output_file'])
+        language = sanitized_args.get('language', language)
+        model = sanitized_args.get('model', model)
+        priority = sanitized_args.get('priority', priority)
+        video_quality = sanitized_args.get('video_quality', video_quality)
+        charset = sanitized_args.get('charset', charset)
+        ffmpeg_path = sanitized_args.get('ffmpeg_path', ffmpeg_path)
+        if 'terminology_config' in sanitized_args:
+            terminology_config = Path(sanitized_args['terminology_config'])
+        max_chunk_duration = sanitized_args.get('max_chunk_duration', max_chunk_duration)
+        gemini_api_key = sanitized_args.get('gemini_api_key', gemini_api_key)
+        hf_token = sanitized_args.get('hf_token', hf_token)
+        
         # Handle subtitle translation option
-        translation_language = subtitle
+        translation_language = sanitized_args.get('subtitle', subtitle)
         enable_translation = translation_language is not None
-        
-        # Validate translation language if provided
-        if translation_language and not LanguageCode.is_supported(translation_language):
-            supported = ", ".join(LanguageCode.get_supported_codes().keys())
-            console.print(f"[red]Error:[/red] Unsupported language code '{translation_language}'")
-            console.print(f"[yellow]Supported codes:[/yellow] {supported}")
-            console.print("[yellow]Use --translation-help to see all available options[/yellow]")
-            raise typer.Exit(1)
-        # Validate priority parameter
-        if priority not in ["speed", "quality", "balanced"]:
-            raise ValueError(f"Invalid priority '{priority}'. Must be 'speed', 'quality', or 'balanced'")
-        
-        # Validate video quality parameter
-        if video_quality not in ["360p", "480p", "720p"]:
-            raise ValueError(f"Invalid video quality '{video_quality}'. Must be '360p', '480p', or '720p'")
-        
-        # Validate terminology config if provided
-        if terminology_config and not terminology_config.exists():
-            raise FileNotFoundError(f"Terminology config file not found: {terminology_config}")
-        if terminology_config and not terminology_config.is_file():
-            raise ValueError(f"Terminology config path is not a file: {terminology_config}")
-        if terminology_config and terminology_config.suffix.lower() != '.json':
-            raise ValueError(f"Terminology config must be a JSON file: {terminology_config}")
-        
-        # Validate input file with enhanced error handling
-        validated_input = validate_audio_file(input_file)
         
         # Initialize services
         from ...infrastructure.services.configuration_service import ConfigurationService
@@ -257,7 +300,7 @@ def generate_command(
         
         # Check if chunking is required
         from ...domain.value_objects import FilePath
-        input_file_path = FilePath.from_string(str(validated_input))
+        input_file_path = FilePath.from_string(str(input_file))
         if chunking_service.should_chunk_file(input_file_path):
             file_size_mb = chunking_service._get_file_size_mb(input_file_path)
             chunks = chunking_service.create_chunks(input_file_path)
@@ -285,7 +328,7 @@ def generate_command(
         # Create enhanced command
         def create_command():
             return GenerateSubtitlesCommand(
-                input_file_path=str(validated_input),
+                input_file_path=str(input_file),
                 output_file_path=str(output_file) if output_file else None,
                 language=language,
                 model_name=model,  # Will be None for auto-selection
@@ -311,10 +354,10 @@ def generate_command(
         )
         
         # Display file information
-        _display_file_info(validated_input, output_file, ipc_mode)
+        _display_file_info(input_file, output_file, ipc_mode)
         
         # Execute with enhanced progress tracking
-        result = _execute_with_enhanced_progress(command, use_case, verbose, model, priority, ipc_mode)
+        result = _execute_with_enhanced_progress(command, use_case, verbose, model, priority, ipc_mode, ffmpeg_path)
         
         # Display results
         _display_results(result, ipc_mode)
@@ -325,7 +368,7 @@ def generate_command(
                 TranscriptionError(
                     result.error_message or "Unknown processing error",
                     details={
-                        'input_file': str(validated_input),
+                        'input_file': str(input_file),
                         'output_file': str(command.get_effective_output_path().path),
                         'processing_time': getattr(result, 'processing_time_seconds', 0)
                     }
@@ -474,23 +517,23 @@ def setup_whisper_progress_callback(whisper_service, unified_manager):
         whisper_service.set_quiet_mode(not unified_manager.verbose)
 
 
-def _execute_with_enhanced_progress(command, use_case, verbose: bool, model: Optional[str], priority: str, ipc_mode: bool = False):
+def _execute_with_enhanced_progress(command, use_case, verbose: bool, model: Optional[str], priority: str, ipc_mode: bool = False, ffmpeg_path: str = None):
     """Execute the subtitle generation with enhanced progress tracking."""
     
     # Create unified progress manager based on mode
     if ipc_mode:
         unified_manager = UnifiedProgressManager(ipc_mode=True, verbose=verbose)
-        return _execute_processing_steps(command, use_case, verbose, model, priority, unified_manager)
+        return _execute_processing_steps(command, use_case, verbose, model, priority, unified_manager, ffmpeg_path)
     else:
         # Use rich console mode with context manager
         with create_enhanced_progress_context(console) as rich_manager:
             rich_manager.show_technical_details = verbose
             unified_manager = UnifiedProgressManager(ipc_mode=False, rich_manager=rich_manager, verbose=verbose)
             
-            return _execute_processing_steps(command, use_case, verbose, model, priority, unified_manager)
+            return _execute_processing_steps(command, use_case, verbose, model, priority, unified_manager, ffmpeg_path)
 
 
-def _execute_processing_steps(command, use_case, verbose: bool, model: Optional[str], priority: str, unified_manager):
+def _execute_processing_steps(command, use_case, verbose: bool, model: Optional[str], priority: str, unified_manager, ffmpeg_path: str):
     """Execute the processing steps with unified progress tracking."""
     try:
         # Step 1: Validation
@@ -867,6 +910,31 @@ def _execute_use_case_with_tracking(use_case, command, unified_manager):
             f"Processing failed: {str(e)[:100]}..."
         )
         raise
+    finally:
+        # Critical: Clean up resources to allow proper CLI exit
+        try:
+            if 'whisper_service' in locals():
+                whisper_service.cleanup()
+            if 'temp_container' in locals():
+                # Clean up any services that were created
+                try:
+                    container_whisper = temp_container.get_whisper_service()
+                    container_whisper.cleanup()
+                except:
+                    pass
+                try:
+                    whisperx_service = temp_container.get_whisperx_service()  
+                    whisperx_service.cleanup()
+                except:
+                    pass
+        except Exception as cleanup_error:
+            # Don't let cleanup errors affect the main result
+            if verbose:
+                unified_manager.add_technical_message(f"Cleanup warning: {cleanup_error}")
+        
+        # Force garbage collection to free memory
+        import gc
+        gc.collect()
 
 
 def _display_file_info(input_file: Path, output_file: Optional[Path], ipc_mode: bool = False) -> None:

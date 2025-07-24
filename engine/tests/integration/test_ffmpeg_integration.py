@@ -4,12 +4,13 @@ import pytest
 import tempfile
 import os
 import shutil
+import subprocess
 from unittest.mock import Mock, patch
 
-from cantocap.infrastructure.services import FFmpegService
-from cantocap.infrastructure.repositories import FFmpegAudioRepository
-from cantocap.domain.entities import MediaFile
-from cantocap.domain.value_objects import AudioFormat
+from src.infrastructure.services import FFmpegService
+from src.infrastructure.repositories import FFmpegAudioRepository
+from src.domain.entities import MediaFile
+from src.domain.value_objects import AudioFormat
 
 
 @pytest.mark.integration
@@ -117,7 +118,7 @@ class TestFFmpegIntegration:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
     
-    @patch('cantocap.infrastructure.services.ffmpeg_service.ffmpeg')
+    @patch('src.infrastructure.services.ffmpeg_service.ffmpeg')
     def test_audio_repository_extract_audio_mock(self, mock_ffmpeg):
         """Test audio repository with mocked FFmpeg."""
         # Mock FFmpeg operations

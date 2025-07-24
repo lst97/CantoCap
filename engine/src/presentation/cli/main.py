@@ -42,7 +42,7 @@ def main(
         "zh",
         "--language",
         "-l",
-        help="Language code for transcription (default: zh for Chinese)"
+        help="Language code for transcription alignment models (e.g., 'zh', 'ja', 'en')"
     ),
     model: Optional[str] = typer.Option(
         None,
@@ -115,7 +115,13 @@ def main(
     ffmpeg_path: Optional[str] = typer.Option(
         None,
         "--ffmpeg-path",
-        help="Custom path to FFmpeg executable (overrides system PATH)"
+        help="Path to FFmpeg executable (required for subtitle generation)"
+    ),
+    
+    hf_token: Optional[str] = typer.Option(
+        None,
+        "--hf-token",
+        help="Hugging Face token for accessing gated models"
     ),
     
     version: bool = typer.Option(
@@ -236,6 +242,12 @@ License: Free and open-source. Use your own API key. Paid services may be availa
     if input_file is None:
         console.print(ctx.get_help())
         return
+    
+    # Validate FFmpeg path is provided for file processing
+    if ffmpeg_path is None:
+        console.print("[red]Error:[/red] --ffmpeg-path is required for subtitle generation")
+        console.print("Use --ffmpeg-path /path/to/ffmpeg or --ffmpeg-path ffmpeg (if in PATH)")
+        raise typer.Exit(1)
         
     # Call generate command directly
     generate_command(
@@ -254,6 +266,7 @@ License: Free and open-source. Use your own API key. Paid services may be availa
         video_quality=video_quality,
         terminology_config=terminology_config,
         ffmpeg_path=ffmpeg_path,
+        hf_token=hf_token,
         verbose=verbose,
         ipc_mode=ipc_mode,
         subtitle=subtitle,

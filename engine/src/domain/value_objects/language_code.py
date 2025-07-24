@@ -5,7 +5,7 @@ from typing import Dict, Optional
 import re
 
 
-# Supported language codes with human-readable names
+# Supported language codes with human-readable names (full language_country format for translation)
 SUPPORTED_LANGUAGES: Dict[str, str] = {
     "en_us": "English (US)",
     "en_uk": "English (UK)", 
@@ -87,36 +87,56 @@ class LanguageCode:
         return self.code.split('_')[1]
     
     @property
+    def is_chinese(self) -> bool:
+        """Check if this is Chinese language."""
+        return self.code.startswith('zh_')
+    
+    @property
     def gemini_language_code(self) -> str:
         """Get language code format for Gemini API."""
-        # Map to standard language codes for Gemini
+        # Map simple codes to Gemini format (defaulting to common regions)
         gemini_mapping = {
-            "en_us": "en-US",
-            "en_uk": "en-GB", 
-            "en_au": "en-AU",
-            "en_ca": "en-CA",
-            "zh_cn": "zh-CN",
-            "zh_tw": "zh-TW",
-            "ja_jp": "ja-JP",
-            "ko_kr": "ko-KR",
-            "es_es": "es-ES",
-            "es_mx": "es-MX",
-            "fr_fr": "fr-FR",
-            "fr_ca": "fr-CA",
-            "de_de": "de-DE",
-            "it_it": "it-IT",
-            "pt_br": "pt-BR",
-            "pt_pt": "pt-PT",
-            "ru_ru": "ru-RU",
-            "ar_sa": "ar-SA",
-            "hi_in": "hi-IN",
-            "th_th": "th-TH",
-            "vi_vn": "vi-VN",
-            "id_id": "id-ID",
-            "ms_my": "ms-MY",
-            "tl_ph": "tl-PH"
+            "en": "en-US",
+            "zh": "zh-CN",  # Default to Simplified Chinese
+            "ja": "ja-JP",
+            "ko": "ko-KR",
+            "es": "es-ES",
+            "fr": "fr-FR",
+            "de": "de-DE",
+            "it": "it-IT",
+            "pt": "pt-BR",  # Default to Brazilian Portuguese
+            "ru": "ru-RU",
+            "ar": "ar-SA",
+            "hi": "hi-IN",
+            "vi": "vi-VN",
+            "uk": "uk-UA",
+            "pl": "pl-PL",
+            "hu": "hu-HU",
+            "fi": "fi-FI",
+            "fa": "fa-IR",
+            "el": "el-GR",
+            "tr": "tr-TR",
+            "da": "da-DK",
+            "he": "he-IL",
+            "ur": "ur-PK",
+            "te": "te-IN",
+            "ca": "ca-ES",
+            "ml": "ml-IN",
+            "no": "no-NO",
+            "nn": "nn-NO",
+            "sk": "sk-SK",
+            "sl": "sl-SI",
+            "hr": "hr-HR",
+            "ro": "ro-RO",
+            "eu": "eu-ES",
+            "gl": "gl-ES",
+            "ka": "ka-GE",
+            "lv": "lv-LV",
+            "tl": "tl-PH",
+            "nl": "nl-NL",
+            "cs": "cs-CZ"
         }
-        return gemini_mapping.get(self.code, self.code.replace('_', '-'))
+        return gemini_mapping.get(self.code, f"{self.code.upper()}")
     
     @property
     def display_name(self) -> str:

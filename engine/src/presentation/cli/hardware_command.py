@@ -7,6 +7,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ...infrastructure.services.hardware_detector import HardwareDetector, ModelSize
+from ...infrastructure.validation import ArgumentValidator, ValidationSeverity
 
 console = Console()
 
@@ -32,9 +33,55 @@ def hardware_command(
     for the optimal Whisper model based on available VRAM, CPU, and performance priorities.
     """
     try:
-        # Validate priority parameter
-        if priority not in ["speed", "quality", "balanced"]:
-            raise ValueError(f"Invalid priority '{priority}'. Must be 'speed', 'quality', or 'balanced'")
+        # Validate arguments
+        args_to_validate = {
+            'priority': priority,
+            'audio_duration': audio_duration
+        }
+        
+        # Validate priority
+        priority_result = ArgumentValidator.validate_enum_value(
+            priority,
+            ['speed', 'quality', 'balanced'],
+            field_name='priority'
+        )
+        
+        # Validate audio duration
+        duration_result = ArgumentValidator.validate_numeric_range(
+            audio_duration,
+            min_value=0.1,
+            max_value=600.0,  # 10 hours max
+            field_name='audio_duration'
+        )
+        
+        # Check for validation errors
+        validation_issues = priority_result.issues + duration_result.issues
+        
+        if validation_issues:
+            errors = [issue for issue in validation_issues if issue.severity == ValidationSeverity.ERROR]
+            warnings = [issue for issue in validation_issues if issue.severity == ValidationSeverity.WARNING]
+            
+            # Show errors
+            if errors:
+                console.print("\n[red]Validation Errors:[/red]")
+                for issue in errors:
+                    console.print(f"  • {issue.field}: {issue.message}")
+                    if issue.suggestion:
+                        console.print(f"    [yellow]→ {issue.suggestion}[/yellow]")
+            
+            # Show warnings
+            if warnings:
+                console.print("\n[yellow]Warnings:[/yellow]")
+                for issue in warnings:
+                    console.print(f"  • {issue.field}: {issue.message}")
+            
+            # Exit if there are errors
+            if errors:
+                raise typer.Exit(1)
+        
+        # Use sanitized values
+        priority = priority_result.sanitized_value or priority
+        audio_duration = duration_result.sanitized_value or audio_duration
         
         detector = HardwareDetector()
         
