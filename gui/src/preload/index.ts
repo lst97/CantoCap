@@ -42,6 +42,22 @@ const api: ElectronAPI = {
   openExternalUrl: (url: string): Promise<void> => 
     ipcRenderer.invoke('open-external-url', url),
 
+  // Window Controls
+  minimizeWindow: (): Promise<void> => 
+    ipcRenderer.invoke('window:minimize'),
+
+  maximizeWindow: (): Promise<void> => 
+    ipcRenderer.invoke('window:maximize'),
+
+  closeWindow: (): Promise<void> => 
+    ipcRenderer.invoke('window:close'),
+
+  isWindowMaximized: (): Promise<boolean> => 
+    ipcRenderer.invoke('window:isMaximized'),
+
+  getPlatform: (): Promise<string> => 
+    ipcRenderer.invoke('get-platform'),
+
   // File System Operations
   openFileDialog: (options?: FileDialogOptions): Promise<FileDialogResult> => 
     ipcRenderer.invoke('dialog:openFile', options),

@@ -253,7 +253,7 @@ export class ProcessManager {
       console.log(`Debug: Hardware check using Python: ${pythonCmd} (venv: ${this.venvActivated})`)
       
       return new Promise((resolve, reject) => {
-        const process = spawn(pythonCmd, [
+        const hardwareProcess = spawn(pythonCmd, [
           '-m', 'src.presentation.cli.main',
           'hardware'
         ], {
@@ -269,15 +269,15 @@ export class ProcessManager {
         let stdout = ''
         let stderr = ''
 
-        process.stdout?.on('data', (data: Buffer) => {
+        hardwareProcess.stdout?.on('data', (data: Buffer) => {
           stdout += data.toString()
         })
 
-        process.stderr?.on('data', (data: Buffer) => {
+        hardwareProcess.stderr?.on('data', (data: Buffer) => {
           stderr += data.toString()
         })
 
-        process.on('close', (code: number | null) => {
+        hardwareProcess.on('close', (code: number | null) => {
           if (code === 0) {
             // Parse hardware information
             try {

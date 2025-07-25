@@ -115,7 +115,7 @@ def main(
     ffmpeg_path: Optional[str] = typer.Option(
         None,
         "--ffmpeg-path",
-        help="Path to FFmpeg executable (required for subtitle generation)"
+        help="Full path to FFmpeg executable (required for subtitle generation, e.g., /usr/bin/ffmpeg or C:\\ffmpeg\\bin\\ffmpeg.exe)"
     ),
     
     hf_token: Optional[str] = typer.Option(
@@ -166,29 +166,32 @@ def main(
     
     Examples:
     
-        # Basic usage (auto-selects optimal model)
-        cantocap video.mp4
+        # Basic usage (auto-selects optimal model) - requires FFmpeg path
+        cantocap video.mp4 --ffmpeg-path /usr/bin/ffmpeg
+        
+        # On Windows
+        cantocap video.mp4 --ffmpeg-path "C:\\ffmpeg\\bin\\ffmpeg.exe"
         
         # Prioritize speed over quality
-        cantocap video.mp4 --priority speed
+        cantocap video.mp4 --priority speed --ffmpeg-path /usr/bin/ffmpeg
         
         # Prioritize quality over speed  
-        cantocap video.mp4 --priority quality
+        cantocap video.mp4 --priority quality --ffmpeg-path /usr/bin/ffmpeg
         
         # Override with specific model
-        cantocap video.mp4 --model openai/whisper-medium
+        cantocap video.mp4 --model openai/whisper-medium --ffmpeg-path /usr/bin/ffmpeg
         
         # Use WhisperX with enhanced features
-        cantocap video.mp4 --model whisperX/large-v3
+        cantocap video.mp4 --model whisperX/large-v3 --ffmpeg-path /usr/bin/ffmpeg
         
         # Check hardware capabilities
         cantocap hardware
         
         # Enhanced features with Gemini Flash
-        cantocap movie.mkv --speakers --written --music --gemini-key YOUR_API_KEY
+        cantocap movie.mkv --speakers --written --music --gemini-key YOUR_API_KEY --ffmpeg-path /usr/bin/ffmpeg
         
         # Custom terminology configuration
-        cantocap video.mp4 --terminology-config my_terms.json --written
+        cantocap video.mp4 --terminology-config my_terms.json --written --ffmpeg-path /usr/bin/ffmpeg
     """
     # Set global IPC mode for error handling
     from ...infrastructure.error_handling import set_global_ipc_mode
@@ -246,7 +249,7 @@ License: Free and open-source. Use your own API key. Paid services may be availa
     # Validate FFmpeg path is provided for file processing
     if ffmpeg_path is None:
         console.print("[red]Error:[/red] --ffmpeg-path is required for subtitle generation")
-        console.print("Use --ffmpeg-path /path/to/ffmpeg or --ffmpeg-path ffmpeg (if in PATH)")
+        console.print("Provide the full path to FFmpeg executable (e.g., /usr/bin/ffmpeg or C:\\ffmpeg\\bin\\ffmpeg.exe)")
         raise typer.Exit(1)
         
     # Call generate command directly

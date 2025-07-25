@@ -112,7 +112,9 @@ export const useAppStore = create<AppStore>()(
       ffmpegPath: null,
       subtitle: null,
       duration: 10.0,
-      verbose: false
+      verbose: false,
+      startTime: null,
+      endTime: null
     },
     
     // UI State
@@ -149,7 +151,7 @@ export const useAppStore = create<AppStore>()(
     checkDependencies: async () => {
       try {
         const results = await window.cantocapAPI.checkDependencies()
-        set(state => {
+        set((state: AppStore) => {
           const newState = {
             dependencies: {
               ...state.dependencies,
@@ -157,9 +159,12 @@ export const useAppStore = create<AppStore>()(
             }
           }
           
-          // Auto-set ffmpegPath when FFmpeg is detected
-          if (results.ffmpeg?.available && results.ffmpeg?.path && !state.config.ffmpegPath) {
-            get().updateConfig('ffmpegPath', results.ffmpeg.path)
+          // Auto-set ffmpegPath when FFmpeg is detected with resolved path
+          if (results.ffmpeg?.available && results.ffmpeg?.path) {
+            // Always update if we have a resolved path that's different from current config
+            if (state.config.ffmpegPath !== results.ffmpeg.path) {
+              get().updateConfig('ffmpegPath', results.ffmpeg.path)
+            }
           }
           
           return newState
@@ -167,7 +172,7 @@ export const useAppStore = create<AppStore>()(
       } catch (error) {
         console.error('Failed to check dependencies:', error)
         const errorMsg = error instanceof Error ? error.message : 'Unknown error'
-        set(state => ({
+        set((state: AppStore) => ({
           dependencies: {
             python: { ...state.dependencies.python, status: 'error', error: errorMsg },
             ffmpeg: { ...state.dependencies.ffmpeg, status: 'error', error: errorMsg }
@@ -177,7 +182,7 @@ export const useAppStore = create<AppStore>()(
     },
 
     updateDependency: (name: string, status: Partial<DependencyStatus>) => 
-      set(state => ({
+      set((state: AppStore) => ({
         dependencies: {
           ...state.dependencies,
           [name]: { ...state.dependencies[name as keyof typeof state.dependencies], ...status }
@@ -186,7 +191,7 @@ export const useAppStore = create<AppStore>()(
     
     updateProcessing: (update: Partial<ProcessingState>) => {
       const currentTime = Date.now()
-      set(state => {
+      set((state: AppStore) => {
         const newProcessing = { ...state.processing, ...update }
         
         // Calculate time elapsed if process is active
@@ -203,7 +208,7 @@ export const useAppStore = create<AppStore>()(
     },
     
     updateConfig: <K extends keyof AppConfig>(key: K, value: AppConfig[K]) => {
-      set(state => ({
+      set((state: AppStore) => ({
         config: { ...state.config, [key]: value }
       }))
       
@@ -220,7 +225,7 @@ export const useAppStore = create<AppStore>()(
         const saved = localStorage.getItem('cantocap-config')
         if (saved) {
           const config = JSON.parse(saved) as Partial<AppConfig>
-          set(state => ({
+          set((state: AppStore) => ({
             config: { ...state.config, ...config }
           }))
         }
@@ -230,7 +235,7 @@ export const useAppStore = create<AppStore>()(
     },
     
     resetProcessing: () =>
-      set(state => ({
+      set((state: AppStore) => ({
         processing: {
           isActive: false,
           stage: 'idle',
@@ -258,7 +263,7 @@ export const useAppStore = create<AppStore>()(
         return
       }
 
-      set(state => ({
+      set((state: AppStore) => ({
         processing: {
           ...state.processing,
           isActive: true,
@@ -278,7 +283,7 @@ export const useAppStore = create<AppStore>()(
 
     cancelTranscription: () => {
       window.cantocapAPI.cancelProcess()
-      set(state => ({
+      set((state: AppStore) => ({
         processing: {
           ...state.processing,
           isActive: false,
@@ -289,13 +294,13 @@ export const useAppStore = create<AppStore>()(
     },
 
     checkHardware: async () => {
-      set(state => ({
+      set((state: AppStore) => ({
         hardware: { ...state.hardware, checking: true, error: null }
       }))
 
       try {
         const info = await window.cantocapAPI.checkHardware()
-        set(state => ({
+        set((state: AppStore) => ({
           hardware: {
             ...state.hardware,
             info,
@@ -307,7 +312,7 @@ export const useAppStore = create<AppStore>()(
         return info
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : 'Unknown error'
-        set(state => ({
+        set((state: AppStore) => ({
           hardware: {
             ...state.hardware,
             checking: false,
@@ -320,17 +325,17 @@ export const useAppStore = create<AppStore>()(
 
     // UI Actions
     setActiveModal: (modal: string | null) => 
-      set(state => ({
+      set((state: AppStore) => ({
         ui: { ...state.ui, activeModal: modal }
       })),
 
     closeModal: () => 
-      set(state => ({
+      set((state: AppStore) => ({
         ui: { ...state.ui, activeModal: null }
       })),
 
     toggleAdvanced: () =>
-      set(state => ({
+      set((state: AppStore) => ({
         ui: { ...state.ui, showAdvanced: !state.ui.showAdvanced }
       })),
 
@@ -338,7 +343,7 @@ export const useAppStore = create<AppStore>()(
       const id = Date.now()
       const notification: Notification = { id, message, type, timestamp: Date.now() }
       
-      set(state => ({
+      set((state: AppStore) => ({
         ui: {
           ...state.ui,
           notifications: [...state.ui.notifications, notification]
@@ -352,7 +357,7 @@ export const useAppStore = create<AppStore>()(
     },
 
     removeNotification: (id: number) =>
-      set(state => ({
+      set((state: AppStore) => ({
         ui: {
           ...state.ui,
           notifications: state.ui.notifications.filter(n => n.id !== id)
@@ -369,7 +374,7 @@ export const useAppStore = create<AppStore>()(
         config: { ...get().config }
       }
 
-      set(state => ({
+      set((state: AppStore) => ({
         ui: {
           ...state.ui,
           processingHistory: [entry, ...state.ui.processingHistory.slice(0, 9)] // Keep last 10
@@ -408,7 +413,12 @@ export const useAppStore = create<AppStore>()(
       if (config.terminologyConfig) args.push('--config', config.terminologyConfig)
       if (config.ffmpegPath) args.push('--ffmpeg-path', config.ffmpegPath)
       if (config.subtitle) args.push('--subtitle', config.subtitle)
-      if (config.duration !== 10.0) args.push('--duration', String(config.duration))
+      if (config.startTime !== null && config.endTime !== null) {
+        args.push('--start-time', String(config.startTime))
+        args.push('--end-time', String(config.endTime))
+      } else if (config.duration !== 10.0) {
+        args.push('--duration', String(config.duration))
+      }
       if (config.verbose) args.push('--verbose')
 
       return args

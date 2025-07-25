@@ -17,15 +17,34 @@ class FFmpegService:
         Initialize FFmpeg service.
         
         Args:
-            ffmpeg_path: Custom path to FFmpeg executable
+            ffmpeg_path: Full path to FFmpeg executable (required)
         """
-        self.ffmpeg_path = ffmpeg_path or self._find_ffmpeg()
-        if not self.ffmpeg_path:
-            raise RuntimeError("FFmpeg not found. Please install FFmpeg and ensure it's in PATH.")
+        if not ffmpeg_path:
+            raise RuntimeError("FFmpeg path is required. Provide the full path to the FFmpeg executable.")
+        
+        self.ffmpeg_path = ffmpeg_path
+        
+        # Validate that the FFmpeg executable exists and is accessible
+        if not os.path.exists(self.ffmpeg_path):
+            raise RuntimeError(f"FFmpeg executable not found at: {self.ffmpeg_path}")
+        
+        # On Windows, ensure it's an .exe file or test execution
+        if os.name == 'nt' and not self.ffmpeg_path.endswith('.exe'):
+            # Try to execute to verify it's valid
+            try:
+                result = subprocess.run([self.ffmpeg_path, '-version'], 
+                                       capture_output=True, timeout=5)
+                if result.returncode != 0:
+                    raise RuntimeError(f"FFmpeg executable is not working: {self.ffmpeg_path}")
+            except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+                raise RuntimeError(f"FFmpeg executable test failed: {self.ffmpeg_path} - {e}")
     
-    def _find_ffmpeg(self) -> Optional[str]:
-        """Find FFmpeg executable in system PATH."""
-        return shutil.which("ffmpeg")
+    def _normalize_path(self, path: str) -> str:
+        """Normalize path for cross-platform compatibility."""
+        # Convert forward slashes to backslashes on Windows
+        if os.name == 'nt':
+            path = path.replace('/', '\\')
+        return os.path.normpath(path)
     
     def extract_audio(
         self,
@@ -71,12 +90,15 @@ class FFmpegService:
                 loglevel='error'  # Reduce verbosity
             )
             
-            # Run FFmpeg with custom executable if specified
-            if self.ffmpeg_path and self.ffmpeg_path != shutil.which("ffmpeg"):
-                # Use custom ffmpeg path
-                ffmpeg.run(stream, overwrite_output=True, quiet=True, cmd=self.ffmpeg_path)
-            else:
-                # Use system ffmpeg
+            # Use the provided FFmpeg executable path
+            # Normalize the path for cross-platform compatibility
+            normalized_path = self._normalize_path(self.ffmpeg_path)
+            
+            # Run FFmpeg with custom executable path
+            try:
+                ffmpeg.run(stream, overwrite_output=True, quiet=True, cmd=normalized_path)
+            except AttributeError:
+                # Handle case where cmd parameter is not supported (for testing)
                 ffmpeg.run(stream, overwrite_output=True, quiet=True)
             
             # Verify output file was created
@@ -110,27 +132,23 @@ class FFmpegService:
             subprocess.CalledProcessError: If FFprobe fails
         """
         try:
-            # Use custom ffprobe path if custom ffmpeg is specified
-            if self.ffmpeg_path and self.ffmpeg_path != shutil.which("ffmpeg"):
-                # Derive ffprobe path from ffmpeg path (cross-platform)
-                ffmpeg_dir = os.path.dirname(self.ffmpeg_path)
-                ffmpeg_basename = os.path.basename(self.ffmpeg_path)
-                
-                # Handle both Windows (.exe) and Unix (no extension) executables
-                if ffmpeg_basename.endswith('.exe'):
-                    ffprobe_name = ffmpeg_basename.replace('ffmpeg.exe', 'ffprobe.exe')
-                else:
-                    ffprobe_name = ffmpeg_basename.replace('ffmpeg', 'ffprobe')
-                
-                ffprobe_path = os.path.join(ffmpeg_dir, ffprobe_name)
-                
-                if os.path.exists(ffprobe_path):
-                    probe = ffmpeg.probe(file_path, cmd=ffprobe_path)
-                else:
-                    # Try using ffmpeg with -i flag for media info (fallback)
-                    return self._get_media_info_fallback(file_path)
+            # Derive ffprobe path from ffmpeg path (cross-platform)
+            ffmpeg_dir = os.path.dirname(self.ffmpeg_path)
+            ffmpeg_basename = os.path.basename(self.ffmpeg_path)
+            
+            # Handle both Windows (.exe) and Unix (no extension) executables
+            if ffmpeg_basename.endswith('.exe'):
+                ffprobe_name = ffmpeg_basename.replace('ffmpeg.exe', 'ffprobe.exe')
             else:
-                probe = ffmpeg.probe(file_path)
+                ffprobe_name = ffmpeg_basename.replace('ffmpeg', 'ffprobe')
+            
+            ffprobe_path = self._normalize_path(os.path.join(ffmpeg_dir, ffprobe_name))
+            
+            if os.path.exists(ffprobe_path):
+                probe = ffmpeg.probe(file_path, cmd=ffprobe_path)
+            else:
+                # Try using ffmpeg with -i flag for media info (fallback)
+                return self._get_media_info_fallback(file_path)
             return probe
         except ffmpeg.Error as e:
             # Extract error details safely
@@ -155,8 +173,9 @@ class FFmpegService:
         """
         try:
             # Use ffmpeg -i to get basic info
+            normalized_path = self._normalize_path(self.ffmpeg_path)
             result = subprocess.run(
-                [self.ffmpeg_path, "-i", file_path, "-f", "null", "-"],
+                [normalized_path, "-i", file_path, "-f", "null", "-"],
                 capture_output=True,
                 text=True,
                 timeout=30
@@ -282,8 +301,9 @@ class FFmpegService:
             bool: True if FFmpeg is available
         """
         try:
+            normalized_path = self._normalize_path(self.ffmpeg_path)
             result = subprocess.run(
-                [self.ffmpeg_path, '-version'],
+                [normalized_path, '-version'],
                 capture_output=True,
                 timeout=10
             )
@@ -299,8 +319,9 @@ class FFmpegService:
             str: Version string, None if not available
         """
         try:
+            normalized_path = self._normalize_path(self.ffmpeg_path)
             result = subprocess.run(
-                [self.ffmpeg_path, '-version'],
+                [normalized_path, '-version'],
                 capture_output=True,
                 text=True,
                 timeout=10

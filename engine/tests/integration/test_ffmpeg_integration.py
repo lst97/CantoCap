@@ -19,8 +19,23 @@ class TestFFmpegIntegration:
     
     def setup_method(self):
         """Setup test fixtures."""
-        # Skip if FFmpeg not available
-        self.ffmpeg_service = FFmpegService()
+        # Find FFmpeg executable for testing
+        possible_paths = [
+            "/opt/homebrew/bin/ffmpeg",
+            "/usr/bin/ffmpeg", 
+            "/usr/local/bin/ffmpeg"
+        ]
+        
+        ffmpeg_path = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                ffmpeg_path = path
+                break
+        
+        if not ffmpeg_path:
+            pytest.skip("FFmpeg not found for integration tests")
+        
+        self.ffmpeg_service = FFmpegService(ffmpeg_path=ffmpeg_path)
         if not self.ffmpeg_service.is_available():
             pytest.skip("FFmpeg not available for integration tests")
         
@@ -43,7 +58,7 @@ class TestFFmpegIntegration:
             # Generate a 1-second sine wave for testing
             import subprocess
             subprocess.run([
-                "ffmpeg", "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+                self.ffmpeg_service.ffmpeg_path, "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
                 "-ar", "16000", "-ac", "1", temp_path, "-y"
             ], check=True, capture_output=True)
             
@@ -102,7 +117,7 @@ class TestFFmpegIntegration:
             # Generate test audio
             import subprocess
             subprocess.run([
-                "ffmpeg", "-f", "lavfi", "-i", "sine=frequency=440:duration=0.5",
+                self.ffmpeg_service.ffmpeg_path, "-f", "lavfi", "-i", "sine=frequency=440:duration=0.5",
                 "-ar", "16000", "-ac", "1", "-acodec", "pcm_s16le",
                 temp_path, "-y"
             ], check=True, capture_output=True)

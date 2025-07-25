@@ -1,36 +1,36 @@
-/* Root Variables - Light Amber Theme */
+/* Root Variables - Discord Dark Theme */
 :root {
-  --primary-color: #F59E0B;
-  --primary-hover: #D97706;
-  --primary-light: #FCD34D;
-  --success-color: #10B981;
-  --success-hover: #059669;
-  --error-color: #EF4444;
+  --primary-color: #5865F2;
+  --primary-hover: #4752C4;
+  --primary-light: #7289DA;
+  --success-color: #57F287;
+  --success-hover: #22C55E;
+  --error-color: #ED4245;
   --error-hover: #DC2626;
-  --warning-color: #F59E0B;
-  --warning-hover: #D97706;
-  --info-color: #3B82F6;
+  --warning-color: #FEE75C;
+  --warning-hover: #EAB308;
+  --info-color: #7DD3FC;
   --info-hover: #2563EB;
   
-  --background-color: #FFFBEB;
-  --background-secondary: #FEF3C7;
-  --surface-color: #ffffff;
-  --surface-hover: #FEF3C7;
-  --surface-elevated: #FFFFFF;
-  --border-color: #FDE68A;
-  --border-hover: #FCD34D;
-  --border-focus: #F59E0B;
+  --background-color: #36393F;
+  --background-secondary: #2F3136;
+  --surface-color: #2F3136;
+  --surface-hover: rgba(255, 255, 255, 0.05);
+  --surface-elevated: #40444B;
+  --border-color: #40444B;
+  --border-hover: #72767D;
+  --border-focus: #5865F2;
   
-  --text-primary: #92400E;
-  --text-secondary: #B45309;
-  --text-muted: #D97706;
+  --text-primary: #DCDDDE;
+  --text-secondary: #96989D;
+  --text-muted: #72767D;
   --text-light: #ffffff;
-  --text-amber: #F59E0B;
+  --text-amber: #5865F2;
   
-  --shadow-sm: 0 1px 3px rgba(245, 158, 11, 0.1);
-  --shadow-md: 0 4px 6px rgba(245, 158, 11, 0.1);
-  --shadow-lg: 0 10px 25px rgba(245, 158, 11, 0.15);
-  --shadow-amber: 0 4px 12px rgba(245, 158, 11, 0.15);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.4);
+  --shadow-amber: 0 4px 12px rgba(88, 101, 242, 0.15);
   
   --radius-sm: 6px;
   --radius-md: 12px;
@@ -61,6 +61,7 @@ body {
   background-color: var(--background-color);
   color: var(--text-primary);
   line-height: 1.5;
+  overflow: hidden;
 }
 
 /* App Layout */

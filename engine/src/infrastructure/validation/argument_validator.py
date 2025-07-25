@@ -442,7 +442,7 @@ class ArgumentValidator:
     
     @classmethod
     def validate_ffmpeg_path(cls, path: Optional[str], field_name: str = "ffmpeg_path") -> ValidationResult:
-        """Validate FFmpeg executable path."""
+        """Validate FFmpeg executable path - requires full path to executable."""
         issues = []
         
         if path is None:
@@ -450,25 +450,21 @@ class ArgumentValidator:
                 field=field_name,
                 message="FFmpeg path is required",
                 severity=ValidationSeverity.ERROR,
-                suggestion="Use --ffmpeg-path /path/to/ffmpeg or --ffmpeg-path ffmpeg (if in PATH)"
+                suggestion="Provide the full path to FFmpeg executable (e.g., /usr/bin/ffmpeg or C:\\ffmpeg\\bin\\ffmpeg.exe)"
             ))
             return ValidationResult(is_valid=False, issues=issues)
         
-        # Check if it's just "ffmpeg" (should be in PATH)
+        # Reject "ffmpeg" - require full path only
         if path == "ffmpeg":
-            # Try to find ffmpeg in PATH
-            import shutil
-            if not shutil.which("ffmpeg"):
-                issues.append(ValidationIssue(
-                    field=field_name,
-                    message="FFmpeg not found in system PATH",
-                    severity=ValidationSeverity.ERROR,
-                    suggestion="Install FFmpeg or provide full path to the executable"
-                ))
-                return ValidationResult(is_valid=False, issues=issues)
-            return ValidationResult(is_valid=True, issues=[], sanitized_value=path)
+            issues.append(ValidationIssue(
+                field=field_name,
+                message="FFmpeg path must be a full path to the executable, not just 'ffmpeg'",
+                severity=ValidationSeverity.ERROR,
+                suggestion="Provide the full path to FFmpeg executable (e.g., /usr/bin/ffmpeg or C:\\ffmpeg\\bin\\ffmpeg.exe)"
+            ))
+            return ValidationResult(is_valid=False, issues=issues)
         
-        # Otherwise validate as a file path
+        # Validate as a file path with proper Windows support
         result = cls.validate_file_path(
             path,
             field_name=field_name,
@@ -479,17 +475,29 @@ class ArgumentValidator:
             check_writable=False
         )
         
-        # Additional check for executability
+        # Additional check for executability (skip on Windows for .exe files)
         if result.is_valid and result.sanitized_value:
             path_obj = Path(result.sanitized_value)
-            if not os.access(path_obj, os.X_OK):
-                result.issues.append(ValidationIssue(
-                    field=field_name,
-                    message="FFmpeg file is not executable",
-                    severity=ValidationSeverity.ERROR,
-                    suggestion="Check file permissions (chmod +x on Unix systems)"
-                ))
-                result.is_valid = False
+            
+            # On Windows, .exe files are executable by default
+            if os.name == 'nt':
+                if not path_obj.suffix.lower() == '.exe':
+                    result.issues.append(ValidationIssue(
+                        field=field_name,
+                        message="On Windows, FFmpeg executable should have .exe extension",
+                        severity=ValidationSeverity.WARNING,
+                        suggestion="Use ffmpeg.exe instead of ffmpeg"
+                    ))
+            else:
+                # On Unix systems, check executable permission
+                if not os.access(path_obj, os.X_OK):
+                    result.issues.append(ValidationIssue(
+                        field=field_name,
+                        message="FFmpeg file is not executable",
+                        severity=ValidationSeverity.ERROR,
+                        suggestion="Check file permissions (chmod +x on Unix systems)"
+                    ))
+                    result.is_valid = False
         
         return result
     

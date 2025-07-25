@@ -5,7 +5,8 @@
       "Bash(python:*)",
       "mcp__sequential-thinking__sequentialthinking",
       "Bash(find:*)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(source:*)"
     ],
     "deny": []
   }

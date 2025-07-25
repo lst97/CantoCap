@@ -1,4 +1,23 @@
 import React, { useCallback } from 'react'
+import {
+  Box,
+  Typography,
+  Button,
+  Paper,
+  Chip,
+  Stack,
+  Divider,
+  IconButton
+} from '@mui/material'
+import {
+  PlayArrow as PlayIcon,
+  Stop as StopIcon,
+  Settings as SettingsIcon,
+  CheckCircle as CheckIcon,
+  Warning as WarningIcon,
+  AccessTime as TimeIcon,
+  Refresh as RefreshIcon
+} from '@mui/icons-material'
 import { useAppStore } from '../store/app-store'
 
 export const ActionPanel = () => {
@@ -86,136 +105,177 @@ export const ActionPanel = () => {
   const readiness = getReadinessStatus()
 
   return (
-    <div className="action-panel">
-      <div className="panel-header">
-        <h2>🚀 Actions</h2>
-        <button
-          className="advanced-toggle-btn"
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      {/* Header */}
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1, fontWeight: 600 }}>
+          🚀 Actions
+        </Typography>
+        <Button
+          variant="outlined"
+          size="small"
+          startIcon={<SettingsIcon />}
           onClick={toggleAdvanced}
-          title={ui.showAdvanced ? 'Hide advanced options' : 'Show advanced options'}
+          sx={{ fontSize: '0.75rem' }}
         >
-          {ui.showAdvanced ? '⚙️ Hide Advanced' : '⚙️ Show Advanced'}
-        </button>
-      </div>
-      
-      <div className="panel-content">
-        <div className="readiness-status">
-          <div className={`status-indicator ${readiness.ready ? 'ready' : 'not-ready'}`}>
-            <span className="status-icon">{readiness.icon}</span>
-            <span className="status-message">{readiness.message}</span>
-          </div>
-        </div>
-        
-        <div className="action-buttons">
-          <button
-            className={`action-btn ${buttonState.className}`}
-            onClick={buttonState.action}
-            disabled={buttonState.disabled}
-          >
-            <span className="btn-icon">{buttonState.icon}</span>
-            <span className="btn-text">{buttonState.text}</span>
-          </button>
-        </div>
-        
-        {processing.isActive && (
-          <div className="processing-info">
-            <div className="processing-stage">
-              <span className="stage-icon">🔄</span>
-              <span className="stage-text">
+          {ui.showAdvanced ? 'Hide Advanced' : 'Show Advanced'}
+        </Button>
+      </Box>
+
+      {/* Readiness Status */}
+      <Paper 
+        sx={{ 
+          p: 2, 
+          backgroundColor: readiness.ready ? 'rgba(87, 242, 135, 0.1)' : 'rgba(237, 66, 69, 0.1)',
+          border: 1,
+          borderColor: readiness.ready ? 'success.main' : 'error.main'
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          {readiness.ready ? (
+            <CheckIcon color="success" fontSize="small" />
+          ) : (
+            <WarningIcon color="error" fontSize="small" />
+          )}
+          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+            {readiness.message}
+          </Typography>
+        </Box>
+      </Paper>
+
+      {/* Action Button */}
+      <Button
+        variant={processing.isActive ? "outlined" : "contained"}
+        color={processing.isActive ? "error" : "primary"}
+        size="large"
+        fullWidth
+        onClick={buttonState.action}
+        disabled={buttonState.disabled}
+        startIcon={processing.isActive ? <StopIcon /> : <PlayIcon />}
+        sx={{ 
+          py: 1.5,
+          fontSize: '1rem',
+          fontWeight: 600
+        }}
+      >
+        {buttonState.text}
+      </Button>
+
+      {/* Processing Info */}
+      {processing.isActive && (
+        <Paper sx={{ p: 2, backgroundColor: 'rgba(255, 255, 255, 0.05)' }}>
+          <Stack spacing={1}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <RefreshIcon fontSize="small" color="primary" />
+              <Typography variant="body2">
                 Stage: {processing.stage.charAt(0).toUpperCase() + processing.stage.slice(1)}
-              </span>
-            </div>
+              </Typography>
+            </Box>
             
             {processing.timeElapsed > 0 && (
-              <div className="processing-time">
-                <span className="time-icon">⏱️</span>
-                <span className="time-text">
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <TimeIcon fontSize="small" color="secondary" />
+                <Typography variant="body2">
                   Elapsed: {Math.floor(processing.timeElapsed / 60)}m {processing.timeElapsed % 60}s
-                </span>
-              </div>
+                </Typography>
+              </Box>
             )}
-          </div>
-        )}
+          </Stack>
+        </Paper>
+      )}
+
+      {/* Configuration Summary */}
+      <Paper sx={{ p: 2, backgroundColor: 'rgba(255, 255, 255, 0.05)' }}>
+        <Typography variant="subtitle2" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+          📋 Current Configuration
+        </Typography>
         
-        <div className="config-summary">
-          <div className="summary-header">
-            <span className="summary-icon">📋</span>
-            <span className="summary-title">Current Configuration</span>
-          </div>
+        <Stack spacing={1}>
+          {config.inputFile && (
+            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+              <Typography variant="body2" color="text.secondary">Input:</Typography>
+              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                {config.inputFile.split(/[\\/]/).pop()}
+              </Typography>
+            </Box>
+          )}
           
-          <div className="config-items">
-            {config.inputFile && (
-              <div className="config-item">
-                <span className="config-label">Input:</span>
-                <span className="config-value" title={config.inputFile}>
-                  {config.inputFile.split(/[\\/]/).pop()}
-                </span>
-              </div>
-            )}
-            
-            <div className="config-item">
-              <span className="config-label">Language:</span>
-              <span className="config-value">
-                {config.language === 'zh' ? 'Chinese' : config.language.toUpperCase()}
-              </span>
-            </div>
-            
-            <div className="config-item">
-              <span className="config-label">Model:</span>
-              <span className="config-value">
-                {config.model || 'Auto-select'}
-              </span>
-            </div>
-            
-            <div className="config-item">
-              <span className="config-label">Character Set:</span>
-              <span className="config-value">
-                {config.charset === 'traditional' ? 'Traditional' : 'Simplified'}
-              </span>
-            </div>
-            
-            {config.subtitle && (
-              <div className="config-item">
-                <span className="config-label">Translation:</span>
-                <span className="config-value">
-                  {config.subtitle.toUpperCase()}
-                </span>
-              </div>
-            )}
-            
-            <div className="config-item">
-              <span className="config-label">Options:</span>
-              <span className="config-value">
-                {[
-                  config.speakers && 'Speakers',
-                  config.written && 'Written Style',
-                  config.music && 'Music Detection',
-                  config.geminiKey && 'AI Refinement'
-                ].filter(Boolean).join(', ') || 'None'}
-              </span>
-            </div>
-          </div>
-        </div>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+            <Typography variant="body2" color="text.secondary">Language:</Typography>
+            <Typography variant="body2">
+              {config.language === 'zh' ? 'Chinese' : config.language.toUpperCase()}
+            </Typography>
+          </Box>
+          
+          <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+            <Typography variant="body2" color="text.secondary">Model:</Typography>
+            <Typography variant="body2">
+              {config.model || 'Auto-select'}
+            </Typography>
+          </Box>
+          
+          <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+            <Typography variant="body2" color="text.secondary">Character Set:</Typography>
+            <Typography variant="body2">
+              {config.charset === 'traditional' ? 'Traditional' : 'Simplified'}
+            </Typography>
+          </Box>
+          
+          {config.subtitle && (
+            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+              <Typography variant="body2" color="text.secondary">Translation:</Typography>
+              <Typography variant="body2">
+                {config.subtitle.toUpperCase()}
+              </Typography>
+            </Box>
+          )}
+          
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <Typography variant="body2" color="text.secondary">Options:</Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, maxWidth: 150 }}>
+              {[
+                config.speakers && 'Speakers',
+                config.written && 'Written Style',
+                config.music && 'Music Detection',
+                config.geminiKey && 'AI Refinement'
+              ].filter(Boolean).map((option, index) => (
+                <Chip 
+                  key={index}
+                  label={option} 
+                  size="small" 
+                  sx={{ 
+                    fontSize: '0.65rem', 
+                    height: 20,
+                    backgroundColor: 'rgba(245, 158, 11, 0.2)'
+                  }}
+                />
+              ))}
+              {![config.speakers, config.written, config.music, config.geminiKey].some(Boolean) && (
+                <Typography variant="body2" color="text.secondary">None</Typography>
+              )}
+            </Box>
+          </Box>
+        </Stack>
+      </Paper>
+
+      {/* Tips */}
+      <Paper sx={{ p: 2, backgroundColor: 'rgba(255, 255, 255, 0.05)' }}>
+        <Typography variant="subtitle2" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+          💡 Tips
+        </Typography>
         
-        <div className="action-tips">
-          <div className="tip-header">
-            <span className="tip-icon">💡</span>
-            <span className="tip-title">Tips</span>
-          </div>
-          
-          <div className="tip-list">
-            <div className="tip-item">
-              Use a Gemini API key for better transcription accuracy
-            </div>
-            <div className="tip-item">
-              Enable speaker identification for multi-speaker content
-            </div>
-            <div className="tip-item">
-              Check hardware specs for optimal model selection
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+        <Stack spacing={1}>
+          <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+            • Use a Gemini API key for better transcription accuracy
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+            • Enable speaker identification for multi-speaker content
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+            • Check hardware specs for optimal model selection
+          </Typography>
+        </Stack>
+      </Paper>
+    </Box>
   )
 }

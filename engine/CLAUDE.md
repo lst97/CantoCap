@@ -54,19 +54,22 @@ python -m src.presentation.cli.main hardware --priority quality
 python -m src.presentation.cli.main hardware --duration 30.0
 ```
 
-### Basic Usage (Note: Virtual Environment + FFmpeg path required)
+### Basic Usage (Note: Virtual Environment + Full FFmpeg path required)
 ```bash
 # ALWAYS activate virtual environment first
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Generate subtitles for a video file
-python -m src.presentation.cli.main video.mp4 --ffmpeg-path ffmpeg
+# Generate subtitles for a video file (Unix/Linux/macOS)
+python -m src.presentation.cli.main video.mp4 --ffmpeg-path /usr/bin/ffmpeg
+
+# Generate subtitles for a video file (Windows)
+python -m src.presentation.cli.main video.mp4 --ffmpeg-path "C:\ffmpeg\bin\ffmpeg.exe"
 
 # With AI-powered features
-python -m src.presentation.cli.main video.mp4 --speakers --written --music --gemini-key YOUR_API_KEY --ffmpeg-path ffmpeg
+python -m src.presentation.cli.main video.mp4 --speakers --written --music --gemini-key YOUR_API_KEY --ffmpeg-path /usr/bin/ffmpeg
 
 # Custom terminology configuration
-python -m src.presentation.cli.main video.mp4 --terminology-config examples/terminology_config.json --ffmpeg-path ffmpeg
+python -m src.presentation.cli.main video.mp4 --terminology-config examples/terminology_config.json --ffmpeg-path /usr/bin/ffmpeg
 ```
 
 ### Testing
@@ -210,7 +213,7 @@ The codebase follows Clean Architecture with four distinct layers and comprehens
 - **Hardware analysis**: `python -m src.presentation.cli.main hardware [options]`
 - **Entry point**: `src/presentation/cli/main.py`
 - **DI container**: `src/presentation/di/container.py`
-- **FFmpeg requirement**: All file processing requires `--ffmpeg-path` argument
+- **FFmpeg requirement**: All file processing requires `--ffmpeg-path` argument with full path to executable
 
 ### Use Case Pattern
 All business operations flow through use cases with comprehensive processing pipeline:
@@ -369,7 +372,7 @@ src/
 - **Virtual Environment**: **REQUIRED** - Always run `source venv/bin/activate` before any operations
 - **Package name**: `cantocap-engine` (defined in pyproject.toml)
 - **CLI execution**: Use `python -m src.presentation.cli.main` due to import issues (after venv activation)
-- **FFmpeg requirement**: Must specify `--ffmpeg-path` for all file processing operations
+- **FFmpeg requirement**: Must specify `--ffmpeg-path` with full path to executable for all file processing operations
 - **Python version**: 3.9-3.12 required (configured in pyproject.toml)
 - **Line length**: 88 characters (black/isort configuration in pyproject.toml)
 - **Type checking**: Strict mode enabled in mypy with detailed overrides

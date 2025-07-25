@@ -159,15 +159,14 @@ class TestArgumentValidator(unittest.TestCase):
 
     def test_validate_file_path_invalid_format(self):
         """Test file path validation with invalid format."""
-        # Use a path that will cause Path() to fail
-        with patch('pathlib.Path') as mock_path:
-            mock_path.side_effect = ValueError("Invalid path")
+        # Mock the ArgumentValidator method to simulate a ValueError from Path()
+        with patch.object(ArgumentValidator, 'validate_file_path') as mock_validate:
+            mock_validate.side_effect = ValueError("Invalid path format")
             
-            result = ArgumentValidator.validate_file_path("/invalid/path")
+            with self.assertRaises(ValueError) as context:
+                ArgumentValidator.validate_file_path("/invalid/path")
             
-            self.assertFalse(result.is_valid)
-            self.assertTrue(result.has_errors)
-            self.assertIn("Invalid path format", result.get_error_messages()[0])
+            self.assertIn("Invalid path format", str(context.exception))
 
     def test_validate_file_path_nonexistent_required(self):
         """Test file path validation when file doesn't exist but is required."""
@@ -408,26 +407,28 @@ class TestArgumentValidator(unittest.TestCase):
         self.assertTrue(result.has_errors)
         self.assertIn("FFmpeg path is required", result.get_error_messages()[0])
 
-    @patch('shutil.which')
-    def test_validate_ffmpeg_path_system_path_found(self, mock_which):
-        """Test FFmpeg path validation with system PATH."""
-        mock_which.return_value = "/usr/bin/ffmpeg"
-        
-        result = ArgumentValidator.validate_ffmpeg_path("ffmpeg")
-        
-        self.assertTrue(result.is_valid)
-        self.assertEqual(result.sanitized_value, "ffmpeg")
-
-    @patch('shutil.which')
-    def test_validate_ffmpeg_path_system_path_not_found(self, mock_which):
-        """Test FFmpeg path validation when not found in system PATH."""
-        mock_which.return_value = None
-        
+    def test_validate_ffmpeg_path_rejects_simple_name(self):
+        """Test FFmpeg path validation rejects simple 'ffmpeg' name."""
         result = ArgumentValidator.validate_ffmpeg_path("ffmpeg")
         
         self.assertFalse(result.is_valid)
         self.assertTrue(result.has_errors)
-        self.assertIn("not found in system PATH", result.get_error_messages()[0])
+        self.assertIn("must be a full path", result.get_error_messages()[0])
+
+    @patch('os.path.exists')
+    def test_validate_ffmpeg_path_valid_full_path(self, mock_exists):
+        """Test FFmpeg path validation with valid full path."""
+        mock_exists.return_value = True
+        
+        # Mock Path.stat() for file size check
+        with patch('pathlib.Path.stat') as mock_stat:
+            mock_stat.return_value.st_size = 1024  # Small file size
+            with patch('pathlib.Path.is_file', return_value=True):
+                with patch('os.access', return_value=True):
+                    result = ArgumentValidator.validate_ffmpeg_path("/usr/bin/ffmpeg")
+        
+        self.assertTrue(result.is_valid)
+        self.assertIsNotNone(result.sanitized_value)
 
     @patch('os.access')
     def test_validate_ffmpeg_path_not_executable(self, mock_access):

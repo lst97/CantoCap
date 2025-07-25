@@ -1,9 +1,11 @@
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { ThemeProvider } from '@mui/material/styles'
 import { CssBaseline, Box } from '@mui/material'
 import { useAppStore } from './store/app-store'
-import { HeaderBar } from './components/HeaderBar'
-import { MainContent } from './components/MainContent'
+import { CustomTitleBar } from './components/CustomTitleBar'
+import { WorkspacePanel } from './components/WorkspacePanel'
+import { StepNavigation } from './components/StepNavigation'
+import { MainContentArea } from './components/MainContentArea'
 import { ProgressPanel } from './components/ProgressPanel'
 import { NotificationContainer } from './components/NotificationContainer'
 import { ModalContainer } from './components/ModalContainer'
@@ -108,16 +110,28 @@ function App(): JSX.Element {
       <CssBaseline />
       <Box 
         sx={{ 
-          display: 'flex', 
-          flexDirection: 'column', 
-          minHeight: '100vh',
-          backgroundColor: 'background.default'
+          height: '100vh',
+          backgroundColor: 'background.default',
+          color: 'text.primary',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden'
         }}
       >
-        <HeaderBar />
-        <Box component="main" sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-          <MainContent />
+        {/* Custom Title Bar */}
+        <CustomTitleBar />
+        
+        <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+          {/* Workspace Panel */}
+          <WorkspacePanel />
+
+          {/* Step Navigation */}
+          <StepNavigation />
+
+          {/* Main Content Area */}
+          <MainContentArea />
         </Box>
+
         {processing.isActive && <ProgressPanel />}
         <NotificationContainer />
         <ModalContainer />

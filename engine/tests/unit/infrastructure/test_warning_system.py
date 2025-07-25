@@ -1,4 +1,12 @@
-"""Test the non-Chinese language warning system."""
+"""Test the non-Chinese language warning system.
+
+Note: This test validates the alignment language system (--language parameter) 
+which uses short format codes like 'zh', 'en', 'ja' and includes warning system.
+
+The subtitle translation system (--subtitle parameter) uses long format codes 
+like 'zh_cn', 'en_us', 'ja_jp' but does NOT include warnings since subtitles 
+are generated based on transcription.
+"""
 
 import unittest
 import sys
@@ -11,16 +19,17 @@ from src.infrastructure.validation.argument_validator import ArgumentValidator, 
 
 
 class TestWarningSystem(unittest.TestCase):
-    """Test the non-Chinese language warning system."""
+    """Test the non-Chinese language warning system for alignment validation."""
 
     def test_chinese_languages_no_warning(self):
-        """Test that Chinese languages don't trigger warnings."""
+        """Test that Chinese alignment languages don't trigger warnings."""
         
-        chinese_codes = ['zh_cn', 'zh_tw']
+        # Test alignment language codes (short format like zh)
+        chinese_alignment_codes = ['zh']
         
-        for code in chinese_codes:
+        for code in chinese_alignment_codes:
             with self.subTest(language_code=code):
-                result = ArgumentValidator.validate_language_code(code)
+                result = ArgumentValidator.validate_alignment_language_code(code)
                 
                 # Should be valid
                 self.assertTrue(result.is_valid, f"'{code}' should be valid")
@@ -32,13 +41,14 @@ class TestWarningSystem(unittest.TestCase):
                 print(f"✅ {code}: No warning (expected)")
 
     def test_non_chinese_languages_have_warning(self):
-        """Test that non-Chinese languages trigger warnings."""
+        """Test that non-Chinese alignment languages trigger warnings."""
         
-        non_chinese_codes = ['en_us', 'ja_jp', 'ko_kr', 'es_es', 'fr_fr', 'de_de']
+        # Test alignment language codes (short format like en, ja)
+        non_chinese_alignment_codes = ['en', 'ja', 'ko', 'es', 'fr', 'de']
         
-        for code in non_chinese_codes:
+        for code in non_chinese_alignment_codes:
             with self.subTest(language_code=code):
-                result = ArgumentValidator.validate_language_code(code)
+                result = ArgumentValidator.validate_alignment_language_code(code)
                 
                 # Should still be valid
                 self.assertTrue(result.is_valid, f"'{code}' should be valid")
@@ -59,7 +69,7 @@ class TestWarningSystem(unittest.TestCase):
     def test_warning_message_format(self):
         """Test the specific format of warning messages."""
         
-        result = ArgumentValidator.validate_language_code('en_us')
+        result = ArgumentValidator.validate_alignment_language_code('en')
         
         self.assertTrue(result.is_valid)
         
@@ -71,7 +81,7 @@ class TestWarningSystem(unittest.TestCase):
         # Check all required elements in warning
         expected_elements = [
             "CantoCap is optimized for Chinese language processing",
-            "en_us",
+            "en",
             "unexpected behavior",
             "reduced accuracy",
             "non-Chinese content"
@@ -82,8 +92,8 @@ class TestWarningSystem(unittest.TestCase):
         
         # Check suggestion
         self.assertIsNotNone(warning.suggestion)
-        self.assertIn("Chinese language codes", warning.suggestion)
-        self.assertIn("zh_cn, zh_tw", warning.suggestion)
+        self.assertIn("Chinese language code", warning.suggestion)
+        self.assertIn("zh", warning.suggestion)
         
         print(f"📝 Warning format verification passed")
         print(f"   Full message: {warning.message}")
@@ -92,11 +102,12 @@ class TestWarningSystem(unittest.TestCase):
     def test_invalid_language_codes(self):
         """Test that invalid language codes still produce errors, not just warnings."""
         
-        invalid_codes = ['invalid', 'zh', 'en', 'not_a_code', '']
+        # These codes are invalid for alignment language (short format expected)
+        invalid_alignment_codes = ['invalid', 'zh_cn', 'en_us', 'not_a_code', '']
         
-        for code in invalid_codes:
+        for code in invalid_alignment_codes:
             with self.subTest(language_code=code):
-                result = ArgumentValidator.validate_language_code(code)
+                result = ArgumentValidator.validate_alignment_language_code(code)
                 
                 # Should be invalid
                 self.assertFalse(result.is_valid, f"'{code}' should be invalid")
@@ -108,23 +119,23 @@ class TestWarningSystem(unittest.TestCase):
                 print(f"❌ {code if code else 'empty'}: Error (expected)")
 
     def test_comprehensive_language_warning_behavior(self):
-        """Test comprehensive warning behavior across all supported languages."""
+        """Test comprehensive warning behavior across all supported alignment languages."""
         
-        # All CantoCap supported languages
-        all_languages = [
-            'zh_cn', 'zh_tw',  # Chinese - no warnings
-            'en_us', 'en_uk', 'en_au', 'en_ca',  # English - warnings
-            'ja_jp', 'ko_kr',  # Asian - warnings
-            'hi_in', 'th_th', 'vi_vn', 'id_id', 'ms_my', 'tl_ph',  # Asian - warnings
-            'es_es', 'es_mx', 'fr_fr', 'fr_ca', 'de_de', 'it_it',  # European - warnings
-            'pt_br', 'pt_pt', 'ru_ru', 'ar_sa'  # Others - warnings
+        # All CantoCap supported alignment languages (short format)
+        all_alignment_languages = [
+            'zh',  # Chinese - no warnings
+            'en', 'fr', 'de', 'es', 'it',  # Core - warnings
+            'ja', 'nl', 'uk', 'pt', 'ar', 'cs', 'ru', 'pl',  # Extended - warnings
+            'hu', 'fi', 'fa', 'el', 'tr', 'da', 'he', 'vi',  # More - warnings
+            'ko', 'ur', 'te', 'hi', 'ca', 'ml', 'no', 'nn',  # Additional - warnings
+            'sk', 'sl', 'hr', 'ro', 'eu', 'gl', 'ka', 'lv', 'tl'  # Final - warnings
         ]
         
         chinese_count = 0
         non_chinese_count = 0
         
-        for code in all_languages:
-            result = ArgumentValidator.validate_language_code(code)
+        for code in all_alignment_languages:
+            result = ArgumentValidator.validate_alignment_language_code(code)
             
             # All should be valid
             self.assertTrue(result.is_valid, f"'{code}' should be valid")
@@ -132,8 +143,8 @@ class TestWarningSystem(unittest.TestCase):
             # Check warning behavior
             warnings = [issue for issue in result.issues if issue.severity == ValidationSeverity.WARNING]
             
-            if code.startswith('zh_'):
-                # Chinese languages - no warnings
+            if code == 'zh':
+                # Chinese language - no warnings
                 self.assertEqual(len(warnings), 0, f"'{code}' should not have warnings")
                 chinese_count += 1
             else:
@@ -142,13 +153,13 @@ class TestWarningSystem(unittest.TestCase):
                 non_chinese_count += 1
         
         print(f"\n📊 Summary:")
-        print(f"   Chinese languages (no warning): {chinese_count}")
-        print(f"   Non-Chinese languages (with warning): {non_chinese_count}")
-        print(f"   Total languages tested: {len(all_languages)}")
+        print(f"   Chinese alignment languages (no warning): {chinese_count}")
+        print(f"   Non-Chinese alignment languages (with warning): {non_chinese_count}")
+        print(f"   Total alignment languages tested: {len(all_alignment_languages)}")
         
         # Verify we tested the right mix
-        self.assertEqual(chinese_count, 2)  # zh_cn, zh_tw
-        self.assertEqual(non_chinese_count, len(all_languages) - 2)
+        self.assertEqual(chinese_count, 1)  # zh
+        self.assertEqual(non_chinese_count, len(all_alignment_languages) - 1)
 
 
 if __name__ == '__main__':

@@ -37,7 +37,7 @@ export class DependencyChecker {
       ffmpeg: {
         name: 'FFmpeg',
         commands: ['ffmpeg'],
-        versionPattern: /ffmpeg version/,
+        versionPattern: /ffmpeg version [\d.]+/,
         downloadUrl: 'https://ffmpeg.org/download.html',
         autoInstallUrls: {
           win32: 'https://www.gyan.dev/ffmpeg/builds/',
@@ -109,7 +109,60 @@ export class DependencyChecker {
     return result
   }
 
-  private executeVersionCheck(command: string): Promise<VersionCheckResult> {
+  private resolveExecutablePath(command: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      // Use 'which' on Unix-like systems, 'where' on Windows
+      const pathCommand = process.platform === 'win32' ? 'where' : 'which'
+      const pathProcess = spawn(pathCommand, [command], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        shell: true
+      })
+
+      let stdout = ''
+      let stderr = ''
+
+      pathProcess.stdout?.on('data', (data: Buffer) => {
+        stdout += data.toString()
+      })
+
+      pathProcess.stderr?.on('data', (data: Buffer) => {
+        stderr += data.toString()
+      })
+
+      const timeout = setTimeout(() => {
+        pathProcess.kill()
+        reject(new Error('Path resolution timeout'))
+      }, 3000)
+
+      pathProcess.on('close', (code: number | null) => {
+        clearTimeout(timeout)
+        
+        if (code === 0 && stdout.trim()) {
+          // Return the first line (in case multiple paths are returned)
+          const fullPath = stdout.trim().split('\n')[0].trim()
+          resolve(fullPath)
+        } else {
+          reject(new Error(`Path resolution failed: ${stderr || 'Command not found'}`))
+        }
+      })
+
+      pathProcess.on('error', (error: Error) => {
+        clearTimeout(timeout)
+        reject(error)
+      })
+    })
+  }
+
+  private async executeVersionCheck(command: string): Promise<VersionCheckResult> {
+    // First, resolve the full path to the executable
+    let executablePath: string
+    try {
+      executablePath = await this.resolveExecutablePath(command)
+    } catch (error) {
+      // Fallback to command name if path resolution fails
+      executablePath = command
+    }
+
     return new Promise((resolve, reject) => {
       const versionArgs = command === 'ffmpeg' ? ['-version'] : ['--version']
       const process = spawn(command, versionArgs, { 
@@ -141,7 +194,7 @@ export class DependencyChecker {
           const output = stdout || stderr
           resolve({
             version: output,
-            executablePath: command // In production, we might want to resolve full path
+            executablePath: executablePath // Use the resolved path
           })
         } else {
           reject(new Error(`Command failed with code ${code}: ${stderr || stdout}`))

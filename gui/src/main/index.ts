@@ -40,7 +40,8 @@ class CantoCap {
       minHeight: 700,
       show: false,
       autoHideMenuBar: true,
-
+      frame: process.platform === 'darwin' ? false : true,
+      titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : undefined,
       webPreferences: {
         preload: join(__dirname, "../preload/index.js"),
         sandbox: false,
@@ -195,6 +196,31 @@ class CantoCap {
 
     ipcMain.on("cancel-process", () => {
       this.processManager.cancelProcess();
+    });
+
+    // Window Controls
+    ipcMain.handle("window:minimize", () => {
+      this.mainWindow?.minimize();
+    });
+
+    ipcMain.handle("window:maximize", () => {
+      if (this.mainWindow?.isMaximized()) {
+        this.mainWindow.unmaximize();
+      } else {
+        this.mainWindow?.maximize();
+      }
+    });
+
+    ipcMain.handle("window:close", () => {
+      this.mainWindow?.close();
+    });
+
+    ipcMain.handle("window:isMaximized", () => {
+      return this.mainWindow?.isMaximized() || false;
+    });
+
+    ipcMain.handle("get-platform", () => {
+      return process.platform;
     });
 
     // Utility handlers

@@ -131,9 +131,19 @@ export function DebugPanel() {
     if (cfg.maxChunkDuration && cfg.maxChunkDuration !== 15) args.push('--max-chunk-duration', quoteValue(cfg.maxChunkDuration))
     if (cfg.videoQuality && cfg.videoQuality !== '360p') args.push('--video-quality', quoteValue(cfg.videoQuality))
     if (cfg.terminologyConfig) args.push('-c', quoteValue(cfg.terminologyConfig))
-    if (cfg.ffmpegPath) args.push('--ffmpeg-path', quoteValue(cfg.ffmpegPath))
+    // FFmpeg path is required - use resolved path or fallback
+    if (cfg.ffmpegPath) {
+      args.push('--ffmpeg-path', quoteValue(cfg.ffmpegPath))
+    } else {
+      args.push('--ffmpeg-path', quoteValue('ffmpeg'))
+    }
     if (cfg.subtitle) args.push('--subtitle', quoteValue(cfg.subtitle))
-    if (cfg.duration && cfg.duration !== 10.0) args.push('-d', quoteValue(cfg.duration))
+    if (cfg.startTime !== null && cfg.endTime !== null) {
+      args.push('--start-time', quoteValue(cfg.startTime))
+      args.push('--end-time', quoteValue(cfg.endTime))
+    } else if (cfg.duration && cfg.duration !== 10.0) {
+      args.push('-d', quoteValue(cfg.duration))
+    }
     
     // Input file at the end
     if (cfg.inputFile) args.push(quoteValue(cfg.inputFile))

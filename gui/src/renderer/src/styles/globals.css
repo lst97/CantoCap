@@ -78,8 +78,9 @@ body {
   font-size: 0.875rem;
   line-height: 1.43;
   letter-spacing: 0.01071em;
-  background-color: #FFFBEB;
-  color: #92400E;
+  background-color: #36393F;
+  color: #DCDDDE;
+  overflow: hidden;
 }
 
 /* Custom utility classes for Material-UI integration */

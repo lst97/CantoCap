@@ -21,44 +21,41 @@ class TestFFmpegService(unittest.TestCase):
         """Set up test fixtures."""
         self.mock_ffmpeg_path = "/usr/bin/ffmpeg"
         
-    @patch('shutil.which')
-    def test_init_with_system_ffmpeg(self, mock_which):
-        """Test initialization with system FFmpeg."""
-        mock_which.return_value = self.mock_ffmpeg_path
+    @patch('os.path.exists')
+    def test_init_with_full_path(self, mock_exists):
+        """Test initialization with full FFmpeg path."""
+        mock_exists.return_value = True
         
-        service = FFmpegService()
+        service = FFmpegService(ffmpeg_path=self.mock_ffmpeg_path)
         
         self.assertEqual(service.ffmpeg_path, self.mock_ffmpeg_path)
-        mock_which.assert_called_once_with("ffmpeg")
     
-    def test_init_with_custom_path(self):
+    @patch('os.path.exists')
+    def test_init_with_custom_path(self, mock_exists):
         """Test initialization with custom FFmpeg path."""
         custom_path = "/custom/path/ffmpeg"
+        mock_exists.return_value = True
         
         service = FFmpegService(ffmpeg_path=custom_path)
         
         self.assertEqual(service.ffmpeg_path, custom_path)
     
-    @patch('shutil.which')
-    def test_init_ffmpeg_not_found(self, mock_which):
-        """Test initialization when FFmpeg is not found."""
-        mock_which.return_value = None
-        
+    def test_init_no_path_provided(self):
+        """Test initialization when no FFmpeg path is provided."""
         with self.assertRaises(RuntimeError) as context:
             FFmpegService()
         
-        self.assertIn("FFmpeg not found", str(context.exception))
+        self.assertIn("FFmpeg path is required", str(context.exception))
     
-    @patch('shutil.which')
-    def test_find_ffmpeg(self, mock_which):
-        """Test FFmpeg discovery."""
-        mock_which.return_value = self.mock_ffmpeg_path
+    @patch('os.path.exists')
+    def test_init_path_not_found(self, mock_exists):
+        """Test initialization when FFmpeg path doesn't exist."""
+        mock_exists.return_value = False
         
-        service = FFmpegService()
-        result = service._find_ffmpeg()
+        with self.assertRaises(RuntimeError) as context:
+            FFmpegService(ffmpeg_path="/non/existent/path")
         
-        self.assertEqual(result, self.mock_ffmpeg_path)
-        mock_which.assert_called_with("ffmpeg")
+        self.assertIn("not found at", str(context.exception))
     
     @patch('os.path.exists')
     @patch('os.makedirs')
@@ -70,7 +67,7 @@ class TestFFmpegService(unittest.TestCase):
                                  mock_input, mock_makedirs, mock_exists):
         """Test successful audio extraction."""
         mock_which.return_value = self.mock_ffmpeg_path
-        mock_exists.side_effect = lambda path: path == "input.mp4" or path == "output.wav"
+        mock_exists.side_effect = lambda path: path == "input.mp4" or path == "output.wav" or path == self.mock_ffmpeg_path
         
         # Create mock stream objects
         mock_input_stream = Mock()
@@ -78,7 +75,7 @@ class TestFFmpegService(unittest.TestCase):
         mock_input.return_value = mock_input_stream
         mock_output.return_value = mock_output_stream
         
-        service = FFmpegService()
+        service = FFmpegService(ffmpeg_path=self.mock_ffmpeg_path)
         audio_format = AudioFormat(
             sample_rate=16000,
             channels=1,
@@ -97,9 +94,9 @@ class TestFFmpegService(unittest.TestCase):
     def test_extract_audio_input_not_found(self, mock_which, mock_exists):
         """Test audio extraction with missing input file."""
         mock_which.return_value = self.mock_ffmpeg_path
-        mock_exists.return_value = False
+        mock_exists.side_effect = lambda path: path == self.mock_ffmpeg_path  # Only FFmpeg exists, not input
         
-        service = FFmpegService()
+        service = FFmpegService(ffmpeg_path=self.mock_ffmpeg_path)
         audio_format = AudioFormat(
             sample_rate=16000,
             channels=1,
@@ -119,7 +116,7 @@ class TestFFmpegService(unittest.TestCase):
                                       mock_input, mock_makedirs, mock_exists):
         """Test audio extraction with FFmpeg error."""
         mock_which.return_value = self.mock_ffmpeg_path
-        mock_exists.side_effect = lambda path: path == "input.mp4"
+        mock_exists.side_effect = lambda path: path == "input.mp4" or path == self.mock_ffmpeg_path
         
         # Mock FFmpeg error
         ffmpeg_error = ffmpeg.Error('ffmpeg', 'stdout', 'stderr')
@@ -127,7 +124,7 @@ class TestFFmpegService(unittest.TestCase):
         ffmpeg_error.stderr = b"FFmpeg error message"
         mock_run.side_effect = ffmpeg_error
         
-        service = FFmpegService()
+        service = FFmpegService(ffmpeg_path=self.mock_ffmpeg_path)
         audio_format = AudioFormat(
             sample_rate=16000,
             channels=1,
@@ -147,9 +144,9 @@ class TestFFmpegService(unittest.TestCase):
                                             mock_input, mock_makedirs, mock_exists):
         """Test audio extraction when output file is not created."""
         mock_which.return_value = self.mock_ffmpeg_path
-        mock_exists.side_effect = lambda path: path == "input.mp4"  # output doesn't exist
+        mock_exists.side_effect = lambda path: path == "input.mp4" or path == self.mock_ffmpeg_path  # output doesn't exist
         
-        service = FFmpegService()
+        service = FFmpegService(ffmpeg_path=self.mock_ffmpeg_path)
         audio_format = AudioFormat(
             sample_rate=16000,
             channels=1,
@@ -171,7 +168,8 @@ class TestFFmpegService(unittest.TestCase):
             "streams": [{"codec_type": "audio"}]
         }
         
-        service = FFmpegService()
+        with patch('os.path.exists', return_value=True):
+            service = FFmpegService(ffmpeg_path=self.mock_ffmpeg_path)
         result = service.get_media_info("test.mp4")
         
         self.assertEqual(result["format"]["duration"], "10.5")
@@ -188,7 +186,8 @@ class TestFFmpegService(unittest.TestCase):
         ffmpeg_error.stderr = b"FFprobe error message"
         mock_probe.side_effect = ffmpeg_error
         
-        service = FFmpegService()
+        with patch('os.path.exists', return_value=True):
+            service = FFmpegService(ffmpeg_path=self.mock_ffmpeg_path)
         
         with self.assertRaises(subprocess.CalledProcessError):
             service.get_media_info("test.mp4")
@@ -220,7 +219,8 @@ class TestFFmpegService(unittest.TestCase):
                   "    Stream #0:1: Audio: aac"
         )
         
-        service = FFmpegService()
+        with patch('os.path.exists', return_value=True):
+            service = FFmpegService(ffmpeg_path=self.mock_ffmpeg_path)
         result = service._get_media_info_fallback("test.mp4")
         
         self.assertIn("format", result)
@@ -238,7 +238,8 @@ class TestFFmpegService(unittest.TestCase):
             "streams": []
         }
         
-        service = FFmpegService()
+        with patch('os.path.exists', return_value=True):
+            service = FFmpegService(ffmpeg_path=self.mock_ffmpeg_path)
         duration = service.get_audio_duration("test.mp3")
         
         self.assertEqual(duration, 123.45)
@@ -256,7 +257,8 @@ class TestFFmpegService(unittest.TestCase):
             ]
         }
         
-        service = FFmpegService()
+        with patch('os.path.exists', return_value=True):
+            service = FFmpegService(ffmpeg_path=self.mock_ffmpeg_path)
         duration = service.get_audio_duration("test.mp3")
         
         self.assertEqual(duration, 67.89)
@@ -271,7 +273,8 @@ class TestFFmpegService(unittest.TestCase):
             "streams": [{"codec_type": "video"}]
         }
         
-        service = FFmpegService()
+        with patch('os.path.exists', return_value=True):
+            service = FFmpegService(ffmpeg_path=self.mock_ffmpeg_path)
         
         with self.assertRaises(ValueError):
             service.get_audio_duration("test.mp4")
@@ -290,7 +293,8 @@ class TestFFmpegService(unittest.TestCase):
             }]
         }
         
-        service = FFmpegService()
+        with patch('os.path.exists', return_value=True):
+            service = FFmpegService(ffmpeg_path=self.mock_ffmpeg_path)
         audio_format = AudioFormat(
             sample_rate=16000,
             channels=1,
@@ -315,7 +319,8 @@ class TestFFmpegService(unittest.TestCase):
             }]
         }
         
-        service = FFmpegService()
+        with patch('os.path.exists', return_value=True):
+            service = FFmpegService(ffmpeg_path=self.mock_ffmpeg_path)
         audio_format = AudioFormat(
             sample_rate=16000,
             channels=1,
@@ -335,7 +340,8 @@ class TestFFmpegService(unittest.TestCase):
             "streams": [{"codec_type": "video"}]
         }
         
-        service = FFmpegService()
+        with patch('os.path.exists', return_value=True):
+            service = FFmpegService(ffmpeg_path=self.mock_ffmpeg_path)
         audio_format = AudioFormat(
             sample_rate=16000,
             channels=1,
@@ -353,7 +359,8 @@ class TestFFmpegService(unittest.TestCase):
         mock_which.return_value = self.mock_ffmpeg_path
         mock_run.return_value = Mock(returncode=0)
         
-        service = FFmpegService()
+        with patch('os.path.exists', return_value=True):
+            service = FFmpegService(ffmpeg_path=self.mock_ffmpeg_path)
         result = service.is_available()
         
         self.assertTrue(result)
@@ -370,7 +377,8 @@ class TestFFmpegService(unittest.TestCase):
         mock_which.return_value = self.mock_ffmpeg_path
         mock_run.return_value = Mock(returncode=1)
         
-        service = FFmpegService()
+        with patch('os.path.exists', return_value=True):
+            service = FFmpegService(ffmpeg_path=self.mock_ffmpeg_path)
         result = service.is_available()
         
         self.assertFalse(result)
@@ -382,7 +390,8 @@ class TestFFmpegService(unittest.TestCase):
         mock_which.return_value = self.mock_ffmpeg_path
         mock_run.side_effect = subprocess.TimeoutExpired('ffmpeg', 10)
         
-        service = FFmpegService()
+        with patch('os.path.exists', return_value=True):
+            service = FFmpegService(ffmpeg_path=self.mock_ffmpeg_path)
         result = service.is_available()
         
         self.assertFalse(result)
@@ -397,7 +406,8 @@ class TestFFmpegService(unittest.TestCase):
             stdout="ffmpeg version 4.4.2 Copyright (c) 2000-2021\n"
         )
         
-        service = FFmpegService()
+        with patch('os.path.exists', return_value=True):
+            service = FFmpegService(ffmpeg_path=self.mock_ffmpeg_path)
         version = service.get_version()
         
         self.assertEqual(version, "4.4.2")
@@ -409,7 +419,8 @@ class TestFFmpegService(unittest.TestCase):
         mock_which.return_value = self.mock_ffmpeg_path
         mock_run.return_value = Mock(returncode=1)
         
-        service = FFmpegService()
+        with patch('os.path.exists', return_value=True):
+            service = FFmpegService(ffmpeg_path=self.mock_ffmpeg_path)
         version = service.get_version()
         
         self.assertIsNone(version)
@@ -421,7 +432,8 @@ class TestFFmpegService(unittest.TestCase):
         mock_which.return_value = self.mock_ffmpeg_path
         mock_run.side_effect = subprocess.TimeoutExpired('ffmpeg', 10)
         
-        service = FFmpegService()
+        with patch('os.path.exists', return_value=True):
+            service = FFmpegService(ffmpeg_path=self.mock_ffmpeg_path)
         version = service.get_version()
         
         self.assertIsNone(version)

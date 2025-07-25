@@ -55,6 +55,8 @@ export interface AppConfig {
   subtitle: string | null
   duration: number
   verbose: boolean
+  startTime: number | null
+  endTime: number | null
 }
 
 export interface UIState {
