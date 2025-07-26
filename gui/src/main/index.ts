@@ -178,7 +178,7 @@ class CantoCap {
       try {
         await this.processManager.startTranscription(
           config,
-          (eventType: string, data: any) => {
+          (eventType: string, data: unknown) => {
             this.mainWindow?.webContents.send(eventType, data);
           }
         );

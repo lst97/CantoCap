@@ -1,10 +1,5 @@
-import { spawn, ChildProcess } from 'child_process'
-import { promisify } from 'util'
-import { access, constants } from 'fs'
-import { join } from 'path'
+import { spawn } from 'child_process'
 import type { DependencyStatus } from '../types'
-
-const accessAsync = promisify(access)
 
 interface DependencyConfig {
   name: string
@@ -93,7 +88,7 @@ export class DependencyChecker {
             result.available = true
             return result
           }
-        } catch (error) {
+        } catch (_error) {
           // Continue to next command
           continue
         }
@@ -158,7 +153,7 @@ export class DependencyChecker {
     let executablePath: string
     try {
       executablePath = await this.resolveExecutablePath(command)
-    } catch (error) {
+    } catch (_error) {
       // Fallback to command name if path resolution fails
       executablePath = command
     }

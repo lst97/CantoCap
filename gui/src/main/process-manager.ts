@@ -4,7 +4,7 @@ import { existsSync } from 'fs'
 import { app } from 'electron'
 import type { AppConfig, HardwareInfo } from '../types'
 
-type ProcessCallback = (eventType: string, data: any) => void
+type ProcessCallback = (eventType: string, data: unknown) => void
 
 export class ProcessManager {
   private activeProcess: ChildProcess | null = null

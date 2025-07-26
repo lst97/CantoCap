@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 
-const { spawn, execSync } = require('child_process');
+const { execSync } = require('child_process');
 const fs = require('fs');
-const path = require('path');
 const os = require('os');
 
 console.log('🎬 CantoCap Desktop GUI Setup\n');
@@ -28,12 +27,12 @@ function checkPnpm() {
   try {
     execSync('pnpm --version', { stdio: 'pipe' });
     console.log('✅ pnpm is installed');
-  } catch (error) {
+  } catch (_error) {
     console.log('📦 Installing pnpm...');
     try {
       execSync('npm install -g pnpm', { stdio: 'inherit' });
       console.log('✅ pnpm installed successfully');
-    } catch (installError) {
+    } catch (_installError) {
       console.error('❌ Failed to install pnpm');
       console.log('   Please run: npm install -g pnpm');
       process.exit(1);
@@ -57,7 +56,7 @@ function checkPython() {
         pythonFound = true;
         break;
       }
-    } catch (error) {
+    } catch (_error) {
       // Command not found, try next
     }
   }
@@ -77,7 +76,7 @@ function checkFFmpeg() {
     const result = execSync('ffmpeg -version', { stdio: 'pipe' }).toString();
     const version = result.split('\n')[0];
     console.log(`✅ Found ${version}`);
-  } catch (error) {
+  } catch (_error) {
     console.log('⚠️  FFmpeg not found');
     console.log('   Installation instructions:');
     
@@ -104,7 +103,7 @@ function installDependencies() {
   try {
     execSync('pnpm install', { stdio: 'inherit' });
     console.log('✅ Dependencies installed successfully\n');
-  } catch (error) {
+  } catch (_error) {
     console.error('❌ Failed to install dependencies');
     process.exit(1);
   }
@@ -146,8 +145,8 @@ async function setup() {
     console.log('   pnpm build     # Build for production');
     console.log('   pnpm dist      # Create installer');
     console.log('\n💡 Make sure Python 3.12 and FFmpeg are installed for full functionality');
-  } catch (error) {
-    console.error('❌ Setup failed:', error.message);
+  } catch (_error) {
+    console.error('❌ Setup failed:', _error.message);
     process.exit(1);
   }
 }

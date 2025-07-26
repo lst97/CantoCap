@@ -20,7 +20,7 @@ import {
   Memory as MemoryIcon,
   Speed as SpeedIcon
 } from '@mui/icons-material'
-import { ProgressPanel } from '../ProgressPanel'
+import { ProgressPanel } from '../feedback/ProgressPanel'
 
 interface ProcessingStage {
   id: string

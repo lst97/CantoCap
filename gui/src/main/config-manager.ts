@@ -117,18 +117,35 @@ export class ConfigManager {
     return { ...this.defaultConfig }
   }
 
-  private mergeConfig(defaultConfig: any, loadedConfig: any): any {
-    const merged = { ...defaultConfig }
-    
-    for (const key in loadedConfig) {
-      if (typeof loadedConfig[key] === 'object' && loadedConfig[key] !== null && !Array.isArray(loadedConfig[key])) {
-        merged[key] = this.mergeConfig(defaultConfig[key] || {}, loadedConfig[key])
-      } else {
-        merged[key] = loadedConfig[key]
+  private mergeConfig(defaultConfig: AppConfig, loadedConfig: Partial<AppConfig>): AppConfig {
+    return {
+      ...defaultConfig,
+      ...loadedConfig,
+      modelSettings: {
+        ...defaultConfig.modelSettings,
+        ...(loadedConfig.modelSettings || {})
+      },
+      advancedSettings: {
+        ...defaultConfig.advancedSettings,
+        ...(loadedConfig.advancedSettings || {})
+      },
+      apiKeys: {
+        ...defaultConfig.apiKeys,
+        ...(loadedConfig.apiKeys || {})
+      },
+      dependencies: {
+        ...defaultConfig.dependencies,
+        ...(loadedConfig.dependencies || {})
+      },
+      ui: {
+        ...defaultConfig.ui,
+        ...(loadedConfig.ui || {})
+      },
+      window: {
+        ...defaultConfig.window,
+        ...(loadedConfig.window || {})
       }
     }
-    
-    return merged
   }
 
   public saveConfig(): void {
@@ -233,7 +250,10 @@ export class ConfigManager {
   }
 
   public resetSection<K extends keyof AppConfig>(section: K): void {
-    this.config[section] = { ...this.defaultConfig[section] }
+    const defaultValue = this.defaultConfig[section]
+    this.config[section] = typeof defaultValue === 'object' && defaultValue !== null 
+      ? { ...defaultValue } 
+      : defaultValue
     this.saveConfig()
   }
 

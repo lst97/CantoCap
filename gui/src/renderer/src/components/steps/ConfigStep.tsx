@@ -1,13 +1,13 @@
 import React from 'react'
 import { Box, Typography, Paper, Divider, Stack } from '@mui/material'
 import { Settings as SettingsIcon, Preview as PreviewIcon } from '@mui/icons-material'
-import { AdvancedPanel } from '../AdvancedPanel'
-import { OutputLocationSelector } from '../OutputLocationSelector'
-import { QuickOptionsSelector } from '../QuickOptionsSelector'
-import { CharsetSelectorMUI } from '../CharsetSelectorMUI'
-import { APIKeyInputMUI } from '../APIKeyInputMUI'
-import { TranslationSelectorMUI } from '../TranslationSelectorMUI'
-import { ActionPanel } from '../ActionPanel'
+import { AdvancedPanel } from '../ui/AdvancedPanel'
+import { OutputLocationSelector } from '../forms/OutputLocationSelector'
+import { QuickOptionsSelector } from '../forms/QuickOptionsSelector'
+import { CharsetSelectorMUI } from '../forms/CharsetSelectorMUI'
+import { APIKeyInputMUI } from '../forms/APIKeyInputMUI'
+import { TranslationSelectorMUI } from '../forms/TranslationSelectorMUI'
+import { ActionPanel } from '../ui/ActionPanel'
 
 const ConfigPreview: React.FC = () => (
   <Paper sx={{ p: 3, height: 'fit-content' }}>

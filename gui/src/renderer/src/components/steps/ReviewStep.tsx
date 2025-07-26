@@ -74,7 +74,7 @@ const VideoPlayer: React.FC = () => (
         你好，歡迎收看今日嘅新聞
       </Typography>
       <Typography variant="body2" color="text.secondary">
-        Hello, welcome to today's news
+        Hello, welcome to today&apos;s news
       </Typography>
     </Paper>
   </Paper>

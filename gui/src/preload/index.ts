@@ -130,22 +130,22 @@ if (process.contextIsolated) {
     console.error('Failed to expose APIs:', error)
   }
 } else {
-  // @ts-ignore (fallback for non-isolated context)
+  // @ts-expect-error (fallback for non-isolated context)
   window.electron = electronAPI
-  // @ts-ignore (fallback for non-isolated context)
+  // @ts-expect-error (fallback for non-isolated context)
   window.cantocapAPI = api
-  // @ts-ignore (fallback for non-isolated context)
+  // @ts-expect-error (fallback for non-isolated context)
   window.electronAPI = api
 }
 
 // Security: Remove Node.js globals
-// @ts-ignore
+// @ts-expect-error
 delete global.process
-// @ts-ignore
+// @ts-expect-error
 delete global.Buffer
-// @ts-ignore
+// @ts-expect-error
 delete global.setImmediate
-// @ts-ignore
+// @ts-expect-error
 delete global.clearImmediate
 
 // Security: Prevent access to Node.js modules
@@ -169,7 +169,7 @@ if (process.env.NODE_ENV === 'development') {
       console.error('Failed to expose debug API:', error)
     }
   } else {
-    // @ts-ignore (fallback for non-isolated context)
+    // @ts-expect-error (fallback for non-isolated context)
     window.debugAPI = debugAPI
   }
 }

@@ -2,7 +2,16 @@
   "permissions": {
     "allow": [
       "mcp__magic__21st_magic_component_builder",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(mkdir:*)",
+      "Bash(mv:*)",
+      "Bash(npm run typecheck:*)",
+      "Bash(npm run type-check:*)",
+      "Bash(find:*)",
+      "Bash(pnpm run lint:*)",
+      "Bash(npx eslint:*)",
+      "Bash(pnpm run:*)",
+      "Bash(npx tsc:*)"
     ],
     "deny": []
   }

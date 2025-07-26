@@ -2,14 +2,15 @@ import { useEffect } from 'react'
 import { ThemeProvider } from '@mui/material/styles'
 import { CssBaseline, Box } from '@mui/material'
 import { useAppStore } from './store/app-store'
-import { CustomTitleBar } from './components/CustomTitleBar'
-import { WorkspacePanel } from './components/WorkspacePanel'
-import { StepNavigation } from './components/StepNavigation'
-import { MainContentArea } from './components/MainContentArea'
-import { ProgressPanel } from './components/ProgressPanel'
-import { NotificationContainer } from './components/NotificationContainer'
-import { ModalContainer } from './components/ModalContainer'
-import { DebugPanel } from './components/DebugPanel'
+import { CustomTitleBar } from './components/layout/CustomTitleBar'
+import { WorkspacePanel } from './components/layout/WorkspacePanel'
+import { StepNavigation } from './components/layout/StepNavigation'
+import { MainContentArea } from './components/layout/MainContentArea'
+import { ProgressPanel } from './components/feedback/ProgressPanel'
+import { NotificationContainer } from './components/feedback/NotificationContainer'
+import { ModalContainer } from './components/modals/ModalContainer'
+import { DebugPanel } from './components/feedback/DebugPanel'
+import { ErrorBoundary } from './components/common/ErrorBoundary'
 import theme from './theme/theme'
 import './styles/globals.css'
 
@@ -25,7 +26,6 @@ function App(): JSX.Element {
   } = useAppStore()
 
   useEffect(() => {
-    // Initialize the application
     initializeApp()
     loadConfigFromStorage()
 
@@ -106,38 +106,44 @@ function App(): JSX.Element {
   }, [initializeApp, updateProcessing, resetProcessing, showNotification, addToHistory, loadConfigFromStorage])
 
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <Box 
-        sx={{ 
-          height: '100vh',
-          backgroundColor: 'background.default',
-          color: 'text.primary',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden'
-        }}
-      >
-        {/* Custom Title Bar */}
-        <CustomTitleBar />
-        
-        <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          {/* Workspace Panel */}
-          <WorkspacePanel />
+    <ErrorBoundary fallbackTitle="Application Error" fallbackMessage="The application encountered an error. This often happens during file upload or processing.">
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <Box 
+          sx={{ 
+            height: '100vh',
+            backgroundColor: 'background.default',
+            color: 'text.primary',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden'
+          }}
+        >
+          {/* Custom Title Bar */}
+          <CustomTitleBar />
+          
+          <ErrorBoundary fallbackTitle="Content Loading Error" fallbackMessage="There was an error loading the main content area. Please try uploading your file again.">
+            <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+              {/* Workspace Panel */}
+              <WorkspacePanel />
 
-          {/* Step Navigation */}
-          <StepNavigation />
+              {/* Step Navigation */}
+              <StepNavigation />
 
-          {/* Main Content Area */}
-          <MainContentArea />
+              {/* Main Content Area */}
+              <ErrorBoundary fallbackTitle="File Upload Error" fallbackMessage="An error occurred while processing your video file. Please check that the file is not corrupted and try again.">
+                <MainContentArea />
+              </ErrorBoundary>
+            </Box>
+          </ErrorBoundary>
+
+          {processing.isActive && <ProgressPanel />}
+          <NotificationContainer />
+          <ModalContainer />
+          <DebugPanel />
         </Box>
-
-        {processing.isActive && <ProgressPanel />}
-        <NotificationContainer />
-        <ModalContainer />
-        <DebugPanel />
-      </Box>
-    </ThemeProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   )
 }
 

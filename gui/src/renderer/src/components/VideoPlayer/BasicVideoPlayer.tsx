@@ -25,6 +25,9 @@ interface BasicVideoPlayerProps {
   showSkipButtons?: boolean
   autoPlay?: boolean
   className?: string
+  isPlaying?: boolean
+  onPlay?: () => void
+  onPause?: () => void
 }
 
 export const BasicVideoPlayer: React.FC<BasicVideoPlayerProps> = ({
@@ -36,14 +39,20 @@ export const BasicVideoPlayer: React.FC<BasicVideoPlayerProps> = ({
   showFullscreenButton = true,
   showSkipButtons = true,
   autoPlay = false,
-  className
+  className,
+  isPlaying: externalIsPlaying,
+  onPlay: externalOnPlay,
+  onPause: externalOnPause
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
+  const [hasExternalControl, setHasExternalControl] = useState(false)
   const [duration, setDuration] = useState(0)
   const [volume, setVolume] = useState(1)
   const [isMuted, setIsMuted] = useState(false)
   const [showControls, setShowControls] = useState(true)
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 })
+  const containerRef = useRef<HTMLDivElement>(null)
 
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60)
@@ -54,13 +63,23 @@ export const BasicVideoPlayer: React.FC<BasicVideoPlayerProps> = ({
   const handlePlayPause = useCallback(() => {
     if (!videoRef.current) return
     
-    if (isPlaying) {
-      videoRef.current.pause()
+    if (hasExternalControl) {
+      // Use external control if available
+      if (isPlaying) {
+        externalOnPause?.()
+      } else {
+        externalOnPlay?.()
+      }
     } else {
-      videoRef.current.play()
+      // Use internal control
+      if (isPlaying) {
+        videoRef.current.pause()
+      } else {
+        videoRef.current.play()
+      }
+      setIsPlaying(!isPlaying)
     }
-    setIsPlaying(!isPlaying)
-  }, [isPlaying])
+  }, [isPlaying, hasExternalControl, externalOnPlay, externalOnPause])
 
   const handleTimeUpdateInternal = useCallback(() => {
     if (!videoRef.current) return
@@ -117,6 +136,35 @@ export const BasicVideoPlayer: React.FC<BasicVideoPlayerProps> = ({
     }
   }, [currentTime])
 
+  // Check if external control is being used
+  useEffect(() => {
+    setHasExternalControl(!!externalOnPlay && !!externalOnPause)
+  }, [externalOnPlay, externalOnPause])
+
+  // Sync external playing state
+  useEffect(() => {
+    if (hasExternalControl && externalIsPlaying !== undefined) {
+      setIsPlaying(externalIsPlaying)
+    }
+  }, [externalIsPlaying, hasExternalControl])
+
+  // Container resize observer for responsive behavior
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (entry) {
+        const { width, height } = entry.contentRect
+        setContainerSize({ width, height })
+      }
+    })
+
+    resizeObserver.observe(container)
+    return () => resizeObserver.disconnect()
+  }, [])
+
   // Auto-hide controls
   useEffect(() => {
     let hideTimeout: NodeJS.Timeout
@@ -160,7 +208,8 @@ export const BasicVideoPlayer: React.FC<BasicVideoPlayerProps> = ({
           flexDirection: 'column', 
           alignItems: 'center', 
           justifyContent: 'center',
-          minHeight: 200,
+          width: '100%',
+          height: '100%',
           backgroundColor: '#000',
           borderRadius: 1,
           color: 'white'
@@ -173,29 +222,47 @@ export const BasicVideoPlayer: React.FC<BasicVideoPlayerProps> = ({
 
   return (
     <Box 
+      ref={containerRef}
       className={className}
       sx={{ 
         position: 'relative', 
         backgroundColor: '#000',
         borderRadius: 1,
-        overflow: 'hidden'
+        overflow: 'hidden',
+        width: '100%',
+        height: '100%',
+        maxWidth: '100%',
+        maxHeight: '100%',
+        display: 'flex',
+        flexDirection: 'column'
       }}
       onMouseEnter={() => setShowControls(true)}
       onMouseLeave={() => !isPlaying && setShowControls(true)}
     >
-      <video
-        ref={videoRef}
-        src={src}
-        onTimeUpdate={handleTimeUpdateInternal}
-        onLoadedMetadata={handleLoadedMetadataInternal}
-        autoPlay={autoPlay}
-        style={{
-          width: '100%',
-          height: 'auto',
-          maxHeight: '400px',
-          display: 'block'
-        }}
-      />
+      <Box sx={{ 
+        flex: 1, 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        overflow: 'hidden',
+        minHeight: 0
+      }}>
+        <video
+          ref={videoRef}
+          src={src}
+          onTimeUpdate={handleTimeUpdateInternal}
+          onLoadedMetadata={handleLoadedMetadataInternal}
+          autoPlay={autoPlay}
+          style={{
+            width: '100%',
+            height: '100%',
+            maxWidth: '100%',
+            maxHeight: '100%',
+            objectFit: 'contain',
+            display: 'block'
+          }}
+        />
+      </Box>
       
       {/* Controls Overlay */}
       <Box

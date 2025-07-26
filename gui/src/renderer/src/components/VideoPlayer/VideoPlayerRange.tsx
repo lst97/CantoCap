@@ -1,9 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
 import {
   Box,
-  Button,
-  Paper,
-  Stack,
   Typography,
   Tooltip,
   IconButton
@@ -16,9 +13,10 @@ import {
   Clear as ClearIcon,
   Replay10 as Skip10BackIcon,
   Forward10 as Skip10ForwardIcon,
-  VolumeUp as VolumeIcon,
-  Fullscreen as FullscreenIcon
+  Fullscreen as FullscreenIcon,
+  Preview as PreviewIcon
 } from '@mui/icons-material'
+import { VideoThumbnailPreview } from '../ui/VideoThumbnailPreview'
 
 interface TimeRange {
   start: number
@@ -36,6 +34,7 @@ interface VideoPlayerRangeProps {
   onPause?: () => void
   isPlaying?: boolean
   className?: string
+  onFullscreen?: () => void
 }
 
 export const VideoPlayerRange: React.FC<VideoPlayerRangeProps> = ({
@@ -48,7 +47,8 @@ export const VideoPlayerRange: React.FC<VideoPlayerRangeProps> = ({
   onPlay,
   onPause,
   isPlaying = false,
-  className
+  className,
+  onFullscreen
 }) => {
   const trackRef = useRef<HTMLDivElement>(null)
   const [isDragging, setIsDragging] = useState<'start' | 'end' | 'current' | null>(null)
@@ -56,8 +56,9 @@ export const VideoPlayerRange: React.FC<VideoPlayerRangeProps> = ({
   const [hoverTime, setHoverTime] = useState<number | null>(null)
   const [showPreview, setShowPreview] = useState(false)
   const [timeRange, setTimeRange] = useState<TimeRange | null>(
-    startTime !== endTime ? { start: startTime, end: endTime } : null
+    startTime !== endTime && !(startTime === 0 && endTime === duration) ? { start: startTime, end: endTime } : null
   )
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 })
 
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60)
@@ -143,6 +144,9 @@ export const VideoPlayerRange: React.FC<VideoPlayerRangeProps> = ({
     const time = (percentage / 100) * duration
     setHoverTime(time)
     setShowPreview(true)
+    
+    // Update mouse position for thumbnail
+    setMousePosition({ x: e.clientX, y: e.clientY })
   }, [isDragging, duration])
 
   const handleTrackLeave = useCallback(() => {
@@ -185,6 +189,24 @@ export const VideoPlayerRange: React.FC<VideoPlayerRangeProps> = ({
     onRangeChange?.(0, duration)
   }, [duration, onRangeChange])
 
+  const handlePreviewRange = useCallback(() => {
+    if (timeRange) {
+      onTimeChange?.(timeRange.start)
+      onPlay?.()
+    }
+  }, [timeRange, onTimeChange, onPlay])
+
+  const handleFullscreen = useCallback(() => {
+    if (onFullscreen) {
+      onFullscreen()
+    } else {
+      // Default fullscreen behavior
+      if (document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen()
+      }
+    }
+  }, [onFullscreen])
+
   const handleSkip10Back = useCallback(() => {
     const newTime = Math.max(0, currentTime - 10)
     onTimeChange?.(newTime)
@@ -209,28 +231,39 @@ export const VideoPlayerRange: React.FC<VideoPlayerRangeProps> = ({
 
   // Update timeRange when props change
   useEffect(() => {
-    if (startTime !== endTime) {
+    if (startTime !== endTime && !(startTime === 0 && endTime === duration)) {
       setTimeRange({ start: startTime, end: endTime })
     } else {
       setTimeRange(null)
     }
-  }, [startTime, endTime])
+  }, [startTime, endTime, duration])
 
-  const previewTime = dragPreviewTime ?? hoverTime ?? currentTime
+
 
   return (
-    <Box 
-      className={className}
-      sx={{ 
-        width: '100%',
-        backgroundColor: '#1a1a1a',
-        color: 'white',
-        display: 'flex',
-        flexDirection: 'column',
-        borderRadius: 1,
-        overflow: 'hidden'
-      }}
-    >
+    <>
+      {/* Separate thumbnail component positioned outside container */}
+      <VideoThumbnailPreview
+        isVisible={showPreview && (hoverTime !== null || dragPreviewTime !== null)}
+        position={mousePosition}
+        time={dragPreviewTime ?? hoverTime ?? 0}
+        duration={duration}
+      />
+      
+      <Box 
+        className={className}
+        sx={{ 
+          width: '100%',
+          height: '100%',
+          maxHeight: '100%',
+          backgroundColor: '#1a1a1a',
+          color: 'white',
+          display: 'flex',
+          flexDirection: 'column',
+          borderRadius: 1,
+          overflow: 'hidden'
+        }}
+      >
       {/* Compact Controls Bar */}
       <Box
         sx={{
@@ -239,7 +272,6 @@ export const VideoPlayerRange: React.FC<VideoPlayerRangeProps> = ({
           py: 1,
           display: 'flex',
           alignItems: 'center',
-          gap: 1,
           minHeight: 48,
           borderBottom: '1px solid #333'
         }}
@@ -257,30 +289,6 @@ export const VideoPlayerRange: React.FC<VideoPlayerRangeProps> = ({
           {formatTime(currentTime)}
         </Typography>
 
-        {/* Progress Indicator */}
-        <Box
-          sx={{
-            flex: 1,
-            height: 4,
-            backgroundColor: '#444',
-            borderRadius: 2,
-            mx: 2,
-            position: 'relative'
-          }}
-        >
-          <Box
-            sx={{
-              position: 'absolute',
-              left: 0,
-              top: 0,
-              height: '100%',
-              width: `${currentPercentage}%`,
-              backgroundColor: 'white',
-              borderRadius: 2
-            }}
-          />
-        </Box>
-
         {/* Duration */}
         <Typography 
           variant="body2" 
@@ -288,49 +296,67 @@ export const VideoPlayerRange: React.FC<VideoPlayerRangeProps> = ({
             fontFamily: 'monospace', 
             color: '#aaa',
             minWidth: 60,
-            fontSize: '0.8rem'
+            fontSize: '0.8rem',
+            mr: 2
           }}
         >
           {formatTime(duration)}
         </Typography>
 
-        {/* Controls */}
-        <Tooltip title="Back 10s">
-          <IconButton onClick={handleSkip10Back} sx={{ color: 'white', p: 0.5 }} size="small">
-            <Skip10BackIcon fontSize="small" />
+        {/* Spacer to push controls to center */}
+        <Box sx={{ flex: 1 }} />
+
+        {/* Controls Container - Centered */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Tooltip title="Back 10s">
+            <IconButton onClick={handleSkip10Back} sx={{ color: 'white', p: 0.5 }} size="small">
+              <Skip10BackIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+
+          <IconButton onClick={isPlaying ? onPause : onPlay} sx={{ color: 'white', p: 0.5 }}>
+            {isPlaying ? <PauseIcon /> : <PlayIcon />}
           </IconButton>
-        </Tooltip>
 
-        <IconButton onClick={isPlaying ? onPause : onPlay} sx={{ color: 'white', p: 0.5 }}>
-          {isPlaying ? <PauseIcon /> : <PlayIcon />}
-        </IconButton>
+          <Tooltip title="Forward 10s">
+            <IconButton onClick={handleSkip10Forward} sx={{ color: 'white', p: 0.5 }} size="small">
+              <Skip10ForwardIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
 
-        <Tooltip title="Forward 10s">
-          <IconButton onClick={handleSkip10Forward} sx={{ color: 'white', p: 0.5 }} size="small">
-            <Skip10ForwardIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
+          {/* Range Controls */}
+          {timeRange && (
+            <>
+              <Box sx={{ width: 8 }} />
+              <Tooltip title="Go to Start">
+                <IconButton onClick={handleGoToRangeStart} sx={{ color: '#ff9800', p: 0.5 }} size="small">
+                  <GoToStartIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              
+              <Tooltip title="Go to End">
+                <IconButton onClick={handleGoToRangeEnd} sx={{ color: '#ff9800', p: 0.5 }} size="small">
+                  <GoToEndIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              
+              <Tooltip title="Preview Range">
+                <IconButton onClick={handlePreviewRange} sx={{ color: '#ff9800', p: 0.5 }} size="small">
+                  <PreviewIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              
+              <Tooltip title="Clear Range">
+                <IconButton onClick={handleClearRange} sx={{ color: '#f44336', p: 0.5 }} size="small">
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </>
+          )}
+        </Box>
 
-        <Box sx={{ width: 16 }} />
-
-        {/* Range Controls */}
-        {timeRange && (
-          <>
-            <Tooltip title="Go to Start">
-              <IconButton onClick={handleGoToRangeStart} sx={{ color: '#ff9800', p: 0.5 }} size="small">
-                <GoToStartIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            
-            <Tooltip title="Go to End">
-              <IconButton onClick={handleGoToRangeEnd} sx={{ color: '#ff9800', p: 0.5 }} size="small">
-                <GoToEndIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          </>
-        )}
-
-        <Box sx={{ flex: 0.5 }} />
+        {/* Spacer to push right elements to the right */}
+        <Box sx={{ flex: 1 }} />
 
         {/* Frame Counter */}
         <Typography
@@ -342,21 +368,24 @@ export const VideoPlayerRange: React.FC<VideoPlayerRangeProps> = ({
             borderRadius: 1,
             fontFamily: 'monospace',
             fontSize: '0.75rem',
-            color: '#4fc3f7'
+            color: '#ffa726',
+            mr: 1
           }}
         >
           Frame {Math.floor((currentTime / duration) * 100) || 0}
         </Typography>
 
-        <IconButton sx={{ color: 'white', p: 0.5 }} size="small">
-          <FullscreenIcon fontSize="small" />
-        </IconButton>
+        <Tooltip title="Fullscreen">
+          <IconButton onClick={handleFullscreen} sx={{ color: 'white', p: 0.5 }} size="small">
+            <FullscreenIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
       </Box>
 
       {/* Timeline Section */}
-      <Box sx={{ p: 1.5, display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{ p: 1, display: 'flex', flexDirection: 'column' }}>
         {/* Time markers every 30 seconds */}
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#888', mb: 1 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: '#888', mb: 0.5 }}>
           {Array.from({ length: Math.ceil(duration / 30) + 1 }, (_, i) => {
             const time = i * 30
             return time <= duration ? (
@@ -367,48 +396,17 @@ export const VideoPlayerRange: React.FC<VideoPlayerRangeProps> = ({
 
         {/* Timeline Track Container */}
         <Box sx={{ position: 'relative', mb: 2 }}>
-          {/* Preview tooltip */}
-          {showPreview && (hoverTime !== null || dragPreviewTime !== null) && (
-            <Box
-              sx={{
-                position: 'absolute',
-                bottom: '100%',
-                left: `${((dragPreviewTime ?? hoverTime ?? 0) / duration) * 100}%`,
-                transform: 'translateX(-50%)',
-                mb: 1,
-                zIndex: 10
-              }}
-            >
-              <Paper
-                sx={{
-                  p: 1,
-                  backgroundColor: '#000',
-                  color: 'white',
-                  fontSize: '0.75rem',
-                  borderRadius: 1,
-                  border: '1px solid #444'
-                }}
-              >
-                <Box sx={{ fontFamily: 'monospace', textAlign: 'center' }}>
-                  {formatTime(dragPreviewTime ?? hoverTime ?? 0)}
-                </Box>
-                <Box sx={{ fontSize: '0.6rem', opacity: 0.8, textAlign: 'center' }}>
-                  Frame {Math.floor(((dragPreviewTime ?? hoverTime ?? 0) / duration) * 100)}
-                </Box>
-              </Paper>
-            </Box>
-          )}
 
           {/* Main Timeline Track */}
           <Box
             ref={trackRef}
             sx={{
               position: 'relative',
-              height: 8,
+              height: 12,
               backgroundColor: '#444',
-              borderRadius: 0,
+              borderRadius: 2,
               cursor: 'pointer',
-              mb: 1,
+              mb: 0.5,
               '&:hover': {
                 backgroundColor: '#555'
               }
@@ -483,7 +481,7 @@ export const VideoPlayerRange: React.FC<VideoPlayerRangeProps> = ({
                       transform: 'translateX(-50%) scale(1.1)'
                     },
                     '&::before': {
-                      content: '\"[\"',
+                      content: '"["',
                       position: 'absolute',
                       top: -2,
                       left: -12,
@@ -514,7 +512,7 @@ export const VideoPlayerRange: React.FC<VideoPlayerRangeProps> = ({
                       transform: 'translateX(-50%) scale(1.1)'
                     },
                     '&::after': {
-                      content: '\"]\"',
+                      content: '"]"',
                       position: 'absolute',
                       top: -2,
                       left: 16,
@@ -551,42 +549,26 @@ export const VideoPlayerRange: React.FC<VideoPlayerRangeProps> = ({
         </Box>
 
         {/* Range Info */}
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.875rem', fontFamily: 'monospace' }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.875rem', fontFamily: 'monospace', position: 'relative' }}>
           <Box sx={{ display: 'flex', gap: 3 }}>
             <span><strong>Start:</strong> {timeRange ? formatTime(timeRange.start) : '--:--'}</span>
             <span><strong>End:</strong> {timeRange ? formatTime(timeRange.end) : '--:--'}</span>
             <span><strong>Duration:</strong> {timeRange ? formatTime(timeRange.end - timeRange.start) : '--:--'}</span>
           </Box>
+          
+          {/* Centered Instruction Text */}
+          <Box sx={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)' }}>
+            {!timeRange && (
+              <Typography variant="body2" sx={{ color: '#888', fontStyle: 'italic', fontSize: '0.8rem' }}>
+                Double-click on the timeline to create a range
+              </Typography>
+            )}
+          </Box>
+          
           <span><strong>Current:</strong> {formatTime(currentTime)}</span>
         </Box>
-
-        {/* Action Buttons */}
-        <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center', gap: 2 }}>
-          {timeRange ? (
-            <>
-              <Button
-                variant="outlined"
-                onClick={() => onPlay?.()}
-                sx={{ color: '#ff9800', borderColor: '#ff9800', '&:hover': { borderColor: '#ffb74d' } }}
-              >
-                Preview Range
-              </Button>
-              <Button
-                variant="outlined"
-                startIcon={<ClearIcon />}
-                onClick={handleClearRange}
-                sx={{ color: '#f44336', borderColor: '#f44336', '&:hover': { borderColor: '#ef5350' } }}
-              >
-                Clear Range
-              </Button>
-            </>
-          ) : (
-            <Typography variant="body2" sx={{ color: '#888', fontStyle: 'italic' }}>
-              Double-click on the timeline to create a range
-            </Typography>
-          )}
-        </Box>
       </Box>
-    </Box>
+      </Box>
+    </>
   )
 }
