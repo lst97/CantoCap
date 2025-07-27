@@ -7,6 +7,7 @@ import type {
   HardwareInfo, 
   FileDialogOptions,
   FileDialogResult,
+  IPCMessage,
   IPCProgressUpdate,
   IPCProcessComplete,
   IPCProcessError,
@@ -75,7 +76,14 @@ const api: ElectronAPI = {
   checkHardware: (): Promise<HardwareInfo> => 
     ipcRenderer.invoke('check-hardware'),
 
-  // Event Listeners (with automatic cleanup)
+  // Modern IPC Message Handler
+  onIPCMessage: (callback: (data: IPCMessage) => void): (() => void) => {
+    const wrappedCallback = (event: IpcRendererEvent, data: IPCMessage) => callback(data)
+    ipcRenderer.on('ipc-message', wrappedCallback)
+    return () => ipcRenderer.removeListener('ipc-message', wrappedCallback)
+  },
+
+  // Legacy Event Listeners (for backward compatibility)
   onProgressUpdate: (callback: (data: IPCProgressUpdate) => void): (() => void) => {
     const wrappedCallback = (event: IpcRendererEvent, data: IPCProgressUpdate) => callback(data)
     ipcRenderer.on('progress-update', wrappedCallback)
@@ -110,6 +118,7 @@ const api: ElectronAPI = {
 
   // Utility Functions
   removeAllListeners: (): void => {
+    ipcRenderer.removeAllListeners('ipc-message')
     ipcRenderer.removeAllListeners('progress-update')
     ipcRenderer.removeAllListeners('process-started')
     ipcRenderer.removeAllListeners('process-complete')

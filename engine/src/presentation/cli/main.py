@@ -197,6 +197,22 @@ def main(
     from ...infrastructure.error_handling import set_global_ipc_mode
     set_global_ipc_mode(ipc_mode)
     
+    # Enable console capture for IPC mode
+    if ipc_mode:
+        from .console_interceptor import start_console_capture
+        from .ipc_handler import get_handler
+        
+        # Initialize progress tracking
+        handler = get_handler()
+        handler.progress_manager.start_overall_progress()
+        
+        # Start capturing all console output
+        start_console_capture(handler)
+    else:
+        # For non-IPC mode, start status display
+        from .status_display import start_status_display
+        start_status_display(verbose)
+    
     if version:
         from ... import __version__
         console.print(f"""

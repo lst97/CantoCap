@@ -104,7 +104,24 @@ export interface AppState {
   hardware: HardwareState
 }
 
-// IPC Message Types
+// Modern IPC Message Types
+export interface IPCMessage {
+  id: string
+  timestamp: string
+  level: 'debug' | 'info' | 'warning' | 'error' | 'critical'
+  category: 'system' | 'process' | 'model' | 'user'
+  source: string
+  content: string
+  data?: Record<string, any>
+}
+
+export interface ProcessedMessage extends IPCMessage {
+  shouldNotify: boolean
+  displayClass: string
+  icon: string
+}
+
+// Legacy interfaces (for backward compatibility during transition)
 export interface IPCProgressUpdate {
   progress?: number
   message?: string
@@ -167,6 +184,7 @@ export interface ElectronAPI {
   startTranscription: (config: AppConfig) => void
   cancelProcess: () => void
   checkHardware: () => Promise<HardwareInfo>
+  onIPCMessage: (callback: (data: IPCMessage) => void) => () => void
   onProgressUpdate: (callback: (data: IPCProgressUpdate) => void) => () => void
   onProcessStarted: (callback: (data: IPCProcessMessage) => void) => () => void
   onProcessComplete: (callback: (data: IPCProcessComplete) => void) => () => void

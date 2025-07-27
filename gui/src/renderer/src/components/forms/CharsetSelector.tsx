@@ -18,10 +18,9 @@ interface CharsetOption {
   label: string
   icon: string
   description: string
-  example: string
 }
 
-export const CharsetSelectorMUI: React.FC = () => {
+export const CharsetSelector: React.FC = () => {
   const { config, updateConfig } = useAppStore()
 
   const handleCharsetChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -33,23 +32,20 @@ export const CharsetSelectorMUI: React.FC = () => {
       value: 'traditional',
       label: 'Traditional Chinese',
       icon: '繁',
-      description: 'Traditional Chinese characters (繁體字)',
-      example: '繁體中文字幕'
+      description: 'Traditional Chinese characters (繁體字)'
     },
     {
       value: 'simplified',
       label: 'Simplified Chinese', 
       icon: '简',
-      description: 'Simplified Chinese characters (简体字)',
-      example: '简体中文字幕'
+      description: 'Simplified Chinese characters (简体字)'
     }
   ]
 
   return (
     <Box>
-      <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-        <LanguageIcon color="primary" />
-        Character Set
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 3, lineHeight: 1.6 }}>
+        Choose the Chinese character set for your subtitles. This affects how the text appears in the final output.
       </Typography>
       
       <RadioGroup value={config.charset} onChange={handleCharsetChange}>
@@ -58,11 +54,22 @@ export const CharsetSelectorMUI: React.FC = () => {
             <Paper 
               key={charset.value}
               sx={{ 
-                p: 2,
+                p: 3,
                 border: 1,
-                borderColor: config.charset === charset.value ? 'primary.main' : 'divider',
-                backgroundColor: config.charset === charset.value ? 'rgba(245, 158, 11, 0.1)' : 'rgba(255, 255, 255, 0.05)',
-                transition: 'all 0.2s'
+                borderColor: config.charset === charset.value ? 'primary.main' : 'rgba(255, 255, 255, 0.1)',
+                backgroundColor: config.charset === charset.value 
+                  ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(245, 158, 11, 0.05) 100%)' 
+                  : 'rgba(255, 255, 255, 0.02)',
+                borderRadius: 3,
+                cursor: 'pointer',
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                '&:hover': {
+                  transform: 'translateY(-2px)',
+                  boxShadow: config.charset === charset.value 
+                    ? '0 8px 25px rgba(245, 158, 11, 0.2)'
+                    : '0 4px 12px rgba(255, 255, 255, 0.1)',
+                  borderColor: config.charset === charset.value ? 'primary.light' : 'rgba(245, 158, 11, 0.3)'
+                }
               }}
             >
               <FormControlLabel
@@ -82,14 +89,6 @@ export const CharsetSelectorMUI: React.FC = () => {
                           {charset.description}
                         </Typography>
                       </Box>
-                    </Box>
-                    <Box sx={{ mt: 1, pt: 1, borderTop: 1, borderColor: 'divider' }}>
-                      <Typography variant="caption" color="text.secondary">
-                        Example:
-                      </Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                        {charset.example}
-                      </Typography>
                     </Box>
                   </Box>
                 }

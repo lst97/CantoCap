@@ -1,13 +1,19 @@
 import React, { useState, useEffect } from 'react'
 import { useAppStore } from '../../store/app-store'
+import { MessageProcessor } from '../../services/message-processor'
+import type { IPCMessage, ProcessedMessage } from '../../../../types'
 
 interface DebugLog {
-  id: number
+  id: string
   timestamp: string
-  type: 'info' | 'error' | 'warning' | 'command' | 'process'
+  level: 'debug' | 'info' | 'warning' | 'error' | 'critical'
+  category: 'system' | 'process' | 'model' | 'user'
   source: string
-  message: string
-  details?: any
+  content: string
+  data?: any
+  shouldNotify?: boolean
+  displayClass?: string
+  icon?: string
 }
 
 export function DebugPanel() {
@@ -35,49 +41,81 @@ export function DebugPanel() {
   const shouldShow = process.env.NODE_ENV === 'development' || 
                     localStorage.getItem('debug-panel') === 'true'
 
-  // Add log entry
-  const addLog = (type: DebugLog['type'], source: string, message: string, details?: any) => {
+  // Add legacy log entry (for backward compatibility)
+  const addLegacyLog = (level: 'info' | 'error' | 'warning', source: string, message: string, details?: any) => {
     const newLog: DebugLog = {
-      id: Date.now(),
+      id: `legacy_${Date.now()}`,
       timestamp: new Date().toLocaleTimeString(),
-      type,
+      level,
+      category: 'process',
       source,
-      message,
-      details
+      content: message,
+      data: details,
+      displayClass: `message-${level} category-process`,
+      icon: level === 'error' ? '❌' : level === 'warning' ? '⚠️' : 'ℹ️'
     }
     setLogs(prev => [newLog, ...prev].slice(0, 100)) // Keep last 100 logs
   }
 
-  // Listen to process events
+  // Handle notifications for important messages
+  const handleNotification = (message: ProcessedMessage) => {
+    // You can integrate with your notification system here
+    // For now, just log to console
+    console.log(`Notification: ${message.content}`, message)
+  }
+
+  // Listen to IPC messages
   useEffect(() => {
     const cleanupFunctions: (() => void)[] = []
 
     if (window.electronAPI) {
-      // Process started
+      // Primary modern IPC message handler
+      cleanupFunctions.push(
+        window.electronAPI.onIPCMessage((message: IPCMessage) => {
+          const processed = MessageProcessor.processMessage(message)
+          const log: DebugLog = {
+            id: message.id,
+            timestamp: new Date(message.timestamp).toLocaleTimeString(),
+            level: message.level,
+            category: message.category,
+            source: message.source,
+            content: message.content,
+            data: message.data,
+            shouldNotify: processed.shouldNotify,
+            displayClass: processed.displayClass,
+            icon: processed.icon
+          }
+          setLogs(prev => [log, ...prev].slice(0, 100))
+          
+          // Handle notifications for important messages
+          if (processed.shouldNotify && message.level !== 'debug') {
+            handleNotification(processed)
+          }
+        })
+      )
+
+      // Legacy handlers (for backward compatibility)
       cleanupFunctions.push(
         window.electronAPI.onProcessStarted((data) => {
-          addLog('process', 'ProcessManager', `Process started: ${data.message}`, data)
+          addLegacyLog('info', 'ProcessManager', `Process started: ${data.message}`, data)
         })
       )
 
-      // Process messages
       cleanupFunctions.push(
         window.electronAPI.onProcessMessage((data) => {
-          addLog('info', 'ProcessOutput', data.message, data)
+          addLegacyLog('info', 'ProcessOutput', data.message, data)
         })
       )
 
-      // Process errors
       cleanupFunctions.push(
         window.electronAPI.onProcessError((data) => {
-          addLog('error', 'ProcessError', data.message, data)
+          addLegacyLog('error', 'ProcessError', data.message, data)
         })
       )
 
-      // Process complete
       cleanupFunctions.push(
         window.electronAPI.onProcessComplete((data) => {
-          addLog('process', 'ProcessManager', `Process completed: ${data.message}`, data)
+          addLegacyLog('info', 'ProcessManager', `Process completed: ${data.message}`, data)
         })
       )
     }
@@ -145,7 +183,7 @@ export function DebugPanel() {
   useEffect(() => {
     if (config.inputFile) {
       const cliCommand = buildCliCommand(config)
-      addLog('command', 'CLIGenerator', `Generated CLI command: ${cliCommand}`, { config, command: cliCommand })
+      addLegacyLog('info', 'CLIGenerator', `Generated CLI command: ${cliCommand}`, { config, command: cliCommand })
     }
   }, [config])
 
@@ -154,7 +192,7 @@ export function DebugPanel() {
 
   const filteredLogs = filter === 'all' 
     ? logs 
-    : logs.filter(log => log.type === filter)
+    : logs.filter(log => log.level === filter || log.category === filter)
 
   const clearLogs = () => setLogs([])
 
@@ -179,10 +217,14 @@ export function DebugPanel() {
         <div className="debug-controls">
           <select value={filter} onChange={(e) => setFilter(e.target.value)}>
             <option value="all">All Logs</option>
+            <option value="critical">Critical</option>
             <option value="error">Errors</option>
-            <option value="command">Commands</option>
-            <option value="process">Process</option>
+            <option value="warning">Warnings</option>
             <option value="info">Info</option>
+            <option value="debug">Debug</option>
+            <option value="system">System</option>
+            <option value="process">Process</option>
+            <option value="model">Model</option>
           </select>
           <button onClick={clearLogs} className="debug-btn">Clear</button>
           <button 
@@ -253,21 +295,25 @@ export function DebugPanel() {
               <div className="debug-no-logs">No logs to display</div>
             ) : (
               filteredLogs.map(log => (
-                <div key={log.id} className={`debug-log-entry debug-${log.type}`}>
+                <div key={log.id} className={`debug-log-entry ${log.displayClass || `debug-${log.level}`}`}>
                   <div className="debug-log-header">
                     <span className="debug-timestamp">{log.timestamp}</span>
-                    <span className={`debug-type debug-type-${log.type}`}>
-                      {log.type.toUpperCase()}
+                    <span className="debug-icon">{log.icon}</span>
+                    <span className={`debug-type debug-type-${log.level}`}>
+                      {log.level.toUpperCase()}
+                    </span>
+                    <span className={`debug-category debug-category-${log.category}`}>
+                      {log.category.toUpperCase()}
                     </span>
                     <span className="debug-source">{log.source}</span>
                   </div>
                   <div className="debug-log-message">
-                    <pre>{log.message}</pre>
+                    <pre>{log.content}</pre>
                   </div>
-                  {log.details && (
+                  {log.data && (
                     <details className="debug-details">
                       <summary>Details</summary>
-                      <pre>{JSON.stringify(log.details, null, 2)}</pre>
+                      <pre>{JSON.stringify(log.data, null, 2)}</pre>
                     </details>
                   )}
                 </div>
@@ -480,13 +526,18 @@ export function DebugPanel() {
           font-size: 9px;
         }
 
-        .debug-type-error {
-          background: #ff4444;
+        .debug-icon {
+          margin-right: 4px;
+          font-size: 10px;
+        }
+
+        .debug-type-critical {
+          background: #d32f2f;
           color: white;
         }
 
-        .debug-type-info {
-          background: #4CAF50;
+        .debug-type-error {
+          background: #ff4444;
           color: white;
         }
 
@@ -495,13 +546,41 @@ export function DebugPanel() {
           color: white;
         }
 
-        .debug-type-command {
+        .debug-type-info {
+          background: #4CAF50;
+          color: white;
+        }
+
+        .debug-type-debug {
+          background: #9C27B0;
+          color: white;
+        }
+
+        .debug-category {
+          padding: 2px 6px;
+          border-radius: 3px;
+          font-weight: bold;
+          font-size: 9px;
+          margin-left: 4px;
+        }
+
+        .debug-category-system {
+          background: #ff6b35;
+          color: white;
+        }
+
+        .debug-category-process {
           background: #2196F3;
           color: white;
         }
 
-        .debug-type-process {
-          background: #9C27B0;
+        .debug-category-model {
+          background: #795548;
+          color: white;
+        }
+
+        .debug-category-user {
+          background: #607d8b;
           color: white;
         }
 

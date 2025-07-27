@@ -178,35 +178,14 @@ export class ProcessManager {
         }
       })
 
-      // Handle stdout (JSON progress updates)
+      // Handle stdout (JSON messages from new IPC system)
       this.activeProcess.stdout?.on('data', (data: Buffer) => {
-        const lines = data.toString().split('\n')
-        for (const line of lines) {
-          if (line.trim()) {
-            try {
-              const jsonData = JSON.parse(line)
-              callback('progress-update', jsonData)
-            } catch (e) {
-              // Non-JSON output, treat as regular message
-              callback('process-message', { message: line.trim() })
-            }
-          }
-        }
+        this.classifyAndSendMessage(data, 'stdout', callback)
       })
 
-      // Handle stderr (errors and warnings)
+      // Handle stderr (classify all output intelligently)
       this.activeProcess.stderr?.on('data', (data: Buffer) => {
-        const errorMsg = data.toString()
-        
-        // Debug: Log all stderr output
-        callback('process-message', {
-          message: `Debug: STDERR - ${errorMsg.trim()}`
-        })
-        
-        callback('process-error', {
-          message: errorMsg,
-          type: 'runtime_error'
-        })
+        this.classifyAndSendMessage(data, 'stderr', callback)
       })
 
       // Handle process completion
@@ -600,5 +579,116 @@ export class ProcessManager {
       currentPythonPath: this.pythonPath,
       venvActivated: this.venvActivated
     }
+  }
+
+  private classifyAndSendMessage(data: Buffer, stream: 'stdout' | 'stderr', callback: ProcessCallback): void {
+    const lines = data.toString().split('\n')
+    
+    for (const line of lines) {
+      if (!line.trim()) continue
+      
+      try {
+        const parsedData = JSON.parse(line)
+        
+        // Check for new IPC message format (has id and level)
+        if (parsedData.id && parsedData.level) {
+          callback('ipc-message', parsedData)
+        } else {
+          // Legacy format - convert to new format
+          const convertedMessage = this.convertLegacyMessage(parsedData, stream)
+          callback('ipc-message', convertedMessage)
+        }
+      } catch (e) {
+        // Non-JSON output - create new format message
+        const enhancedMessage = this.createEnhancedMessage(line.trim(), stream)
+        callback('ipc-message', enhancedMessage)
+      }
+    }
+  }
+
+  private createEnhancedMessage(content: string, stream: 'stdout' | 'stderr'): any {
+    const level = this.classifyRawOutput(content, stream)
+    const category = stream === 'stderr' ? 'model' : 'process'
+    
+    return {
+      id: `raw_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      timestamp: new Date().toISOString(),
+      level,
+      category,
+      source: `${stream}_capture`,
+      content,
+      data: {
+        stream,
+        raw_output: true
+      }
+    }
+  }
+
+  private convertLegacyMessage(parsedData: any, stream: string): any {
+    // Convert old message format to new format
+    let level = 'info'
+    let category = 'process'
+    
+    if (parsedData.type === 'error') {
+      level = 'error'
+      category = 'system'
+    } else if (parsedData.data?.level) {
+      level = parsedData.data.level
+    }
+    
+    return {
+      id: `legacy_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      timestamp: parsedData.timestamp || new Date().toISOString(),
+      level,
+      category,
+      source: 'legacy_handler',
+      content: parsedData.data?.message || parsedData.data?.error || JSON.stringify(parsedData.data || {}),
+      data: parsedData.data
+    }
+  }
+
+  private classifyRawOutput(message: string, stream: string): string {
+    const msgLower = message.toLowerCase()
+    
+    // Model/library output patterns (INFO level - not errors!)
+    if (msgLower.includes('loading checkpoint') ||
+        msgLower.includes('transformers') ||
+        msgLower.includes('model loaded') ||
+        msgLower.includes('special tokens') ||
+        msgLower.includes('safetensors')) {
+      return 'info'
+    }
+    
+    // Debug patterns
+    if (msgLower.includes('debug:') ||
+        msgLower.includes('hardware check') ||
+        msgLower.includes('engine status') ||
+        msgLower.includes('cli command')) {
+      return 'debug'
+    }
+    
+    // Warning patterns
+    if (msgLower.includes('warning') ||
+        msgLower.includes('deprecated') ||
+        msgLower.includes('userwarning')) {
+      return 'warning'
+    }
+    
+    // Critical patterns
+    if (msgLower.includes('fatal') ||
+        msgLower.includes('critical') ||
+        msgLower.includes('segmentation fault')) {
+      return 'critical'
+    }
+    
+    // Error patterns
+    if (msgLower.includes('error') ||
+        msgLower.includes('failed') ||
+        msgLower.includes('exception')) {
+      return 'error'
+    }
+    
+    // Default: stderr without error patterns is likely model output (INFO)
+    return stream === 'stderr' ? 'info' : 'info'
   }
 }

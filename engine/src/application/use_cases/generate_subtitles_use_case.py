@@ -188,8 +188,9 @@ class GenerateSubtitlesUseCase:
             # Step 13: Save subtitle file 
             output_path = self._save_subtitle_file(subtitle_document, command)
             
-            # Step 14: Generate statistics 
-            statistics = self._generate_statistics(subtitle_document)
+            # Step 14: Generate statistics (pass translation result if available)
+            translation_result = getattr(self, '_last_translation_result', None)
+            statistics = self._generate_statistics(subtitle_document, translation_result)
             
             processing_time = time.time() - start_time
             
@@ -202,10 +203,28 @@ class GenerateSubtitlesUseCase:
             
         except Exception as e:
             processing_time = time.time() - start_time
-            return SubtitleGenerationResult.failure_result(
-                error_message=str(e),
-                processing_time=processing_time
+            
+            # Preserve the original exception with full traceback for debugging
+            import traceback
+            full_traceback = traceback.format_exc()
+            
+            # Create a TranscriptionError with proper traceback preservation and raise it
+            from ...infrastructure.error_handling import TranscriptionError
+            transcription_error = TranscriptionError(
+                f"Subtitle generation failed during processing: {str(e)}",
+                details={
+                    'processing_time': processing_time,
+                    'original_exception_type': type(e).__name__,
+                    'original_exception_message': str(e),
+                    'full_traceback': full_traceback,
+                    'stage': 'subtitle_generation_processing'
+                }
             )
+            # Preserve the original exception chain
+            transcription_error.__cause__ = e
+            
+            # Raise the error directly instead of returning a failure result
+            raise transcription_error
         
         finally:
             # Cleanup
@@ -329,14 +348,75 @@ class GenerateSubtitlesUseCase:
         
         return output_path
     
-    def _generate_statistics(self, subtitle_document: SubtitleDocument) -> dict:
-        """Generate processing statistics."""
+    def _generate_statistics(self, subtitle_document: SubtitleDocument, 
+                           translation_result=None, previous_stats=None) -> dict:
+        """Generate enhanced processing statistics with validation."""
+        try:
+            # Import enhanced quality services
+            from ...domain.services.quality_score import EnhancedQualityScore
+            from ...domain.services.translation_coverage import EnhancedTranslationCoverage
+            from ...domain.services.quality_validation import QualityValidation
+            
+            # Get basic statistics
+            basic_stats = subtitle_document.get_statistics()
+            
+            # Generate enhanced quality metrics
+            quality_calculator = EnhancedQualityScore()
+            quality_metrics = quality_calculator.calculate_quality(subtitle_document, translation_result)
+            
+            # Generate enhanced coverage metrics if translations detected
+            coverage_metrics = None
+            if self._has_translations(subtitle_document):
+                coverage_calculator = EnhancedTranslationCoverage()
+                coverage_metrics = coverage_calculator.calculate_coverage(subtitle_document, translation_result)
+            
+            # Validate and create enhanced statistics
+            validator = QualityValidation()
+            enhanced_stats = validator.validate_and_enhance_statistics(
+                document=subtitle_document,
+                basic_stats=basic_stats,
+                quality_metrics=quality_metrics,
+                coverage_metrics=coverage_metrics,
+                translation_result=translation_result,
+                previous_stats=previous_stats
+            )
+            
+            # Get formatting statistics (already enhanced)
+            formatting_stats = self.subtitle_formatting_service.get_formatting_statistics(subtitle_document)
+            
+            # Create comprehensive statistics dictionary
+            stats = enhanced_stats.to_dict()
+            stats["formatting"] = formatting_stats
+            
+            # Add dual-language statistics if available
+            if self.dual_language_subtitle_service and subtitle_document.get_language() and '+' in subtitle_document.get_language():
+                dual_language_stats = self.dual_language_subtitle_service.get_dual_language_statistics(subtitle_document)
+                stats["dual_language"] = dual_language_stats
+            
+            # Add translation result metadata if available
+            if translation_result:
+                stats["translation"] = {
+                    "translation_count": getattr(translation_result, 'translation_count', 0),
+                    "source_language": getattr(translation_result, 'source_language', 'unknown'),
+                    "target_language": getattr(translation_result, 'target_language', 'unknown'),
+                    "external_quality_score": getattr(translation_result, 'quality_score', None)
+                }
+            
+            return stats
+            
+        except ImportError:
+            # Fallback to legacy statistics generation
+            return self._generate_statistics_legacy(subtitle_document)
+    
+    def _generate_statistics_legacy(self, subtitle_document: SubtitleDocument) -> dict:
+        """Legacy statistics generation (fallback)."""
         basic_stats = subtitle_document.get_statistics()
         formatting_stats = self.subtitle_formatting_service.get_formatting_statistics(subtitle_document)
         
         stats = {
             **basic_stats,
-            "formatting": formatting_stats
+            "formatting": formatting_stats,
+            "algorithm_version": "legacy_v1.0"
         }
         
         # Add dual-language statistics if subtitle document contains translations
@@ -346,6 +426,31 @@ class GenerateSubtitlesUseCase:
             stats["dual_language"] = dual_language_stats
         
         return stats
+    
+    def _has_translations(self, document: SubtitleDocument) -> bool:
+        """Check if document contains translations."""
+        import re
+        chinese_pattern = re.compile(r'[\u4e00-\u9fff]+')
+        english_pattern = re.compile(r'[a-zA-Z]+')
+        
+        if not document.subtitles:
+            return False
+        
+        # Sample a few subtitles to check for translation patterns
+        sample_size = min(5, len(document.subtitles))
+        samples = document.subtitles[:sample_size]
+        
+        dual_language_count = 0
+        for subtitle in samples:
+            content = subtitle.content
+            has_chinese = bool(chinese_pattern.search(content))
+            has_english = bool(english_pattern.search(content))
+            
+            if has_chinese and has_english:
+                dual_language_count += 1
+        
+        # Consider it a translation document if >30% of samples have dual language
+        return dual_language_count / sample_size > 0.3
     
     def _perform_speaker_diarization(self, audio_stream, command: GenerateSubtitlesCommand) -> Optional[any]:
         """Perform speaker diarization on audio stream (legacy method)."""
@@ -464,11 +569,17 @@ class GenerateSubtitlesUseCase:
             # Get all speaker segments that overlap with this subtitle
             overlapping_segments = []
             
+            # Handle both Timestamp objects and float values
+            if hasattr(start_time, 'seconds'):
+                subtitle_start = start_time.seconds
+                subtitle_end = end_time.seconds
+            else:
+                subtitle_start = float(start_time)
+                subtitle_end = float(end_time)
+            
             for segment in speaker_diarization.segments:
                 segment_start = segment.start_time.seconds
                 segment_end = segment.end_time.seconds
-                subtitle_start = start_time.seconds
-                subtitle_end = end_time.seconds
                 
                 # Check for overlap
                 if (segment_start < subtitle_end and segment_end > subtitle_start):
@@ -594,6 +705,9 @@ class GenerateSubtitlesUseCase:
             
             print(f"Translation completed: {translation_result.translation_count} subtitles translated")
             print(f"Translation quality score: {translation_result.quality_score:.1%}")
+            
+            # Store translation result for statistics generation
+            self._last_translation_result = translation_result
             
             # Create dual-language subtitle document
             dual_language_document = self.dual_language_subtitle_service.create_dual_language_document(
@@ -1015,7 +1129,11 @@ class GenerateSubtitlesUseCase:
     
     def _format_timestamp(self, timestamp) -> str:
         """Format timestamp for SRT format."""
-        total_seconds = timestamp.seconds
+        # Handle both Timestamp objects and float values
+        if hasattr(timestamp, 'seconds'):
+            total_seconds = timestamp.seconds
+        else:
+            total_seconds = float(timestamp)
         hours = int(total_seconds // 3600)
         minutes = int((total_seconds % 3600) // 60)
         seconds = int(total_seconds % 60)

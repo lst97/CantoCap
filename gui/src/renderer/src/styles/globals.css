@@ -135,21 +135,32 @@ body {
   animation: fadeIn 0.3s ease-out;
 }
 
-/* Scrollbar styling */
+/* Dark theme scrollbar styling - matches Discord design */
 ::-webkit-scrollbar {
   width: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: rgba(47, 49, 54, 0.6);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
+  background: rgba(150, 152, 157, 0.4);
   border-radius: 4px;
+  transition: background-color 0.2s ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
+  background: rgba(150, 152, 157, 0.6);
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: rgba(150, 152, 157, 0.8);
+}
+
+/* Firefox scrollbar styling */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(150, 152, 157, 0.4) rgba(47, 49, 54, 0.6);
 }

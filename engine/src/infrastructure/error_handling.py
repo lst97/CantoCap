@@ -145,8 +145,13 @@ def handle_error(
     
     details['Context'] = context
     
-    if show_traceback:
-        details['Traceback'] = traceback.format_exc()
+    # Always show traceback for TranscriptionError to help debugging
+    if show_traceback or isinstance(error, TranscriptionError):
+        # Check if there's a preserved traceback in the error details
+        if hasattr(error, 'details') and error.details and 'full_traceback' in error.details:
+            details['Traceback'] = error.details['full_traceback']
+        else:
+            details['Traceback'] = traceback.format_exc()
     
     if ipc_mode:
         # Import here to avoid circular imports
@@ -167,9 +172,13 @@ def handle_error(
         if hasattr(error, 'error_code'):
             error_data['error_code'] = error.error_code
         
-        # Add traceback if requested
-        if show_traceback:
-            error_data['traceback'] = traceback.format_exc()
+        # Add traceback if requested or for TranscriptionError
+        if show_traceback or isinstance(error, TranscriptionError):
+            # Check if there's a preserved traceback in the error details
+            if hasattr(error, 'details') and error.details and 'full_traceback' in error.details:
+                error_data['traceback'] = error.details['full_traceback']
+            else:
+                error_data['traceback'] = traceback.format_exc()
         
         # Output JSON error directly with flattened structure
         _output_json("error", error_data)

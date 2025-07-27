@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Optional
 import typer
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
 from rich.panel import Panel
 from rich.text import Text
 import time
@@ -18,10 +17,8 @@ from ...infrastructure.error_handling import (
     setup_global_error_handler
 )
 from ...infrastructure.validation import ArgumentValidator, ValidationSeverity
-from .progress_display import (
-    create_enhanced_progress_context, ProcessingStage, WhisperProgressTracker, ProgressDisplayManager
-)
-from .ipc_handler import ipc_log, ipc_progress, ipc_result, ipc_error
+from .progress_display import ProcessingStage, ProgressDisplayManager
+from .ipc_handler import ipc_log, ipc_progress, ipc_result, ipc_error, ipc_classify_output
 
 console = Console()
 
@@ -44,6 +41,67 @@ def show_translation_help():
     for code, name in sorted(supported.items()):
         console.print(f"  {code:<8} {name}")
     console.print()
+
+
+def _validate_command_arguments(
+    input_file, output_file, language, model, priority, video_quality, charset,
+    ffmpeg_path, terminology_config, max_chunk_duration, gemini_api_key, hf_token,
+    subtitle, speakers, written, music, disable_gemini_refinement, verbose, ipc_mode
+):
+    """Validate all command arguments and return sanitized values."""
+    # Comprehensive argument validation
+    args_to_validate = {
+        'input_file': input_file,
+        'output_file': output_file,
+        'language': language,
+        'model': model,
+        'priority': priority,
+        'video_quality': video_quality,
+        'charset': charset,
+        'ffmpeg_path': ffmpeg_path,
+        'terminology_config': terminology_config,
+        'max_chunk_duration': max_chunk_duration,
+        'gemini_api_key': gemini_api_key,
+        'hf_token': hf_token,
+        'subtitle': subtitle,
+        # Boolean flags
+        'speakers': speakers,
+        'written': written,
+        'music': music,
+        'disable_gemini_refinement': disable_gemini_refinement,
+        'verbose': verbose,
+        'ipc_mode': ipc_mode
+    }
+    
+    # Validate all arguments
+    is_valid, validation_issues, sanitized_args = ArgumentValidator.validate_all_arguments(args_to_validate)
+    
+    # Display validation errors and warnings
+    if validation_issues:
+        errors = [issue for issue in validation_issues if issue.severity == ValidationSeverity.ERROR]
+        warnings = [issue for issue in validation_issues if issue.severity == ValidationSeverity.WARNING]
+        
+        # Show errors first
+        if errors:
+            console.print("\n[red]Validation Errors:[/red]")
+            for issue in errors:
+                console.print(f"  • {issue.field}: {issue.message}")
+                if issue.suggestion:
+                    console.print(f"    [yellow]→ {issue.suggestion}[/yellow]")
+        
+        # Show warnings
+        if warnings and not ipc_mode:
+            console.print("\n[yellow]Warnings:[/yellow]")
+            for issue in warnings:
+                console.print(f"  • {issue.field}: {issue.message}")
+                if issue.suggestion:
+                    console.print(f"    → {issue.suggestion}")
+        
+        # Exit if there are errors
+        if not is_valid:
+            raise typer.Exit(1)
+    
+    return sanitized_args
 
 
 def generate_command(
@@ -188,57 +246,12 @@ def generate_command(
             show_translation_help()
             raise typer.Exit(0)
         
-        # Comprehensive argument validation
-        args_to_validate = {
-            'input_file': input_file,
-            'output_file': output_file,
-            'language': language,
-            'model': model,
-            'priority': priority,
-            'video_quality': video_quality,
-            'charset': charset,
-            'ffmpeg_path': ffmpeg_path,
-            'terminology_config': terminology_config,
-            'max_chunk_duration': max_chunk_duration,
-            'gemini_api_key': gemini_api_key,
-            'hf_token': hf_token,
-            'subtitle': subtitle,
-            # Boolean flags
-            'speakers': speakers,
-            'written': written,
-            'music': music,
-            'disable_gemini_refinement': disable_gemini_refinement,
-            'verbose': verbose,
-            'ipc_mode': ipc_mode
-        }
-        
-        # Validate all arguments
-        is_valid, validation_issues, sanitized_args = ArgumentValidator.validate_all_arguments(args_to_validate)
-        
-        # Display validation errors and warnings
-        if validation_issues:
-            errors = [issue for issue in validation_issues if issue.severity == ValidationSeverity.ERROR]
-            warnings = [issue for issue in validation_issues if issue.severity == ValidationSeverity.WARNING]
-            
-            # Show errors first
-            if errors:
-                console.print("\n[red]Validation Errors:[/red]")
-                for issue in errors:
-                    console.print(f"  • {issue.field}: {issue.message}")
-                    if issue.suggestion:
-                        console.print(f"    [yellow]→ {issue.suggestion}[/yellow]")
-            
-            # Show warnings
-            if warnings and not ipc_mode:
-                console.print("\n[yellow]Warnings:[/yellow]")
-                for issue in warnings:
-                    console.print(f"  • {issue.field}: {issue.message}")
-                    if issue.suggestion:
-                        console.print(f"    → {issue.suggestion}")
-            
-            # Exit if there are errors
-            if not is_valid:
-                raise typer.Exit(1)
+        # Validate all arguments using helper function
+        sanitized_args = _validate_command_arguments(
+            input_file, output_file, language, model, priority, video_quality, charset,
+            ffmpeg_path, terminology_config, max_chunk_duration, gemini_api_key, hf_token,
+            subtitle, speakers, written, music, disable_gemini_refinement, verbose, ipc_mode
+        )
         
         # Use sanitized arguments
         input_file = Path(sanitized_args.get('input_file', input_file))
@@ -357,7 +370,13 @@ def generate_command(
         _display_file_info(input_file, output_file, ipc_mode)
         
         # Execute with enhanced progress tracking
-        result = _execute_with_enhanced_progress(command, use_case, verbose, model, priority, ipc_mode, ffmpeg_path)
+        result, unified_manager = _execute_with_enhanced_progress(command, use_case, verbose, model, priority, ipc_mode, ffmpeg_path)
+        
+        # Stop the status display before showing completion panel
+        if unified_manager:
+            unified_manager.stop_display()
+            # Small delay to ensure status display has fully stopped
+            time.sleep(0.2)
         
         # Display results
         _display_results(result, ipc_mode)
@@ -404,12 +423,18 @@ def generate_command(
 
 
 class UnifiedProgressManager:
-    """Unified progress manager that can output to both IPC and rich console."""
+    """Unified progress manager that can output to both IPC and simple status display."""
     
-    def __init__(self, ipc_mode: bool, rich_manager=None, verbose: bool = False):
+    def __init__(self, ipc_mode: bool, verbose: bool = False):
         self.ipc_mode = ipc_mode
-        self.rich_manager = rich_manager
         self.verbose = verbose
+        
+        # For non-IPC mode, get the status display
+        if not ipc_mode:
+            from .status_display import get_status_display
+            self.status_display = get_status_display(verbose)
+        else:
+            self.status_display = None
         
     def update_stage(self, stage: ProcessingStage, progress: float, message: str):
         """Update processing stage with unified interface."""
@@ -421,40 +446,54 @@ class UnifiedProgressManager:
             )
             ipc_progress(stage_info.name, overall_progress, message)
         else:
-            self.rich_manager.update_stage(stage, progress, message)
-            self.rich_manager.update_display()
+            # Use status display for non-IPC mode
+            if self.status_display:
+                stage_info = ProgressDisplayManager.STAGES[stage]
+                overall_progress = stage_info.progress_start + (
+                    (stage_info.progress_end - stage_info.progress_start) * progress
+                )
+                self.status_display.update_progress(stage_info.name, overall_progress, message)
             
     def add_status_message(self, message: str):
         """Add status message with unified interface."""
         if self.ipc_mode:
             ipc_log(message)
         else:
-            self.rich_manager.add_status_message(message)
-            self.rich_manager.update_display()
+            # Add to status display
+            if self.status_display:
+                self.status_display.add_console_output(message)
             
     def add_technical_message(self, message: str):
         """Add technical message with unified interface."""
         if self.ipc_mode and self.verbose:
             ipc_log(f"Technical: {message}", "debug")
         elif not self.ipc_mode:
-            self.rich_manager.add_technical_message(message)
-            self.rich_manager.update_display()
+            # Add to status display (it will handle verbose mode internally)
+            if self.status_display:
+                self.status_display.add_console_output(f"Technical: {message}")
     
     def add_debug_message(self, message: str):
         """Add debug message with unified interface."""
         if self.ipc_mode and self.verbose:
             ipc_log(f"Debug: {message}", "debug")
         elif not self.ipc_mode:
-            self.rich_manager.add_debug_message(message)
-            self.rich_manager.update_display()
+            # Add to status display (it will handle verbose mode internally)
+            if self.status_display:
+                self.status_display.add_console_output(f"Debug: {message}")
     
     def add_performance_message(self, message: str):
         """Add performance message with unified interface."""
         if self.ipc_mode and self.verbose:
             ipc_log(f"Performance: {message}", "debug")
         elif not self.ipc_mode:
-            self.rich_manager.add_performance_message(message)
-            self.rich_manager.update_display()
+            # Add to status display (it will handle verbose mode internally)
+            if self.status_display:
+                self.status_display.add_console_output(f"Performance: {message}")
+    
+    def stop_display(self):
+        """Stop the status display to allow completion panel to show properly."""
+        if not self.ipc_mode and self.status_display:
+            self.status_display.stop()
 
 
 def setup_whisper_progress_callback(whisper_service, unified_manager):
@@ -520,17 +559,10 @@ def setup_whisper_progress_callback(whisper_service, unified_manager):
 def _execute_with_enhanced_progress(command, use_case, verbose: bool, model: Optional[str], priority: str, ipc_mode: bool = False, ffmpeg_path: str = None):
     """Execute the subtitle generation with enhanced progress tracking."""
     
-    # Create unified progress manager based on mode
-    if ipc_mode:
-        unified_manager = UnifiedProgressManager(ipc_mode=True, verbose=verbose)
-        return _execute_processing_steps(command, use_case, verbose, model, priority, unified_manager, ffmpeg_path)
-    else:
-        # Use rich console mode with context manager
-        with create_enhanced_progress_context(console) as rich_manager:
-            rich_manager.show_technical_details = verbose
-            unified_manager = UnifiedProgressManager(ipc_mode=False, rich_manager=rich_manager, verbose=verbose)
-            
-            return _execute_processing_steps(command, use_case, verbose, model, priority, unified_manager, ffmpeg_path)
+    # Create unified progress manager for both IPC and non-IPC modes
+    unified_manager = UnifiedProgressManager(ipc_mode=ipc_mode, verbose=verbose)
+    result = _execute_processing_steps(command, use_case, verbose, model, priority, unified_manager, ffmpeg_path)
+    return result, unified_manager
 
 
 def _execute_processing_steps(command, use_case, verbose: bool, model: Optional[str], priority: str, unified_manager, ffmpeg_path: str):
@@ -662,7 +694,7 @@ def _execute_processing_steps(command, use_case, verbose: bool, model: Optional[
         start_time = time.time()
         
         # We'll track the main execution but add hooks for intermediate steps
-        result = _execute_use_case_with_tracking(use_case, command, unified_manager)
+        result = _execute_use_case_with_tracking(use_case, command, unified_manager, verbose)
         
         processing_time = time.time() - start_time
         
@@ -689,7 +721,7 @@ def _execute_processing_steps(command, use_case, verbose: bool, model: Optional[
         raise
 
 
-def _execute_use_case_with_tracking(use_case, command, unified_manager):
+def _execute_use_case_with_tracking(use_case, command, unified_manager, verbose: bool):
     """Execute the use case with detailed step tracking."""
     
     # Track post-transcription steps
@@ -903,13 +935,134 @@ def _execute_use_case_with_tracking(use_case, command, unified_manager):
         return result
         
     except Exception as e:
-        # Track error in more detail
-        unified_manager.update_stage(
-            ProcessingStage.ERROR,
-            0.0,
-            f"Processing failed: {str(e)[:100]}..."
-        )
-        raise
+        # Check if this is already a properly structured TranscriptionError with details
+        if isinstance(e, TranscriptionError) and hasattr(e, 'details') and e.details and 'full_traceback' in e.details:
+            # Error is already properly structured from the use case - just update stage and re-raise
+            unified_manager.update_stage(
+                ProcessingStage.ERROR,
+                0.0,
+                f"Processing failed: {str(e)[:100]}..."
+            )
+            
+            # Log the structured error using Rich console with level based on verbose flag
+            from rich.console import Console
+            from rich.panel import Panel
+            from rich.text import Text
+            console = Console()
+            
+            error_text = Text()
+            
+            if verbose:
+                # Detailed error information for verbose mode
+                error_text.append("🚨 DETAILED ERROR INFORMATION\n\n", style="bold red")
+                error_text.append(f"Exception Type: {e.details.get('original_exception_type', type(e).__name__)}\n", style="cyan")
+                error_text.append(f"Exception Message: {e.details.get('original_exception_message', str(e))}\n", style="yellow")
+                error_text.append(f"Input File: {command.input_file_path}\n", style="blue")
+                error_text.append(f"Output File: {command.output_file_path if hasattr(command, 'output_file_path') else 'unknown'}\n", style="blue")
+                error_text.append(f"Processing Stage: {e.details.get('stage', 'unknown')}\n", style="magenta")
+                error_text.append("\nFull Stack Trace:\n", style="bold white")
+                error_text.append(e.details['full_traceback'], style="white")
+                
+                console.print(Panel(error_text, title="Debug Information", border_style="red"))
+            else:
+                # Simplified error information for normal mode
+                error_text.append("🚨 ERROR\n\n", style="bold red")
+                error_text.append(f"Issue: {e.details.get('original_exception_message', str(e))}\n", style="yellow")
+                error_text.append(f"Location: {e.details.get('stage', 'processing')}\n", style="cyan")
+                
+                # Extract just the relevant file and line from the traceback
+                full_traceback = e.details.get('full_traceback', '')
+                if 'AttributeError:' in full_traceback:
+                    # Extract the last meaningful frame before the error
+                    import re
+                    pattern = r'File "([^"]+)", line (\d+), in ([^\n]+)'
+                    matches = re.findall(pattern, full_traceback)
+                    if matches:
+                        # Get the last match which is usually the error location
+                        file_path, line_num, function = matches[-1]
+                        file_name = file_path.split('/')[-1] if '/' in file_path else file_path
+                        error_text.append(f"Source: {file_name}:{line_num} in {function}\n", style="blue")
+                
+                error_text.append("\n💡 Use --verbose for detailed stack trace\n", style="dim")
+                
+                console.print(Panel(error_text, title="Processing Error", border_style="red"))
+            
+            # Re-raise the structured error as-is
+            raise e
+        else:
+            # Handle other exceptions (fallback for unexpected errors)
+            import traceback
+            
+            error_details = {
+                'exception_type': type(e).__name__,
+                'exception_message': str(e),
+                'full_traceback': traceback.format_exc(),
+                'command_details': {
+                    'input_file': command.input_file_path,
+                    'output_file': command.output_file_path if hasattr(command, 'output_file_path') else 'unknown'
+                }
+            }
+            
+            # Log error information using Rich console with level based on verbose flag
+            from rich.console import Console
+            from rich.panel import Panel
+            from rich.text import Text
+            console = Console()
+            
+            error_text = Text()
+            
+            if verbose:
+                # Detailed error information for verbose mode
+                error_text.append("🚨 DETAILED ERROR INFORMATION\n\n", style="bold red")
+                error_text.append(f"Exception Type: {error_details['exception_type']}\n", style="cyan")
+                error_text.append(f"Exception Message: {error_details['exception_message']}\n", style="yellow")
+                error_text.append(f"Input File: {error_details['command_details']['input_file']}\n", style="blue")
+                error_text.append(f"Output File: {error_details['command_details']['output_file']}\n", style="blue")
+                error_text.append("\nFull Stack Trace:\n", style="bold white")
+                error_text.append(error_details['full_traceback'], style="white")
+                
+                console.print(Panel(error_text, title="Debug Information", border_style="red"))
+            else:
+                # Simplified error information for normal mode
+                error_text.append("🚨 ERROR\n\n", style="bold red")
+                error_text.append(f"Issue: {error_details['exception_message']}\n", style="yellow")
+                error_text.append(f"Type: {error_details['exception_type']}\n", style="cyan")
+                
+                # Extract just the relevant file and line from the traceback
+                full_traceback = error_details['full_traceback']
+                import re
+                pattern = r'File "([^"]+)", line (\d+), in ([^\n]+)'
+                matches = re.findall(pattern, full_traceback)
+                if matches:
+                    # Get the last match which is usually the error location
+                    file_path, line_num, function = matches[-1]
+                    file_name = file_path.split('/')[-1] if '/' in file_path else file_path
+                    error_text.append(f"Source: {file_name}:{line_num} in {function}\n", style="blue")
+                
+                error_text.append("\n💡 Use --verbose for detailed stack trace\n", style="dim")
+                
+                console.print(Panel(error_text, title="Processing Error", border_style="red"))
+            
+            unified_manager.update_stage(
+                ProcessingStage.ERROR,
+                0.0,
+                f"Processing failed: {str(e)[:100]}..."
+            )
+            
+            # Create a new TranscriptionError that preserves the original exception chain
+            transcription_error = TranscriptionError(
+                f"Subtitle generation failed: {str(e)}",
+                details={
+                    'input_file': command.input_file_path,
+                    'output_file': command.output_file_path if hasattr(command, 'output_file_path') else 'unknown',
+                    'original_exception_type': type(e).__name__,
+                    'original_exception_message': str(e),
+                    'full_traceback': error_details['full_traceback']
+                }
+            )
+            # Preserve the original exception chain
+            transcription_error.__cause__ = e
+            raise transcription_error
     finally:
         # Critical: Clean up resources to allow proper CLI exit
         try:
@@ -996,35 +1149,66 @@ def _display_results(result, ipc_mode: bool = False) -> None:
                 success_text.append(f"\n📈 Quality Statistics:\n", style="bold")
                 success_text.append(f"   • Total duration: {stats.get('total_duration', 0):.1f}s\n")
                 success_text.append(f"   • Average subtitle duration: {stats.get('average_subtitle_duration', 0):.1f}s\n")
-                success_text.append(f"   • Language: {stats.get('language', 'unknown')}\n")
+                
+                # Extract source language (before '+' if dual-language format)
+                full_language = stats.get('language', 'unknown')
+                source_language = full_language.split('+')[0] if '+' in full_language else full_language
+                success_text.append(f"   • Language: {source_language}\n")
                 
                 if 'formatting' in stats:
                     formatting = stats['formatting']
                     quality_score = formatting.get('quality_score', 0)
                     success_text.append(f"   • Quality score: {quality_score:.1%}\n")
                 
-                # Add translation statistics if available
-                if 'translation' in stats:
-                    translation = stats['translation']
-                    success_text.append(f"   • Translation language: {translation.get('target_language', 'unknown')}\n")
-                    success_text.append(f"   • Translation coverage: {translation.get('translation_coverage', 0):.1%}\n")
-                    if 'dual_language_subtitles' in translation:
-                        dual_count = translation['dual_language_subtitles']
-                        success_text.append(f"   • Dual-language subtitles: {dual_count}\n")
+                # Add translation statistics if available (consolidated logic)
+                has_translation = 'translation' in stats or 'dual_language' in stats
                 
-                # Add dual-language formatting stats if available  
-                if 'dual_language' in stats:
-                    dual_lang = stats['dual_language']
-                    success_text.append(f"   • Dual-language format: {dual_lang.get('language', 'unknown')}\n")
-                    coverage = dual_lang.get('translation_coverage', 0)
-                    success_text.append(f"   • Translation coverage: {coverage:.1%}\n")
+                if has_translation:
+                    # Determine best translation coverage source (prioritize enhanced algorithm)
+                    best_coverage = 0
+                    target_language = "unknown"
+                    dual_count = 0
+                    
+                    # Enhanced translation coverage (top priority)
+                    if stats.get('translation_coverage', 0) > 0:
+                        best_coverage = stats.get('translation_coverage', 0)
+                    
+                    # Translation service data
+                    if 'translation' in stats:
+                        translation = stats['translation']
+                        target_language = translation.get('target_language', 'unknown')
+                        if best_coverage == 0:  # Only use if enhanced not available
+                            best_coverage = translation.get('translation_coverage', 0)
+                        if 'dual_language_subtitles' in translation:
+                            dual_count = translation['dual_language_subtitles']
+                    
+                    # Dual-language service data
+                    if 'dual_language' in stats:
+                        dual_lang = stats['dual_language']
+                        if best_coverage == 0:  # Only use if others not available
+                            best_coverage = dual_lang.get('translation_coverage', 0)
+                    
+                    # Display consolidated translation information
+                    if target_language != "unknown":
+                        success_text.append(f"   • Translation language: {target_language}\n")
+                    if best_coverage > 0:
+                        success_text.append(f"   • Translation coverage: {best_coverage:.1%}\n")
+                    if dual_count > 0:
+                        success_text.append(f"   • Dual-language subtitles: {dual_count}\n")
+            
+            # Clear any remaining status displays and add spacing
+            console.print("\n" * 2)  # Add some space before completion panel
             
             console.print(Panel(
                 success_text,
                 title="🎉 Processing Complete",
                 title_align="left",
-                border_style="green"
+                border_style="green",
+                padding=(1, 2)  # Add padding for better visual appearance
             ))
+            
+            # Add space after completion panel
+            console.print("\n")
     else:
         # Error message is handled in main function
         pass

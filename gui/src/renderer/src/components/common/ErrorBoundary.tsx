@@ -1,17 +1,46 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react';
-import { Box, Typography, Button, Paper, Alert, Stack } from '@mui/material';
-import { RestartAlt as RestartIcon, BugReport as BugIcon } from '@mui/icons-material';
+import { Component, ErrorInfo, ReactNode } from 'react'
+import { 
+  Box, 
+  Typography, 
+  Button, 
+  Card, 
+  Alert, 
+  Stack, 
+  IconButton,
+  Chip,
+  Fade,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  Tooltip
+} from '@mui/material'
+import {
+  RestartAlt as RestartIcon,
+  ExpandMore as ExpandMoreIcon,
+  ContentCopy as CopyIcon,
+  Download as DownloadIcon,
+  Refresh as RefreshIcon,
+  Security as SafeModeIcon} from '@mui/icons-material'
+import { errorHandler } from '../../utils/errorHandler'
+import { ErrorCategory, ErrorSeverity, ErrorContext, RecoveryAction } from '../../types/error'
 
 interface Props {
-  children: ReactNode;
-  fallbackTitle?: string;
-  fallbackMessage?: string;
+  children: ReactNode
+  fallbackTitle?: string
+  fallbackMessage?: string
+  onError?: (error: Error, errorInfo: ErrorInfo) => void
+  enableDetailedView?: boolean
+  enableRecovery?: boolean
+  level?: 'page' | 'section' | 'component'
 }
 
 interface State {
-  hasError: boolean;
-  error: Error | null;
-  errorInfo: ErrorInfo | null;
+  hasError: boolean
+  error: Error | null
+  errorInfo: ErrorInfo | null
+  errorContext: ErrorContext | null
+  showTechnicalDetails: boolean
+  isRecovering: boolean
 }
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -19,7 +48,10 @@ export class ErrorBoundary extends Component<Props, State> {
     hasError: false,
     error: null,
     errorInfo: null,
-  };
+    errorContext: null,
+    showTechnicalDetails: false,
+    isRecovering: false
+  }
 
   public static getDerivedStateFromError(error: Error): State {
     return {
@@ -30,12 +62,26 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('ErrorBoundary caught an error:', error, errorInfo);
+    console.error('ErrorBoundary caught an error:', error, errorInfo)
+    
+    const errorContext = errorHandler.createErrorContext(error, errorInfo.componentStack || undefined)
     
     this.setState({
       error,
       errorInfo,
-    });
+      errorContext
+    })
+
+    // Add breadcrumb for error boundary catch
+    errorHandler.addBreadcrumb({
+      category: 'error',
+      message: `ErrorBoundary caught: ${error.message}`,
+      level: 'error',
+      data: {
+        componentStack: errorInfo.componentStack,
+        errorId: errorContext.errorId
+      }
+    })
 
     // Report error to debug panel if available
     if (window.electronAPI?.logError) {
@@ -43,26 +89,158 @@ export class ErrorBoundary extends Component<Props, State> {
         message: error.message,
         stack: error.stack,
         componentStack: errorInfo.componentStack,
-      });
+        errorContext
+      })
+    }
+
+    // Call custom error handler if provided
+    if (this.props.onError) {
+      this.props.onError(error, errorInfo)
     }
   }
 
   private handleReload = () => {
-    window.location.reload();
-  };
+    this.setState({ isRecovering: true })
+    setTimeout(() => {
+      window.location.reload()
+    }, 500)
+  }
 
   private handleReset = () => {
-    this.setState({
-      hasError: false,
-      error: null,
-      errorInfo: null,
-    });
-  };
+    this.setState({ isRecovering: true })
+    setTimeout(() => {
+      this.setState({
+        hasError: false,
+        error: null,
+        errorInfo: null,
+        errorContext: null,
+        showTechnicalDetails: false,
+        isRecovering: false
+      })
+    }, 500)
+  }
+
+  private handleSafeMode = () => {
+    // Clear all local storage and reset to safe state
+    localStorage.clear()
+    sessionStorage.clear()
+    this.handleReload()
+  }
+
+  private handleCopyError = () => {
+    if (this.state.errorContext && this.state.error) {
+      const errorData = {
+        error: {
+          message: this.state.error.message,
+          stack: this.state.error.stack,
+          name: this.state.error.name
+        },
+        context: this.state.errorContext,
+        componentStack: this.state.errorInfo?.componentStack
+      }
+      
+      navigator.clipboard.writeText(JSON.stringify(errorData, null, 2))
+        .then(() => {
+          // Could show a toast notification here
+          console.log('Error data copied to clipboard')
+        })
+        .catch(err => console.error('Failed to copy error data:', err))
+    }
+  }
+
+  private handleDownloadError = () => {
+    if (this.state.errorContext && this.state.error) {
+      const errorData = {
+        error: {
+          message: this.state.error.message,
+          stack: this.state.error.stack,
+          name: this.state.error.name
+        },
+        context: this.state.errorContext,
+        componentStack: this.state.errorInfo?.componentStack,
+        exportedAt: new Date().toISOString()
+      }
+      
+      const blob = new Blob([JSON.stringify(errorData, null, 2)], {
+        type: 'application/json'
+      })
+      
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `error-report-${this.state.errorContext.errorId}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    }
+  }
+
+  private toggleTechnicalDetails = () => {
+    this.setState(prevState => ({
+      showTechnicalDetails: !prevState.showTechnicalDetails
+    }))
+  }
+
+  private getRecoveryActions(): RecoveryAction[] {
+    return [
+      {
+        id: 'retry',
+        label: 'Try Again',
+        description: 'Attempt to recover from the error',
+        icon: '🔄',
+        action: this.handleReset,
+        primary: true
+      },
+      {
+        id: 'reload',
+        label: 'Reload App',
+        description: 'Refresh the entire application',
+        icon: '🔃',
+        action: this.handleReload
+      },
+      {
+        id: 'safe-mode',
+        label: 'Safe Mode',
+        description: 'Clear all data and restart safely',
+        icon: '🛡️',
+        action: this.handleSafeMode,
+        dangerous: true
+      }
+    ]
+  }
+
+  private getCategoryColor(category: ErrorCategory): string {
+    const colors = {
+      [ErrorCategory.RUNTIME]: '#ED4245',
+      [ErrorCategory.NETWORK]: '#7DD3FC',
+      [ErrorCategory.FILE_SYSTEM]: '#FEE75C',
+      [ErrorCategory.PROCESSING]: '#F59E0B',
+      [ErrorCategory.VALIDATION]: '#F87171',
+      [ErrorCategory.UNKNOWN]: '#96989D'
+    }
+    return colors[category] || colors[ErrorCategory.UNKNOWN]
+  }
+
+  private getSeverityColor(severity: ErrorSeverity): string {
+    const colors = {
+      [ErrorSeverity.LOW]: '#57F287',
+      [ErrorSeverity.MEDIUM]: '#FEE75C',
+      [ErrorSeverity.HIGH]: '#F59E0B',
+      [ErrorSeverity.CRITICAL]: '#ED4245'
+    }
+    return colors[severity] || colors[ErrorSeverity.MEDIUM]
+  }
 
   public render() {
     if (this.state.hasError) {
-      const { fallbackTitle = 'Something went wrong', fallbackMessage } = this.props;
-      const { error, errorInfo } = this.state;
+      const { fallbackTitle = 'Something went wrong', enableDetailedView = true, enableRecovery = true } = this.props
+      const { error, errorContext, showTechnicalDetails, isRecovering } = this.state
+      
+      if (!error || !errorContext) return null
+      
+      const explanation = errorHandler.getErrorExplanation(error, errorContext.category)
+      const recoveryActions = this.getRecoveryActions()
 
       return (
         <Box
@@ -71,98 +249,294 @@ export class ErrorBoundary extends Component<Props, State> {
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            minHeight: '400px',
-            p: 4,
-            textAlign: 'center',
+            minHeight: '80vh',
+            p: { xs: 2, md: 4 },
+            background: 'linear-gradient(135deg, rgba(237, 66, 69, 0.05) 0%, rgba(237, 66, 69, 0.02) 100%)',
           }}
         >
-          <Paper
-            elevation={3}
-            sx={{
-              p: 4,
-              maxWidth: 600,
-              width: '100%',
-            }}
-          >
-            <Stack spacing={3} alignItems="center">
-              <BugIcon
+          <Fade in timeout={500}>
+            <Card
+              sx={{
+                maxWidth: 800,
+                width: '100%',
+                background: 'linear-gradient(135deg, rgba(47, 49, 54, 0.95) 0%, rgba(54, 57, 63, 0.95) 100%)',
+                border: '1px solid rgba(237, 66, 69, 0.3)',
+                borderRadius: 4,
+                overflow: 'hidden',
+                position: 'relative'
+              }}
+            >
+              {/* Error Header */}
+              <Box
                 sx={{
-                  fontSize: 64,
-                  color: 'error.main',
+                  p: 4,
+                  background: `linear-gradient(135deg, ${this.getCategoryColor(errorContext.category)}15 0%, ${this.getCategoryColor(errorContext.category)}05 100%)`,
+                  borderBottom: `1px solid ${this.getCategoryColor(errorContext.category)}30`,
+                  position: 'relative'
                 }}
-              />
-              
-              <Typography variant="h5" color="error.main" gutterBottom>
-                {fallbackTitle}
-              </Typography>
-              
-              <Typography variant="body1" color="text.secondary">
-                {fallbackMessage || 
-                  'An unexpected error occurred while processing your video. This might be due to an unsupported file format or corrupted file.'}
-              </Typography>
+              >
+                <Stack direction="row" alignItems="center" spacing={3}>
+                  <Box
+                    sx={{
+                      width: 80,
+                      height: 80,
+                      borderRadius: 3,
+                      background: `linear-gradient(135deg, ${this.getCategoryColor(errorContext.category)}30 0%, ${this.getCategoryColor(errorContext.category)}10 100%)`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '2.5rem'
+                    }}
+                  >
+                    🚨
+                  </Box>
+                  
+                  <Box sx={{ flex: 1 }}>
+                    <Typography variant="h4" sx={{ 
+                      fontWeight: 700,
+                      mb: 1,
+                      color: this.getCategoryColor(errorContext.category)
+                    }}>
+                      {explanation.title}
+                    </Typography>
+                    
+                    <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+                      <Chip
+                        label={errorContext.category.replace('_', ' ').toUpperCase()}
+                        size="small"
+                        sx={{
+                          backgroundColor: `${this.getCategoryColor(errorContext.category)}20`,
+                          color: this.getCategoryColor(errorContext.category),
+                          fontWeight: 600,
+                          border: `1px solid ${this.getCategoryColor(errorContext.category)}40`
+                        }}
+                      />
+                      <Chip
+                        label={errorContext.severity.toUpperCase()}
+                        size="small"
+                        sx={{
+                          backgroundColor: `${this.getSeverityColor(errorContext.severity)}20`,
+                          color: this.getSeverityColor(errorContext.severity),
+                          fontWeight: 600,
+                          border: `1px solid ${this.getSeverityColor(errorContext.severity)}40`
+                        }}
+                      />
+                      <Chip
+                        label={`ID: ${errorContext.errorId}`}
+                        size="small"
+                        sx={{
+                          backgroundColor: 'rgba(150, 152, 157, 0.15)',
+                          color: 'text.secondary',
+                          fontFamily: 'monospace',
+                          fontSize: '0.7rem'
+                        }}
+                      />
+                    </Stack>
+                    
+                    <Typography variant="body1" color="text.secondary" sx={{ lineHeight: 1.6 }}>
+                      {explanation.description}
+                    </Typography>
+                  </Box>
+                </Stack>
+              </Box>
 
-              {error && (
-                <Alert severity="error" sx={{ width: '100%', textAlign: 'left' }}>
-                  <Typography variant="subtitle2" gutterBottom>
-                    Error Details:
+              {/* Error Summary */}
+              <Box sx={{ p: 4 }}>
+                <Alert 
+                  severity="error" 
+                  sx={{ 
+                    mb: 3,
+                    backgroundColor: 'rgba(237, 66, 69, 0.1)',
+                    border: '1px solid rgba(237, 66, 69, 0.3)',
+                    '& .MuiAlert-icon': {
+                      color: 'error.main'
+                    }
+                  }}
+                >
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+                    Error Message:
                   </Typography>
-                  <Typography variant="body2" sx={{ fontFamily: 'monospace', wordBreak: 'break-word' }}>
+                  <Typography variant="body2" sx={{ 
+                    fontFamily: 'monospace', 
+                    wordBreak: 'break-word',
+                    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                    p: 1,
+                    borderRadius: 1
+                  }}>
                     {error.message}
                   </Typography>
                 </Alert>
-              )}
 
-              <Stack direction="row" spacing={2}>
-                <Button
-                  variant="contained"
-                  startIcon={<RestartIcon />}
-                  onClick={this.handleReset}
-                  color="primary"
-                >
-                  Try Again
-                </Button>
-                
-                <Button
-                  variant="outlined"
-                  onClick={this.handleReload}
-                >
-                  Reload App
-                </Button>
-              </Stack>
-
-              {process.env.NODE_ENV === 'development' && errorInfo && (
-                <Box
-                  sx={{
-                    mt: 2,
-                    p: 2,
-                    backgroundColor: 'grey.100',
-                    borderRadius: 1,
-                    width: '100%',
-                    maxHeight: 200,
-                    overflow: 'auto',
-                  }}
-                >
-                  <Typography variant="subtitle2" gutterBottom>
-                    Component Stack (Development):
+                {/* Possible Causes */}
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    🔍 Possible Causes
                   </Typography>
-                  <Typography
-                    variant="body2"
+                  <Stack spacing={1}>
+                    {explanation.possibleCauses.map((cause, index) => (
+                      <Box key={index} sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                        <Typography variant="body2" color="text.secondary">•</Typography>
+                        <Typography variant="body2" color="text.secondary">{cause}</Typography>
+                      </Box>
+                    ))}
+                  </Stack>
+                </Box>
+
+                {/* Suggested Actions */}
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    💡 Suggested Actions
+                  </Typography>
+                  <Stack spacing={1}>
+                    {explanation.suggestedActions.map((action, index) => (
+                      <Box key={index} sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                        <Typography variant="body2" color="primary.main">•</Typography>
+                        <Typography variant="body2">{action}</Typography>
+                      </Box>
+                    ))}
+                  </Stack>
+                </Box>
+
+                {/* Recovery Actions */}
+                {enableRecovery && (
+                  <Box sx={{ mb: 3 }}>
+                    <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                      🔧 Recovery Options
+                    </Typography>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                      {recoveryActions.map((action) => (
+                        <Button
+                          key={action.id}
+                          variant={action.primary ? 'contained' : 'outlined'}
+                          color={action.dangerous ? 'error' : action.primary ? 'primary' : 'inherit'}
+                          onClick={action.action}
+                          disabled={isRecovering}
+                          startIcon={
+                            action.id === 'retry' ? <RestartIcon /> :
+                            action.id === 'reload' ? <RefreshIcon /> :
+                            action.id === 'safe-mode' ? <SafeModeIcon /> : null
+                          }
+                          sx={{
+                            py: 1.5,
+                            px: 3,
+                            borderRadius: 3,
+                            fontWeight: 600,
+                            transition: 'all 0.3s ease',
+                            '&:hover': {
+                              transform: isRecovering ? 'none' : 'translateY(-2px)',
+                              boxShadow: isRecovering ? 'none' : '0 4px 12px rgba(0, 0, 0, 0.15)'
+                            }
+                          }}
+                        >
+                          {isRecovering ? 'Processing...' : action.label}
+                        </Button>
+                      ))}
+                    </Stack>
+                  </Box>
+                )}
+
+                {/* Technical Details */}
+                {enableDetailedView && (
+                  <Accordion 
+                    expanded={showTechnicalDetails} 
+                    onChange={this.toggleTechnicalDetails}
                     sx={{
-                      fontFamily: 'monospace',
-                      fontSize: '0.75rem',
-                      whiteSpace: 'pre-wrap',
+                      backgroundColor: 'rgba(255, 255, 255, 0.02)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: 2,
+                      '&:before': { display: 'none' }
                     }}
                   >
-                    {errorInfo.componentStack}
-                  </Typography>
-                </Box>
-              )}
-            </Stack>
-          </Paper>
+                    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                      <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        🔬 Technical Details
+                      </Typography>
+                    </AccordionSummary>
+                    <AccordionDetails>
+                      <Stack spacing={3}>
+                        {/* Error Stack */}
+                        <Box>
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                            <Typography variant="subtitle2" color="text.secondary">Stack Trace</Typography>
+                            <Stack direction="row" spacing={1}>
+                              <Tooltip title="Copy to clipboard">
+                                <IconButton size="small" onClick={this.handleCopyError}>
+                                  <CopyIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Download error report">
+                                <IconButton size="small" onClick={this.handleDownloadError}>
+                                  <DownloadIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </Stack>
+                          </Box>
+                          <Box
+                            sx={{
+                              p: 2,
+                              backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                              borderRadius: 2,
+                              border: '1px solid rgba(255, 255, 255, 0.1)',
+                              maxHeight: 300,
+                              overflow: 'auto'
+                            }}
+                          >
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                fontFamily: 'monospace',
+                                fontSize: '0.8rem',
+                                whiteSpace: 'pre-wrap',
+                                wordBreak: 'break-word',
+                                color: '#FF6B6B'
+                              }}
+                            >
+                              {error.stack || 'No stack trace available'}
+                            </Typography>
+                          </Box>
+                        </Box>
+
+                        {/* System Info */}
+                        <Box>
+                          <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2 }}>System Information</Typography>
+                          <Box
+                            sx={{
+                              p: 2,
+                              backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                              borderRadius: 2,
+                              border: '1px solid rgba(255, 255, 255, 0.1)'
+                            }}
+                          >
+                            <Stack spacing={1}>
+                              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                                <strong>Timestamp:</strong> {new Date(errorContext.timestamp).toISOString()}
+                              </Typography>
+                              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                                <strong>Session ID:</strong> {errorContext.sessionId}
+                              </Typography>
+                              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                                <strong>Platform:</strong> {errorContext.systemInfo.platform}
+                              </Typography>
+                              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                                <strong>Language:</strong> {errorContext.systemInfo.language}
+                              </Typography>
+                              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                                <strong>Online:</strong> {errorContext.systemInfo.onLine ? 'Yes' : 'No'}
+                              </Typography>
+                            </Stack>
+                          </Box>
+                        </Box>
+                      </Stack>
+                    </AccordionDetails>
+                  </Accordion>
+                )}
+              </Box>
+            </Card>
+          </Fade>
         </Box>
-      );
+      )
     }
 
-    return this.props.children;
+    return this.props.children
   }
 }

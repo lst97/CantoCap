@@ -865,6 +865,83 @@ body {
   border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
   width: 100%;
+  margin-bottom: var(--spacing-lg);
+}
+
+.option-example {
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  background: rgba(245, 158, 11, 0.05);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid #F59E0B;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.option-example strong {
+  color: #F59E0B;
+  font-weight: 600;
+}
+
+.processing-features {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.08) 0%, rgba(245, 158, 11, 0.03) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-lg);
+  width: 100%;
+}
+
+.features-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+}
+
+.features-icon {
+  font-size: 18px;
+  color: #F59E0B;
+}
+
+.features-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.features-examples {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.feature-example {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.example-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #F59E0B;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  min-width: 70px;
+}
+
+.example-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
 /* Model Settings Component - Enhanced Full Width Layout */

@@ -142,7 +142,11 @@ class DualLanguageSubtitleService:
         
         for subtitle in subtitles:
             # Use start time as key (rounded to avoid floating point issues)
-            start_key = round(subtitle.start_time.seconds, 3)
+            # Handle both Timestamp objects and float values
+            if hasattr(subtitle.start_time, 'seconds'):
+                start_key = round(subtitle.start_time.seconds, 3)
+            else:
+                start_key = round(float(subtitle.start_time), 3)
             timing_map[start_key] = subtitle
         
         return timing_map
@@ -153,7 +157,11 @@ class DualLanguageSubtitleService:
         subtitle_map: dict
     ) -> Optional[Subtitle]:
         """Find matching translated subtitle by timing."""
-        start_key = round(chinese_subtitle.start_time.seconds, 3)
+        # Handle both Timestamp objects and float values
+        if hasattr(chinese_subtitle.start_time, 'seconds'):
+            start_key = round(chinese_subtitle.start_time.seconds, 3)
+        else:
+            start_key = round(float(chinese_subtitle.start_time), 3)
         
         # Try exact match first
         if start_key in subtitle_map:
@@ -295,13 +303,48 @@ class DualLanguageSubtitleService:
             for line in subtitle.content.split('\n'):
                 max_line_length = max(max_line_length, len(line.strip()))
         
-        return {
-            "total_subtitles": len(subtitles),
-            "dual_language_subtitles": dual_language_count,
-            "chinese_only_subtitles": chinese_only_count,
-            "translation_coverage": dual_language_count / len(subtitles) if subtitles else 0,
-            "average_lines_per_subtitle": average_lines,
-            "max_line_length": max_line_length,
-            "exceeds_line_limit": max_line_length > self.max_chars_per_line,
-            "language": document.language
-        }
+        # Enhanced translation coverage calculation
+        try:
+            from . import EnhancedTranslationCoverage
+            
+            enhanced_coverage = EnhancedTranslationCoverage()
+            coverage_metrics = enhanced_coverage.calculate_coverage(document)
+            
+            # Return enhanced statistics with backward compatibility
+            return {
+                "total_subtitles": len(subtitles),
+                "dual_language_subtitles": dual_language_count,
+                "chinese_only_subtitles": chinese_only_count,
+                "translation_coverage": coverage_metrics.overall_coverage,
+                "average_lines_per_subtitle": average_lines,
+                "max_line_length": max_line_length,
+                "exceeds_line_limit": max_line_length > self.max_chars_per_line,
+                "language": document.language,
+                
+                # Enhanced coverage metrics
+                "enhanced_coverage": {
+                    "subtitle_coverage": coverage_metrics.subtitle_coverage,
+                    "temporal_coverage": coverage_metrics.temporal_coverage,
+                    "content_coverage": coverage_metrics.content_coverage,
+                    "translation_quality": coverage_metrics.translation_quality,
+                    "completeness_score": coverage_metrics.completeness_score,
+                    "semantic_coherence": coverage_metrics.semantic_coherence,
+                    "linguistic_consistency": coverage_metrics.linguistic_consistency
+                },
+                "coverage_confidence": coverage_metrics.confidence_level,
+                "algorithm_version": "enhanced_v1.0"
+            }
+            
+        except ImportError:
+            # Fallback to legacy calculation
+            return {
+                "total_subtitles": len(subtitles),
+                "dual_language_subtitles": dual_language_count,
+                "chinese_only_subtitles": chinese_only_count,
+                "translation_coverage": dual_language_count / len(subtitles) if subtitles else 0,
+                "average_lines_per_subtitle": average_lines,
+                "max_line_length": max_line_length,
+                "exceeds_line_limit": max_line_length > self.max_chars_per_line,
+                "language": document.language,
+                "algorithm_version": "legacy_v1.0"
+            }

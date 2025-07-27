@@ -66,18 +66,42 @@ class Timestamp:
             raise ValueError("Resulting timestamp cannot be negative")
         return Timestamp(result_seconds)
     
-    def __lt__(self, other: "Timestamp") -> bool:
-        """Less than comparison."""
-        return self.seconds < other.seconds
+    def __lt__(self, other) -> bool:
+        """Less than comparison. Supports both Timestamp objects and float values (as seconds)."""
+        if isinstance(other, Timestamp):
+            return self.seconds < other.seconds
+        elif isinstance(other, (int, float)):
+            return self.seconds < other
+        else:
+            return NotImplemented
     
-    def __le__(self, other: "Timestamp") -> bool:
-        """Less than or equal comparison."""
-        return self.seconds <= other.seconds
+    def __le__(self, other) -> bool:
+        """Less than or equal comparison. Supports both Timestamp objects and float values (as seconds)."""
+        if isinstance(other, Timestamp):
+            return self.seconds <= other.seconds
+        elif isinstance(other, (int, float)):
+            return self.seconds <= other
+        else:
+            return NotImplemented
     
-    def __gt__(self, other: "Timestamp") -> bool:
-        """Greater than comparison."""
-        return self.seconds > other.seconds
+    def __gt__(self, other) -> bool:
+        """Greater than comparison. Supports both Timestamp objects and float values (as seconds)."""
+        if isinstance(other, Timestamp):
+            return self.seconds > other.seconds
+        elif isinstance(other, (int, float)):
+            return self.seconds > other
+        else:
+            return NotImplemented
     
-    def __ge__(self, other: "Timestamp") -> bool:
-        """Greater than or equal comparison."""
-        return self.seconds >= other.seconds
+    def __ge__(self, other) -> bool:
+        """Greater than or equal comparison. Supports both Timestamp objects and float values (as seconds)."""
+        if isinstance(other, Timestamp):
+            return self.seconds >= other.seconds
+        elif isinstance(other, (int, float)):
+            return self.seconds >= other
+        else:
+            return NotImplemented
+    
+    def __format__(self, format_spec: str) -> str:
+        """Support for f-string formatting. Formats the seconds value."""
+        return format(self.seconds, format_spec)

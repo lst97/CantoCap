@@ -6,7 +6,7 @@ import {
   Button,
   IconButton,
   FormControlLabel,
-  Switch,
+  Checkbox,
   Alert,
   Stack,
   InputAdornment
@@ -25,7 +25,7 @@ interface KeyValidation {
   message: string
 }
 
-export const APIKeyInputMUI: React.FC = () => {
+export const APIKeyInput: React.FC = () => {
   const { config, updateConfig } = useAppStore()
   const [showKey, setShowKey] = useState(false)
   const [keyValidation, setKeyValidation] = useState<KeyValidation | null>(null)
@@ -47,9 +47,18 @@ export const APIKeyInputMUI: React.FC = () => {
     }
   }, [updateConfig])
 
-  const handleToggleRefinement = useCallback(() => {
-    updateConfig('noGeminiRefinement', !config.noGeminiRefinement)
-  }, [config.noGeminiRefinement, updateConfig])
+  const handleToggleRefinement = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const enabled = event.target.checked
+    updateConfig('noGeminiRefinement', !enabled)
+    
+    // If disabling Gemini refinement, also disable AI-dependent features
+    if (!enabled) {
+      // Reset subtitle translation since it depends on Gemini
+      if (config.subtitle) {
+        updateConfig('subtitle', null)
+      }
+    }
+  }, [config.noGeminiRefinement, config.subtitle, updateConfig])
 
   const toggleShowKey = useCallback(() => {
     setShowKey(!showKey)
@@ -66,25 +75,41 @@ export const APIKeyInputMUI: React.FC = () => {
 
   return (
     <Box>
-      <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+      <Typography variant="h6" sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 1.5, fontWeight: 600 }}>
         <KeyIcon color="primary" />
         Google Gemini API Key (Optional)
       </Typography>
       
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Enables AI-powered transcription refinement for better accuracy
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 3, lineHeight: 1.6 }}>
+        Enables AI-powered transcription refinement for enhanced accuracy and better quality subtitles
       </Typography>
       
       <Stack spacing={2}>
-        <Box sx={{ display: 'flex', gap: 1 }}>
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'start' }}>
           <TextField
             fullWidth
             type={showKey ? 'text' : 'password'}
             value={config.geminiKey}
             onChange={handleKeyChange}
             placeholder="Enter your Gemini API key here..."
-            size="small"
+            size="medium"
             error={keyValidation?.valid === false}
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                borderRadius: 2,
+                backgroundColor: 'rgba(255, 255, 255, 0.02)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                '&:hover': {
+                  backgroundColor: 'rgba(245, 158, 11, 0.03)',
+                  borderColor: 'rgba(245, 158, 11, 0.3)',
+                },
+                '&.Mui-focused': {
+                  backgroundColor: 'rgba(255, 255, 255, 0.02)',
+                  borderColor: 'primary.main',
+                  boxShadow: '0 0 0 3px rgba(245, 158, 11, 0.1)',
+                },
+              },
+            }}
             InputProps={{
               endAdornment: (
                 <InputAdornment position="end">
@@ -104,7 +129,22 @@ export const APIKeyInputMUI: React.FC = () => {
             variant="outlined"
             onClick={openGeminiDocs}
             startIcon={<OpenInNewIcon />}
-            sx={{ minWidth: 'auto', px: 2 }}
+            sx={{ 
+              borderRadius: 2,
+              px: 3,
+              py: 1.75,
+              fontSize: '0.875rem',
+              fontWeight: 600,
+              borderColor: 'rgba(245, 158, 11, 0.3)',
+              color: 'primary.main',
+              minWidth: 'auto',
+              whiteSpace: 'nowrap',
+              '&:hover': {
+                borderColor: 'primary.main',
+                backgroundColor: 'rgba(245, 158, 11, 0.05)',
+                transform: 'translateY(-1px)',
+              },
+            }}
           >
             Get Key
           </Button>
@@ -123,16 +163,34 @@ export const APIKeyInputMUI: React.FC = () => {
           </Alert>
         )}
         
-        <FormControlLabel
-          control={
-            <Switch
-              checked={!config.noGeminiRefinement}
-              onChange={handleToggleRefinement}
-              disabled={!config.geminiKey}
-            />
-          }
-          label="Enable Gemini refinement (improves transcription accuracy)"
-        />
+{config.geminiKey && (
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={!config.noGeminiRefinement}
+                onChange={handleToggleRefinement}
+                color="primary"
+                sx={{
+                  '&.Mui-checked': {
+                    color: 'primary.main',
+                  },
+                  '&:hover': {
+                    backgroundColor: 'rgba(245, 158, 11, 0.04)',
+                  },
+                }}
+              />
+            }
+            label="Enable Gemini refinement (improves transcription accuracy)"
+            sx={{
+              mt: 1,
+              '& .MuiFormControlLabel-label': {
+                color: 'text.primary',
+                fontSize: '0.875rem',
+                fontWeight: 500,
+              }
+            }}
+          />
+        )}
         
         {!config.geminiKey && (
           <Alert severity="info" sx={{ backgroundColor: 'rgba(245, 158, 11, 0.1)' }}>

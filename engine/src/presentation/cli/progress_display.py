@@ -1,12 +1,7 @@
 """Enhanced progress display system for CantoCap CLI."""
 
-from typing import Optional, Callable, Any, Dict
+from typing import Optional, Dict
 from rich.console import Console
-from rich.progress import (
-    Progress, SpinnerColumn, TextColumn, BarColumn, 
-    TimeElapsedColumn, MofNCompleteColumn
-)
-from rich.spinner import Spinner
 from rich.panel import Panel
 from rich.text import Text
 from rich.live import Live

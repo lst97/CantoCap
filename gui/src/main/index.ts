@@ -179,13 +179,28 @@ class CantoCap {
         await this.processManager.startTranscription(
           config,
           (eventType: string, data: unknown) => {
-            this.mainWindow?.webContents.send(eventType, data);
+            // Handle both new and legacy message types
+            if (eventType === 'ipc-message') {
+              this.mainWindow?.webContents.send('ipc-message', data);
+            } else {
+              // Legacy events (for backward compatibility)
+              this.mainWindow?.webContents.send(eventType, data);
+            }
           }
         );
       } catch (error) {
-        this.mainWindow?.webContents.send("process-error", {
-          message: error instanceof Error ? error.message : "Unknown error",
-          type: "startup_error",
+        // Send error using new format
+        this.mainWindow?.webContents.send('ipc-message', {
+          id: `error_${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          level: 'error',
+          category: 'system',
+          source: 'main_process',
+          content: error instanceof Error ? error.message : "Unknown error",
+          data: {
+            type: 'startup_error',
+            error: error instanceof Error ? error.message : "Unknown error"
+          }
         });
       }
     });

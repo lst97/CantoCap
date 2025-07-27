@@ -1,10 +1,10 @@
 """Domain service for subtitle formatting and optimization."""
 
 from typing import List, Tuple, Optional
-import re
 
 from ..entities import Transcription, Subtitle, SubtitleDocument
 from ..value_objects import Timestamp
+from ._patterns import CHINESE_BREAK_POINTS, get_text_cleaning_patterns
 
 
 class SubtitleFormattingService:
@@ -92,19 +92,19 @@ class SubtitleFormattingService:
     
     def _clean_text(self, text: str) -> str:
         """Clean up transcription text."""
+        patterns = get_text_cleaning_patterns()
+        
         # Remove extra whitespace
-        text = re.sub(r'\s+', ' ', text.strip())
+        text = patterns['whitespace'].sub(' ', text.strip())
         
         # Remove common transcription artifacts
-        text = re.sub(r'\[.*?\]', '', text)  # Remove [noise], [music] etc.
-        text = re.sub(r'\(.*?\)', '', text)  # Remove (unclear) etc.
-        text = re.sub(r'[.,!?]+\s*$', '', text)  # Remove trailing punctuation
+        text = patterns['artifacts'].sub('', text)  # Remove [noise], [music] etc.
+        text = patterns['unclear'].sub('', text)   # Remove (unclear) etc.
+        text = patterns['trailing_punct'].sub('', text)  # Remove trailing punctuation
         
         # Clean up Chinese punctuation
-        text = text.replace('。。', '。')
-        text = text.replace('，，', '，')
-        text = text.replace('？？', '？')
-        text = text.replace('！！', '！')
+        for punct, pattern in patterns['duplicate_punct'].items():
+            text = pattern.sub(punct, text)
         
         return text.strip()
     
@@ -115,7 +115,7 @@ class SubtitleFormattingService:
             return text
         
         # Try to break at natural points (punctuation)
-        break_points = [',', '，', '。', '？', '！', '；', '：']
+        break_points = CHINESE_BREAK_POINTS
         
         lines = []
         current_line = ""
@@ -160,7 +160,13 @@ class SubtitleFormattingService:
                 next_subtitle = subtitles[i + 1]
                 
                 # Check if gap between subtitles is small enough to merge
-                gap = next_subtitle.start_time.seconds - current.end_time.seconds
+                # Handle both Timestamp objects and float values
+                if hasattr(next_subtitle.start_time, 'seconds') and hasattr(current.end_time, 'seconds'):
+                    gap = next_subtitle.start_time.seconds - current.end_time.seconds
+                else:
+                    next_start = next_subtitle.start_time.seconds if hasattr(next_subtitle.start_time, 'seconds') else float(next_subtitle.start_time)
+                    current_end = current.end_time.seconds if hasattr(current.end_time, 'seconds') else float(current.end_time)
+                    gap = next_start - current_end
                 if gap <= self.min_gap * 2:  # Allow slightly larger gap for merging
                     # Merge current and next subtitle
                     merged_text = f"{current.content} {next_subtitle.content}".strip()
@@ -236,8 +242,14 @@ class SubtitleFormattingService:
         time_per_part = duration / len(text_parts)
         
         for i, text_part in enumerate(text_parts):
-            start_seconds = subtitle.start_time.seconds + (i * time_per_part)
-            end_seconds = subtitle.start_time.seconds + ((i + 1) * time_per_part)
+            # Handle both Timestamp objects and float values
+            if hasattr(subtitle.start_time, 'seconds'):
+                start_base = subtitle.start_time.seconds
+            else:
+                start_base = float(subtitle.start_time)
+            
+            start_seconds = start_base + (i * time_per_part)
+            end_seconds = start_base + ((i + 1) * time_per_part)
             
             part_subtitle = Subtitle(
                 index=subtitle.index,  # Will be re-indexed later
@@ -268,12 +280,22 @@ class SubtitleFormattingService:
             if prev_subtitle.end_time > current_subtitle.start_time:
                 # Fix overlap by adjusting end time of previous subtitle
                 gap_time = self.min_gap
-                new_end_time = Timestamp.from_seconds(
-                    current_subtitle.start_time.seconds - gap_time
-                )
+                # Handle both Timestamp objects and float values
+                if hasattr(current_subtitle.start_time, 'seconds'):
+                    current_start = current_subtitle.start_time.seconds
+                else:
+                    current_start = float(current_subtitle.start_time)
+                
+                new_end_time = Timestamp.from_seconds(current_start - gap_time)
                 
                 # Make sure previous subtitle still has minimum duration
-                if new_end_time.seconds - prev_subtitle.start_time.seconds >= self.min_duration:
+                # Handle both Timestamp objects and float values for prev_subtitle
+                if hasattr(prev_subtitle.start_time, 'seconds'):
+                    prev_start = prev_subtitle.start_time.seconds
+                else:
+                    prev_start = float(prev_subtitle.start_time)
+                
+                if new_end_time.seconds - prev_start >= self.min_duration:
                     fixed[-1] = Subtitle(
                         index=prev_subtitle.index,
                         start_time=prev_subtitle.start_time,
@@ -301,18 +323,61 @@ class SubtitleFormattingService:
         """Get statistics about subtitle formatting quality."""
         subtitles = document.subtitles
         
-        return {
-            "total_subtitles": len(subtitles),
-            "short_subtitles": len([s for s in subtitles if s.is_too_short(self.min_duration)]),
-            "long_subtitles": len([s for s in subtitles if s.is_too_long(self.max_duration)]),
-            "long_text_subtitles": len([s for s in subtitles if s.is_too_long_text(self.max_chars_per_line)]),
-            "has_overlaps": document.has_overlapping_subtitles(),
-            "average_duration": document.get_total_duration() / len(subtitles) if subtitles else 0,
-            "quality_score": self._calculate_quality_score(document)
-        }
+        # Enhanced quality calculation using new algorithms
+        try:
+            from . import EnhancedQualityScore, QualityThresholds
+            
+            # Create enhanced quality calculator with current service thresholds
+            thresholds = QualityThresholds(
+                min_duration=self.min_duration,
+                max_duration=self.max_duration,
+                max_chars_per_line=self.max_chars_per_line
+            )
+            
+            enhanced_calculator = EnhancedQualityScore(thresholds)
+            quality_metrics = enhanced_calculator.calculate_quality(document)
+            
+            # Return enhanced statistics with backward compatibility
+            stats = {
+                "total_subtitles": len(subtitles),
+                "short_subtitles": len([s for s in subtitles if s.is_too_short(self.min_duration)]),
+                "long_subtitles": len([s for s in subtitles if s.is_too_long(self.max_duration)]),
+                "long_text_subtitles": len([s for s in subtitles if s.is_too_long_text(self.max_chars_per_line)]),
+                "has_overlaps": document.has_overlapping_subtitles(),
+                "average_duration": document.get_total_duration() / len(subtitles) if subtitles else 0,
+                "quality_score": quality_metrics.overall_score,
+                
+                # Enhanced metrics
+                "quality_grade": quality_metrics.get_grade(),
+                "quality_confidence": quality_metrics.confidence_level,
+                "enhanced_breakdown": {
+                    "technical_score": quality_metrics.technical_score,
+                    "linguistic_score": quality_metrics.linguistic_score,
+                    "readability_score": quality_metrics.readability_score,
+                    "translation_score": quality_metrics.translation_score
+                },
+                "technical_details": quality_metrics.technical_details,
+                "total_issues": len(quality_metrics.all_issues),
+                "algorithm_version": "enhanced_v1.0"
+            }
+            
+            return stats
+            
+        except ImportError:
+            # Fallback to legacy calculation if enhanced algorithms not available
+            return {
+                "total_subtitles": len(subtitles),
+                "short_subtitles": len([s for s in subtitles if s.is_too_short(self.min_duration)]),
+                "long_subtitles": len([s for s in subtitles if s.is_too_long(self.max_duration)]),
+                "long_text_subtitles": len([s for s in subtitles if s.is_too_long_text(self.max_chars_per_line)]),
+                "has_overlaps": document.has_overlapping_subtitles(),
+                "average_duration": document.get_total_duration() / len(subtitles) if subtitles else 0,
+                "quality_score": self._calculate_quality_score_legacy(document),
+                "algorithm_version": "legacy_v1.0"
+            }
     
-    def _calculate_quality_score(self, document: SubtitleDocument) -> float:
-        """Calculate overall quality score (0-1)."""
+    def _calculate_quality_score_legacy(self, document: SubtitleDocument) -> float:
+        """Legacy quality score calculation (fallback)."""
         if not document.subtitles:
             return 0.0
         

@@ -2,11 +2,8 @@ import React, { useCallback } from 'react'
 import {
   Box,
   Typography,
-  TextField,
-  Button,
   IconButton,
   Paper,
-  Alert,
   Stack
 } from '@mui/material'
 import {
@@ -14,6 +11,7 @@ import {
   Clear as ClearIcon,
   AutoAwesome as AutoIcon
 } from '@mui/icons-material'
+import { BaseButton, BaseAlert, BaseSelector } from '../elements'
 import { useAppStore } from '../../store/app-store'
 
 export const OutputLocationSelector: React.FC = () => {
@@ -60,18 +58,13 @@ export const OutputLocationSelector: React.FC = () => {
 
   return (
     <Box>
-      <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-        <FolderIcon color="primary" />
-        Output Location
-      </Typography>
-      
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        If not specified, output will be saved next to the input file
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2, lineHeight: 1.6 }}>
+        Choose where to save your generated subtitle file. If not specified, it will be saved next to your input file.
       </Typography>
       
       <Stack spacing={2}>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <TextField
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <BaseSelector
             fullWidth
             value={config.outputFile || ''}
             onChange={handleOutputChange}
@@ -79,44 +72,54 @@ export const OutputLocationSelector: React.FC = () => {
             size="small"
             InputProps={{
               endAdornment: config.outputFile && (
-                <IconButton size="small" onClick={handleClearOutput}>
+                <IconButton 
+                  size="small" 
+                  onClick={handleClearOutput}
+                  sx={{
+                    transition: 'all 0.2s ease',
+                    '&:hover': {
+                      backgroundColor: 'rgba(237, 66, 69, 0.1)',
+                      color: 'error.main'
+                    }
+                  }}
+                >
                   <ClearIcon fontSize="small" />
                 </IconButton>
               )
             }}
           />
-          <Button
-            variant="outlined"
+          <BaseButton
+            variant="outline"
             onClick={handleOutputSelect}
             startIcon={<FolderIcon />}
-            sx={{ minWidth: 'auto', px: 2 }}
+            size="small"
+            sx={{ minWidth: 100 }}
           >
             Browse
-          </Button>
+          </BaseButton>
         </Box>
         
-        {config.outputFile && (
-          <Paper sx={{ p: 2, backgroundColor: 'rgba(255, 255, 255, 0.05)' }}>
-            <Typography variant="subtitle2" sx={{ mb: 1 }}>
-              📄 {getOutputFilename(config.outputFile)}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              📁 {getOutputFolder(config.outputFile)}
-            </Typography>
-          </Paper>
-        )}
         
         {!config.outputFile && config.inputFile && (
-          <Alert 
+          <BaseAlert 
             icon={<AutoIcon />} 
-            severity="info" 
-            sx={{ backgroundColor: 'rgba(245, 158, 11, 0.1)' }}
+            severity="info"
+            size="small"
           >
-            <Typography variant="body2">
-              <strong>Auto-generated location:</strong><br />
+            <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>
+              Auto-generated location:
+            </Typography>
+            <Typography variant="body2" sx={{ 
+              fontFamily: 'monospace', 
+              fontSize: '0.8rem',
+              backgroundColor: 'rgba(255, 255, 255, 0.1)',
+              p: 1,
+              borderRadius: 1,
+              wordBreak: 'break-all'
+            }}>
               {config.inputFile.replace(/\.[^/.]+$/, '.srt')}
             </Typography>
-          </Alert>
+          </BaseAlert>
         )}
       </Stack>
     </Box>

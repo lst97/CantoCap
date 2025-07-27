@@ -11,6 +11,7 @@ import { NotificationContainer } from './components/feedback/NotificationContain
 import { ModalContainer } from './components/modals/ModalContainer'
 import { DebugPanel } from './components/feedback/DebugPanel'
 import { ErrorBoundary } from './components/common/ErrorBoundary'
+import { ErrorTestButton } from './components/debug/ErrorTestButton'
 import theme from './theme/theme'
 import './styles/globals.css'
 
@@ -141,6 +142,7 @@ function App(): JSX.Element {
           <NotificationContainer />
           <ModalContainer />
           <DebugPanel />
+          <ErrorTestButton position="bottom-right" />
         </Box>
       </ThemeProvider>
     </ErrorBoundary>
