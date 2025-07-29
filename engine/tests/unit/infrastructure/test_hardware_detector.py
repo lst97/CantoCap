@@ -269,8 +269,8 @@ class TestHardwareDetector(unittest.TestCase):
             ModelSize.WHISPERX_LARGE_V3, hardware, "speed", None
         )
         
-        # WhisperX should score high for speed priority
-        self.assertGreater(score, 0.7)
+        # WhisperX should score moderately for speed priority (reduced due to lower Cantonese quality)
+        self.assertGreater(score, 0.4)
 
     def test_calculate_model_score_quality_priority(self):
         """Test model score calculation with quality priority."""
@@ -334,12 +334,12 @@ class TestHardwareDetector(unittest.TestCase):
         compatible_models = [ModelSize.SMALL, ModelSize.MEDIUM, ModelSize.WHISPERX_LARGE_V3]
         mock_get_compatible.return_value = compatible_models
         
-        # Mock scores (WhisperX should score highest)
+        # Mock scores (OpenAI models should score much higher for Cantonese)
         def score_side_effect(model, hardware, priority, duration):
-            if model == ModelSize.WHISPERX_LARGE_V3:
-                return 0.9
-            elif model == ModelSize.MEDIUM:
-                return 0.7
+            if model == ModelSize.MEDIUM:
+                return 0.9  # OpenAI model gets preference bonus
+            elif model == ModelSize.WHISPERX_LARGE_V3:
+                return 0.7  # Further reduced due to lower Cantonese quality
             else:
                 return 0.5
         
@@ -347,7 +347,7 @@ class TestHardwareDetector(unittest.TestCase):
         
         model, details = self.detector.recommend_model(priority="speed")
         
-        self.assertEqual(model, ModelSize.WHISPERX_LARGE_V3)
+        self.assertEqual(model, ModelSize.MEDIUM)  # OpenAI model should be recommended
         self.assertIn("model", details)
         self.assertIn("hardware_profile", details)
         self.assertIn("model_info", details)

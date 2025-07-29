@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
+import { navigateToProcessing, navigateToConfig } from '../utils/workflow-navigation'
 import type { 
   AppState, 
   AppConfig, 
@@ -8,7 +9,7 @@ import type {
   HardwareInfo,
   ProcessingHistoryEntry,
   Notification
-} from '../../types'
+} from '../../../types'
 
 interface AppActions {
   // Initialization
@@ -24,6 +25,7 @@ interface AppActions {
   resetProcessing: () => void
   startTranscription: () => void
   cancelTranscription: () => void
+  addDebugMessage: (stage: string, message: string, level?: 'debug' | 'info' | 'warning' | 'error', source?: string) => void
 
   // Hardware
   checkHardware: () => Promise<HardwareInfo>
@@ -90,7 +92,12 @@ export const useAppStore = create<AppStore>()(
       currentStep: null,
       totalSteps: null,
       hardwareInfo: null,
-      error: null
+      error: null,
+      startTime: null,
+      debugMessages: [],
+      substage: undefined,
+      engineStage: undefined,
+      statistics: undefined
     },
     
     // Configuration State
@@ -206,6 +213,48 @@ export const useAppStore = create<AppStore>()(
         return { processing: newProcessing }
       })
     },
+
+    addDebugMessage: (stage: string, message: string, level: 'debug' | 'info' | 'warning' | 'error' = 'info', source?: string) => {
+      set((state: AppStore) => {
+        const debugMessage = {
+          id: `debug_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          timestamp: Date.now(),
+          stage,
+          message,
+          level,
+          source
+        }
+        
+        const newDebugMessages = [...state.processing.debugMessages, debugMessage]
+        
+        // Keep only last 100 messages per stage to prevent memory issues
+        const messagesPerStage = newDebugMessages.reduce((acc, msg) => {
+          acc[msg.stage] = (acc[msg.stage] || 0) + 1
+          return acc
+        }, {} as Record<string, number>)
+        
+        let filteredMessages = newDebugMessages
+        if (Object.values(messagesPerStage).some(count => count > 100)) {
+          // Keep only last 50 messages per stage
+          const stageMessages = newDebugMessages.reduce((acc, msg) => {
+            if (!acc[msg.stage]) acc[msg.stage] = []
+            acc[msg.stage].push(msg)
+            return acc
+          }, {} as Record<string, typeof debugMessage[]>)
+          
+          filteredMessages = Object.values(stageMessages)
+            .flatMap(messages => messages.slice(-50))
+            .sort((a, b) => a.timestamp - b.timestamp)
+        }
+        
+        return {
+          processing: {
+            ...state.processing,
+            debugMessages: filteredMessages
+          }
+        }
+      })
+    },
     
     updateConfig: <K extends keyof AppConfig>(key: K, value: AppConfig[K]) => {
       set((state: AppStore) => ({
@@ -246,7 +295,12 @@ export const useAppStore = create<AppStore>()(
           currentStep: null,
           totalSteps: null,
           hardwareInfo: null,
-          error: null
+          error: null,
+          startTime: null,
+          debugMessages: [],
+          substage: undefined,
+          engineStage: undefined,
+          statistics: undefined
         }
       })),
 
@@ -275,6 +329,9 @@ export const useAppStore = create<AppStore>()(
         }
       }))
 
+      // Navigate to processing step (step 3)
+      navigateToProcessing()
+
       // Add to processing history
       get().addToHistory(config.inputFile, 'started')
 
@@ -291,6 +348,9 @@ export const useAppStore = create<AppStore>()(
           message: 'Transcription cancelled'
         }
       }))
+      
+      // Navigate back to config step when cancelled
+      navigateToConfig()
     },
 
     checkHardware: async () => {

@@ -75,11 +75,12 @@ class HardwareDetector:
             min_vram_gb=6.0, min_ram_gb=8.0, min_cpu_cores=4,
             estimated_speed_multiplier=8.0, quality_score=0.9
         ),
-        # WhisperX Large-v3: Up to 4x faster than openai/whisper with same accuracy
+        # WhisperX Large-v3: Available as alternative option
+        # Note: Fast for speed but lower quality for Cantonese compared to OpenAI models
         # Based on benchmark: Large-v3 faster-whisper fp16 batch_size=8: 17s vs openai 2m23s
         ModelSize.WHISPERX_LARGE_V3: ModelRequirements(
             min_vram_gb=4.5, min_ram_gb=8.0, min_cpu_cores=6,
-            estimated_speed_multiplier=8.4, quality_score=1.0,  # 4x faster than openai/whisper
+            estimated_speed_multiplier=8.4, quality_score=0.85,  # Reduced to 0.85 for lower Cantonese accuracy
             supports_quantization=True,  # 8-bit quantization support
             batch_processing=True,  # Optimized batch processing
             memory_efficiency=0.65  # ~35% less VRAM usage (4.5GB vs 7GB)
@@ -332,24 +333,35 @@ class HardwareDetector:
             quality_score = requirements.quality_score
             priority_score = (speed_score * 0.4 + quality_score * 0.6)
         
-        # WhisperX optimization bonus
+        # WhisperX optimization bonus (heavily reduced due to lower Cantonese quality)
         whisperx_bonus = 0.0
         if model == ModelSize.WHISPERX_LARGE_V3:
-            # Bonus for memory efficiency
-            if hardware.vram_gb < 8.0:
-                whisperx_bonus += 0.2  # Reward memory efficiency on constrained hardware
-            
-            # Bonus for quantization support
-            if requirements.supports_quantization and hardware.vram_gb < 6.0:
-                whisperx_bonus += 0.15
-            
-            # Bonus for batch processing capability
-            if requirements.batch_processing and hardware.vram_gb >= 4.5:
-                whisperx_bonus += 0.1
-            
-            # Speed priority bonus
+            # Only apply bonuses for speed priority on very constrained hardware
             if priority == "speed":
-                whisperx_bonus += 0.15  # Extra bonus for speed-focused users
+                # Small bonus for memory efficiency on very constrained hardware
+                if hardware.vram_gb < 5.0:  # Only on very constrained hardware
+                    whisperx_bonus += 0.05  # Further reduced from 0.1
+                
+                # Batch processing bonus only for speed priority with adequate VRAM
+                if requirements.batch_processing and hardware.vram_gb >= 4.5:
+                    whisperx_bonus += 0.03  # Further reduced from 0.05
+            
+            # Quality priority gets penalty instead of bonus due to lower Cantonese accuracy
+            elif priority == "quality":
+                whisperx_bonus -= 0.05  # Small penalty for quality priority
+        
+        # OpenAI Whisper preference bonus (enhanced for Cantonese accuracy)
+        openai_bonus = 0.0
+        if model in [ModelSize.LARGE_V3, ModelSize.TURBO, ModelSize.LARGE_V2, ModelSize.MEDIUM, ModelSize.SMALL]:
+            # Base bonus for using standard OpenAI models (better Cantonese support)
+            openai_bonus += 0.1
+            
+            # Enhanced bonus for quality priority (OpenAI models better for Cantonese)
+            if priority == "quality":
+                if model in [ModelSize.LARGE_V3, ModelSize.LARGE_V2]:
+                    openai_bonus += 0.1  # Increased from 0.05 for large models
+                else:
+                    openai_bonus += 0.05  # Bonus for other OpenAI models in quality mode
         
         # Duration penalty for large models on slow hardware
         duration_penalty = 0.0
@@ -361,7 +373,7 @@ class HardwareDetector:
                     duration_penalty = 0.1  # Reduced penalty due to efficiency
         
         # Combine scores
-        final_score = (compatibility_score * 0.4 + priority_score * 0.6) + whisperx_bonus - duration_penalty
+        final_score = (compatibility_score * 0.4 + priority_score * 0.6) + openai_bonus + whisperx_bonus - duration_penalty
         return max(final_score, 0.0)
     
     def _generate_recommendation_details(
@@ -462,7 +474,7 @@ class HardwareDetector:
     def _get_whisperx_optimization_tips(self, hardware: HardwareProfile, requirements: ModelRequirements) -> List[str]:
         """Generate WhisperX-specific optimization tips."""
         tips = [
-            "WhisperX Large-v3 provides up to 4x speed improvement over OpenAI Whisper"
+            "WhisperX Large-v3 optimized for speed but may have lower Cantonese accuracy than OpenAI models"
         ]
         
         # Quantization recommendations

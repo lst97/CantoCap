@@ -131,7 +131,12 @@ export const BasicVideoPlayer: React.FC<BasicVideoPlayerProps> = ({
 
   // Sync external currentTime with video
   useEffect(() => {
-    if (videoRef.current && Math.abs(videoRef.current.currentTime - currentTime) > 0.5) {
+    if (videoRef.current && Math.abs(videoRef.current.currentTime - currentTime) > 0.1) {
+      console.log('Video player syncing time:', { 
+        from: videoRef.current.currentTime, 
+        to: currentTime,
+        difference: Math.abs(videoRef.current.currentTime - currentTime)
+      })
       videoRef.current.currentTime = currentTime
     }
   }, [currentTime])
@@ -141,10 +146,19 @@ export const BasicVideoPlayer: React.FC<BasicVideoPlayerProps> = ({
     setHasExternalControl(!!externalOnPlay && !!externalOnPause)
   }, [externalOnPlay, externalOnPause])
 
-  // Sync external playing state
+  // Sync external playing state and control video element
   useEffect(() => {
     if (hasExternalControl && externalIsPlaying !== undefined) {
       setIsPlaying(externalIsPlaying)
+      
+      // Actually control the video element based on external state
+      if (videoRef.current) {
+        if (externalIsPlaying) {
+          videoRef.current.play().catch(console.error)
+        } else {
+          videoRef.current.pause()
+        }
+      }
     }
   }, [externalIsPlaying, hasExternalControl])
 

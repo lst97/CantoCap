@@ -131,8 +131,21 @@ body {
   }
 }
 
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .fade-in {
   animation: fadeIn 0.3s ease-out;
+}
+
+.spin {
+  animation: spin 2s linear infinite;
 }
 
 /* Dark theme scrollbar styling - matches Discord design */

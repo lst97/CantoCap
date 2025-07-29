@@ -12,6 +12,15 @@ export interface DependencyStatus {
   error: string | null
 }
 
+export interface ProcessingDebugMessage {
+  id: string
+  timestamp: number
+  stage: string
+  message: string
+  level: 'debug' | 'info' | 'warning' | 'error'
+  source?: string
+}
+
 export interface ProcessingState {
   isActive: boolean
   stage: 'idle' | 'preparing' | 'transcribing' | 'refining' | 'completed' | 'error' | 'cancelled'
@@ -23,7 +32,11 @@ export interface ProcessingState {
   totalSteps: number | null
   hardwareInfo: HardwareInfo | null
   error: string | null
-  startTime?: number
+  startTime: number | null
+  debugMessages: ProcessingDebugMessage[]
+  substage?: string
+  engineStage?: string
+  statistics?: ProcessingStatistics
 }
 
 export interface HardwareInfo {
@@ -132,10 +145,62 @@ export interface IPCProgressUpdate {
   hardwareInfo?: HardwareInfo
 }
 
+export interface QualityMetrics {
+  overall_score: number
+  quality_grade: string
+  quality_confidence: number
+  quality_breakdown: {
+    technical: number
+    linguistic: number
+    readability: number
+    translation: number
+  }
+}
+
+export interface CoverageMetrics {
+  overall_coverage: number
+  coverage_confidence: number
+  coverage_breakdown: {
+    subtitle_coverage: number
+    temporal_coverage: number
+    content_coverage: number
+    translation_quality: number
+  }
+}
+
+export interface ProcessingStatistics {
+  total_subtitles?: number
+  total_duration?: number
+  word_count?: number
+  quality_score?: number
+  quality_grade?: string
+  quality_confidence?: number
+  quality_breakdown?: {
+    technical: number
+    linguistic: number
+    readability: number
+    translation: number
+  }
+  translation_coverage?: number
+  coverage_confidence?: number
+  coverage_breakdown?: {
+    subtitle_coverage: number
+    temporal_coverage: number
+    content_coverage: number
+    translation_quality: number
+  }
+  processing_confidence?: number
+  algorithm_version?: string
+  formatting?: any
+  dual_language?: any
+  translation?: any
+}
+
 export interface IPCProcessComplete {
   message: string
   outputFile?: string
   exitCode: number
+  statistics?: ProcessingStatistics
 }
 
 export interface IPCProcessError {

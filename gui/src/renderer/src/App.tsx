@@ -2,11 +2,11 @@ import { useEffect } from 'react'
 import { ThemeProvider } from '@mui/material/styles'
 import { CssBaseline, Box } from '@mui/material'
 import { useAppStore } from './store/app-store'
+import { navigateToReview } from './utils/workflow-navigation'
 import { CustomTitleBar } from './components/layout/CustomTitleBar'
 import { WorkspacePanel } from './components/layout/WorkspacePanel'
 import { StepNavigation } from './components/layout/StepNavigation'
 import { MainContentArea } from './components/layout/MainContentArea'
-import { ProgressPanel } from './components/feedback/ProgressPanel'
 import { NotificationContainer } from './components/feedback/NotificationContainer'
 import { ModalContainer } from './components/modals/ModalContainer'
 import { DebugPanel } from './components/feedback/DebugPanel'
@@ -23,7 +23,8 @@ function App(): JSX.Element {
     resetProcessing,
     showNotification,
     addToHistory,
-    loadConfigFromStorage
+    loadConfigFromStorage,
+    addDebugMessage
   } = useAppStore()
 
   useEffect(() => {
@@ -33,7 +34,50 @@ function App(): JSX.Element {
     // Setup IPC event listeners
     const cleanupFunctions: (() => void)[] = []
 
-    // Progress updates
+    // Modern IPC progress updates
+    cleanupFunctions.push(
+      window.cantocapAPI.onIPCMessage((message) => {
+        // Handle progress messages from new IPC system
+        if (message.category === 'process' && message.source === 'progress' && message.data) {
+          const progressData = message.data
+          updateProcessing({
+            progress: progressData.percent || 0,
+            message: progressData.message || message.content || 'Processing...',
+            stage: progressData.stage || 'processing',
+            currentStep: progressData.currentStep,
+            totalSteps: progressData.totalSteps,
+            hardwareInfo: progressData.hardwareInfo,
+            timeElapsed: progressData.elapsed_time || 0,
+            timeRemaining: progressData.estimated_remaining || 0,
+            substage: progressData.substage,
+            engineStage: progressData.stage
+          })
+          
+          // Add debug message for progress updates
+          addDebugMessage(
+            progressData.stage || 'processing',
+            progressData.message || message.content || 'Processing...',
+            'info',
+            'progress'
+          )
+        }
+        
+        // Handle all other messages as debug messages
+        else if (message.content && message.content.trim()) {
+          const messageLevel = message.level as 'debug' | 'info' | 'warning' | 'error' || 'info'
+          const stage = message.data?.stage || processing.engineStage || processing.stage || 'unknown'
+          
+          addDebugMessage(
+            stage,
+            message.content,
+            messageLevel,
+            message.source
+          )
+        }
+      })
+    )
+
+    // Legacy Progress updates (fallback)
     cleanupFunctions.push(
       window.cantocapAPI.onProgressUpdate((data) => {
         updateProcessing({
@@ -61,15 +105,29 @@ function App(): JSX.Element {
     // Process completed
     cleanupFunctions.push(
       window.cantocapAPI.onProcessComplete((data) => {
+        // Debug logging to check what data is being received from engine
+        console.log('onProcessComplete Debug:')
+        console.log('- data:', data)
+        console.log('- data.statistics:', data.statistics)
+        if (data.statistics) {
+          console.log('- statistics.quality_score:', data.statistics.quality_score)
+          console.log('- statistics.quality_grade:', data.statistics.quality_grade)
+          console.log('- statistics.translation_coverage:', data.statistics.translation_coverage)
+        }
+        
         updateProcessing({
           isActive: false,
           stage: 'completed',
           progress: 100,
-          message: data.message || 'Transcription completed successfully'
+          message: data.message || 'Transcription completed successfully',
+          statistics: data.statistics
         })
         
         showNotification('Transcription completed successfully!', 'success')
         addToHistory(useAppStore.getState().config.inputFile!, 'completed', data.outputFile)
+        
+        // Navigate to review step when processing completes
+        navigateToReview()
       })
     )
 
@@ -85,6 +143,9 @@ function App(): JSX.Element {
         
         showNotification(`Error: ${data.message || 'Unknown error'}`, 'error')
         addToHistory(useAppStore.getState().config.inputFile!, 'failed')
+        
+        // Stay on processing step to show error - don't navigate away
+        // Users can see the error and retry or go back manually
       })
     )
 
@@ -104,7 +165,7 @@ function App(): JSX.Element {
       cleanupFunctions.forEach(cleanup => cleanup())
       window.cantocapAPI.removeAllListeners()
     }
-  }, [initializeApp, updateProcessing, resetProcessing, showNotification, addToHistory, loadConfigFromStorage])
+  }, [initializeApp, updateProcessing, resetProcessing, showNotification, addToHistory, loadConfigFromStorage, addDebugMessage, processing.engineStage, processing.stage])
 
   return (
     <ErrorBoundary fallbackTitle="Application Error" fallbackMessage="The application encountered an error. This often happens during file upload or processing.">
@@ -138,7 +199,7 @@ function App(): JSX.Element {
             </Box>
           </ErrorBoundary>
 
-          {processing.isActive && <ProgressPanel />}
+          {/* ProgressPanel removed - processing now shows in step 3 */}
           <NotificationContainer />
           <ModalContainer />
           <DebugPanel />

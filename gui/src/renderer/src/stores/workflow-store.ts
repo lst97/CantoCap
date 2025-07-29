@@ -70,10 +70,23 @@ export const useWorkflowStore = create<WorkflowState>()(
             return step
           })
 
-          // Enable next step
-          const currentIndex = updatedSteps.findIndex(s => s.id === stepId)
-          if (currentIndex >= 0 && currentIndex < updatedSteps.length - 1) {
-            updatedSteps[currentIndex + 1].isAccessible = true
+          // Special handling: When processing step completes, enable both review and export steps
+          if (stepId === 'processing') {
+            const reviewStepIndex = updatedSteps.findIndex(s => s.id === 'review')
+            const exportStepIndex = updatedSteps.findIndex(s => s.id === 'export')
+            
+            if (reviewStepIndex >= 0) {
+              updatedSteps[reviewStepIndex].isAccessible = true
+            }
+            if (exportStepIndex >= 0) {
+              updatedSteps[exportStepIndex].isAccessible = true
+            }
+          } else {
+            // Default behavior: Enable next step
+            const currentIndex = updatedSteps.findIndex(s => s.id === stepId)
+            if (currentIndex >= 0 && currentIndex < updatedSteps.length - 1) {
+              updatedSteps[currentIndex + 1].isAccessible = true
+            }
           }
 
           return { steps: updatedSteps }

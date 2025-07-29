@@ -19,7 +19,13 @@
       "Bash(/Users/lst97/Desktop/Work/Code/Projects/canton-cap/engine/venv/bin/python -m pytest tests/unit/test_argument_validator.py -v)",
       "mcp__context7__resolve-library-id",
       "mcp__context7__get-library-docs",
-      "Bash(source:*)"
+      "Bash(source:*)",
+      "mcp__magic__21st_magic_component_refiner",
+      "mcp__filesystem__list_allowed_directories",
+      "mcp__filesystem__directory_tree",
+      "Bash(grep:*)",
+      "mcp__filesystem__create_directory",
+      "mcp__filesystem__write_file"
     ],
     "deny": []
   }

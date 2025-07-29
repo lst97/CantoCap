@@ -1,170 +1,197 @@
-import React from 'react'
-import { 
-  Box, 
-  Typography, 
-  LinearProgress, 
-  Paper, 
-  Button, 
-  Stack,
-  Chip,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemIcon
-} from '@mui/material'
-import { 
-  Stop as StopIcon,
-  Refresh as RefreshIcon,
-  CheckCircle as CheckIcon,
-  RadioButtonUnchecked as PendingIcon,
-  Memory as MemoryIcon,
-  Speed as SpeedIcon
-} from '@mui/icons-material'
-import { ProgressPanel } from '../feedback/ProgressPanel'
-
-interface ProcessingStage {
-  id: string
-  name: string
-  isCompleted: boolean
-  isActive: boolean
-  description: string
-}
-
-const ProcessingActions: React.FC = () => (
-  <Paper sx={{ p: 3, height: 'fit-content' }}>
-    <Typography variant="h6" sx={{ mb: 2 }}>
-      Processing Controls
-    </Typography>
-    
-    <Stack spacing={2}>
-      <Button 
-        variant="contained" 
-        startIcon={<StopIcon />} 
-        color="error"
-        fullWidth
-      >
-        Cancel Processing
-      </Button>
-      
-      <Button 
-        variant="outlined" 
-        startIcon={<RefreshIcon />}
-        fullWidth
-        disabled
-      >
-        Restart Processing
-      </Button>
-      
-      <Box sx={{ mt: 3 }}>
-        <Typography variant="subtitle2" sx={{ mb: 2 }}>
-          System Resources
-        </Typography>
-        <Stack spacing={1}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <MemoryIcon fontSize="small" color="primary" />
-            <Typography variant="body2">
-              GPU: NVIDIA RTX 3080
-            </Typography>
-          </Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <SpeedIcon fontSize="small" color="primary" />
-            <Typography variant="body2">
-              Processing Speed: 2.3x realtime
-            </Typography>
-          </Box>
-        </Stack>
-      </Box>
-    </Stack>
-  </Paper>
-)
-
-const LiveOutput: React.FC = () => {
-  const stages: ProcessingStage[] = [
-    { id: 'audio-extract', name: 'Audio Extraction', isCompleted: true, isActive: false, description: 'Extracting audio from video file' },
-    { id: 'transcription', name: 'Speech Recognition', isCompleted: false, isActive: true, description: 'Converting speech to text' },
-    { id: 'translation', name: 'Translation', isCompleted: false, isActive: false, description: 'Translating to English' },
-    { id: 'refinement', name: 'AI Refinement', isCompleted: false, isActive: false, description: 'Improving accuracy with AI' },
-    { id: 'formatting', name: 'Format Generation', isCompleted: false, isActive: false, description: 'Creating subtitle files' }
-  ]
-
-  return (
-    <Paper sx={{ p: 3, height: 'fit-content' }}>
-      <Typography variant="h6" sx={{ mb: 2 }}>
-        Processing Stages
-      </Typography>
-      
-      <List dense>
-        {stages.map((stage) => (
-          <ListItem key={stage.id} sx={{ px: 0 }}>
-            <ListItemIcon sx={{ minWidth: 32 }}>
-              {stage.isCompleted ? (
-                <CheckIcon color="success" fontSize="small" />
-              ) : stage.isActive ? (
-                <RefreshIcon color="primary" fontSize="small" sx={{ animation: 'spin 2s linear infinite' }} />
-              ) : (
-                <PendingIcon color="disabled" fontSize="small" />
-              )}
-            </ListItemIcon>
-            <ListItemText
-              primary={
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Typography variant="body2" sx={{ fontWeight: stage.isActive ? 600 : 400 }}>
-                    {stage.name}
-                  </Typography>
-                  {stage.isActive && <Chip label="Active" size="small" color="primary" />}
-                  {stage.isCompleted && <Chip label="Done" size="small" color="success" />}
-                </Box>
-              }
-              secondary={stage.description}
-              secondaryTypographyProps={{ fontSize: '0.75rem' }}
-            />
-          </ListItem>
-        ))}
-      </List>
-    </Paper>
-  )
-}
+import React, { useEffect } from "react";
+import {
+  Box,
+  Typography,
+  LinearProgress,
+} from "@mui/material";
+import { useAppStore } from "../../store/app-store";
+import { useWorkflowStore } from "../../stores/workflow-store";
+import { IdleState } from "./ProcessingStep/IdleState";
+import { ProcessingControls } from "./ProcessingStep/ProcessingControls";
+import { ProcessingStatus } from "./ProcessingStep/ProcessingStatus";
+import { ProcessingComplete } from "./ProcessingStep/ProcessingComplete";
+import { ErrorDisplay } from "./ProcessingStep/ErrorDisplay";
+import { getStageInfo } from "./ProcessingStep/utils";
 
 export const ProcessingStep: React.FC = () => {
-  const progress = 65 // This would come from your processing state
+  const { processing, updateProcessing } = useAppStore();
+  const { completeStep } = useWorkflowStore();
+  
+  // Complete the processing step when processing finishes successfully
+  useEffect(() => {
+    if (processing.stage === 'completed' && !processing.error) {
+      completeStep('processing');
+    }
+  }, [processing.stage, processing.error, completeStep]);
+
+  // Real-time timer that updates elapsed time every second
+  useEffect(() => {
+    if (!processing.isActive || !processing.startTime) return;
+
+    const interval = setInterval(() => {
+      const now = Date.now();
+      const elapsed = Math.floor((now - processing.startTime!) / 1000);
+      updateProcessing({ timeElapsed: elapsed });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [processing.isActive, processing.startTime, updateProcessing]);
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, height: '100%', p: 3 }}>
-      {/* Progress Header */}
-      <Box sx={{ textAlign: 'center' }}>
-        <Typography variant="h5" sx={{ mb: 1 }}>
-          Generating Subtitles
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Processing your media file... This may take a few minutes.
-        </Typography>
-        <Box sx={{ maxWidth: 600, mx: 'auto' }}>
-          <LinearProgress 
-            variant="determinate" 
-            value={progress} 
-            sx={{ 
-              height: 12, 
-              borderRadius: 6,
-              backgroundColor: 'rgba(255, 255, 255, 0.1)',
-              '& .MuiLinearProgress-bar': {
-                borderRadius: 6
-              }
-            }} 
-          />
-          <Typography variant="body2" sx={{ mt: 1 }}>
-            {progress}% Complete
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 3,
+        height: "100%",
+        p: 3,
+      }}
+    >
+      {/* Progress Header - Hidden in idle state */}
+      {processing.stage !== "idle" && (
+        <Box sx={{ textAlign: "center", mb: 2 }}>
+          <Typography
+            variant="h4"
+            sx={{ mb: 3, fontWeight: 600, color: "#FFFFFF" }}
+          >
+            {processing.stage === "completed"
+              ? "Processing Complete!"
+              : "Generating Subtitles"}
           </Typography>
+
+          <Box sx={{ maxWidth: 600, mx: "auto" }}>
+            {/* Enhanced Progress Container */}
+            <Box
+              sx={{
+                p: 3,
+                backgroundColor: "rgba(47, 49, 54, 0.6)",
+                borderRadius: 3,
+                border: "1px solid rgba(64, 68, 75, 0.3)",
+                backdropFilter: "blur(10px)",
+              }}
+            >
+              {/* Stage Indicator */}
+              {(processing.stage === "preparing" ||
+                processing.stage === "transcribing" ||
+                processing.stage === "refining" ||
+                processing.stage === "error" ||
+                processing.stage === "cancelled") && (
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 1.5,
+                    mb: 2,
+                  }}
+                >
+                  <Box
+                    sx={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: "50%",
+                      bgcolor: "#F59E0B",
+                      animation:
+                        "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+                    }}
+                  />
+                  <Typography
+                    variant="body1"
+                    sx={{
+                      fontWeight: 600,
+                      color: "#F59E0B",
+                      textTransform: "capitalize",
+                    }}
+                  >
+                    {getStageInfo(processing.stage).name}
+                  </Typography>
+                </Box>
+              )}
+
+              {/* Enhanced Progress Bar */}
+              <LinearProgress
+                variant="determinate"
+                value={processing.progress}
+                sx={{
+                  height: 8,
+                  borderRadius: 4,
+                  backgroundColor: "rgba(245, 158, 11, 0.15)",
+                  mb: 2,
+                  "& .MuiLinearProgress-bar": {
+                    borderRadius: 4,
+                    background:
+                      processing.stage === "completed"
+                        ? "linear-gradient(90deg, #57F287 0%, #22C55E 50%, #16A34A 100%)"
+                        : "linear-gradient(90deg, #F59E0B 0%, #EAB308 50%, #D97706 100%)",
+                    boxShadow:
+                      processing.stage === "completed"
+                        ? "0 0 12px rgba(87, 242, 135, 0.4)"
+                        : "0 0 12px rgba(245, 158, 11, 0.4)",
+                  },
+                }}
+              />
+
+              {/* Progress Value */}
+              <Box
+                sx={{
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                }}
+              >
+                <Typography
+                  variant="h6"
+                  sx={{
+                    fontWeight: 700,
+                    fontFamily: "monospace",
+                    color:
+                      processing.stage === "completed" ? "#57F287" : "#F59E0B",
+                  }}
+                >
+                  {processing.progress}%
+                </Typography>
+                <Typography
+                  variant="body2"
+                  sx={{
+                    ml: 1,
+                    color: "text.secondary",
+                    fontWeight: 500,
+                  }}
+                >
+                  Complete
+                </Typography>
+              </Box>
+            </Box>
+          </Box>
         </Box>
+      )}
+
+      {/* Main Content Area - Stacked Layout */}
+      <Box
+        sx={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          gap: 3,
+          maxWidth: processing.stage === "completed" ? 900 : 600,
+          mx: "auto",
+          width: "100%",
+        }}
+      >
+        {processing.stage === "completed" ? (
+          <ProcessingComplete />
+        ) : processing.stage === "idle" ? (
+          <IdleState />
+        ) : (
+          <>
+            <ProcessingStatus />
+            <ProcessingControls />
+          </>
+        )}
       </Box>
-      
-      {/* Live Output and Controls */}
-      <Box sx={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3 }}>
-        <LiveOutput />
-        <ProcessingActions />
-      </Box>
-      
-      {/* Include existing ProgressPanel for detailed progress */}
-      <ProgressPanel />
+
+      {/* Error Display */}
+      <ErrorDisplay error={processing.error} />
     </Box>
-  )
-}
+  );
+};

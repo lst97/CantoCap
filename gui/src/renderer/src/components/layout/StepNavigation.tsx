@@ -14,9 +14,14 @@ import {
   Check as CheckIcon
 } from '@mui/icons-material'
 import { useWorkflowStore } from '../../stores/workflow-store'
+import { useAppStore } from '../../store/app-store'
 
 export const StepNavigation: React.FC = () => {
   const { currentStep, steps, setCurrentStep } = useWorkflowStore()
+  const { processing } = useAppStore()
+  
+  // Disable navigation when processing is active (except for the current processing step)
+  const isProcessingActive = processing.isActive && processing.stage !== 'idle' && processing.stage !== 'completed'
 
   return (
     <Box 
@@ -70,7 +75,7 @@ export const StepNavigation: React.FC = () => {
               <ListItemButton
                 key={step.id}
                 selected={currentStep === step.id}
-                disabled={!step.isAccessible}
+                disabled={!step.isAccessible || (isProcessingActive && step.id !== 'processing')}
                 onClick={() => setCurrentStep(step.id)}
                 sx={{
                   borderRadius: 1,

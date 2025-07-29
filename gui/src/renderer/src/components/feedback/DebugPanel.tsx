@@ -19,8 +19,62 @@ interface DebugLog {
 export function DebugPanel() {
   const [isVisible, setIsVisible] = useState(false)
   const [logs, setLogs] = useState<DebugLog[]>([])
+  const [consoleLogs, setConsoleLogs] = useState<Array<{
+    id: string
+    timestamp: string
+    level: 'log' | 'error' | 'warn' | 'info'
+    args: any[]
+  }>>([])
   const [filter, setFilter] = useState<string>('all')
   const { processing, config } = useAppStore()
+
+  // Only show in development or when localStorage flag is set
+  const shouldShow = process.env.NODE_ENV === 'development' || 
+                    localStorage.getItem('debug-panel') === 'true'
+
+  // Intercept console logs
+  useEffect(() => {
+    if (!shouldShow) return
+
+    const originalConsole = {
+      log: console.log,
+      error: console.error,
+      warn: console.warn,
+      info: console.info
+    }
+
+    const interceptConsole = (level: 'log' | 'error' | 'warn' | 'info', originalMethod: any) => {
+      return (...args: any[]) => {
+        // Call original method first
+        originalMethod.apply(console, args)
+        
+        // Capture for debug panel
+        const logEntry = {
+          id: `console_${Date.now()}_${Math.random()}`,
+          timestamp: new Date().toLocaleTimeString(),
+          level,
+          args: args.map(arg => 
+            typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+          )
+        }
+        
+        setConsoleLogs(prev => [logEntry, ...prev].slice(0, 50)) // Keep last 50 console logs
+      }
+    }
+
+    console.log = interceptConsole('log', originalConsole.log)
+    console.error = interceptConsole('error', originalConsole.error)
+    console.warn = interceptConsole('warn', originalConsole.warn)
+    console.info = interceptConsole('info', originalConsole.info)
+
+    return () => {
+      // Restore original console methods
+      console.log = originalConsole.log
+      console.error = originalConsole.error
+      console.warn = originalConsole.warn
+      console.info = originalConsole.info
+    }
+  }, [shouldShow])
 
   // Add keyboard shortcut for debug mode (Ctrl+Shift+D)
   useEffect(() => {
@@ -36,10 +90,6 @@ export function DebugPanel() {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
-
-  // Only show in development or when localStorage flag is set
-  const shouldShow = process.env.NODE_ENV === 'development' || 
-                    localStorage.getItem('debug-panel') === 'true'
 
   // Add legacy log entry (for backward compatibility)
   const addLegacyLog = (level: 'info' | 'error' | 'warning', source: string, message: string, details?: any) => {
@@ -194,7 +244,10 @@ export function DebugPanel() {
     ? logs 
     : logs.filter(log => log.level === filter || log.category === filter)
 
-  const clearLogs = () => setLogs([])
+  const clearLogs = () => {
+    setLogs([])
+    setConsoleLogs([])
+  }
 
   if (!isVisible) {
     return (
@@ -260,6 +313,37 @@ export function DebugPanel() {
           </div>
         </div>
 
+        {/* Processing Statistics */}
+        <div className="debug-section">
+          <h4>Processing Statistics</h4>
+          <div className="debug-info">
+            {processing.statistics ? (
+              <div>
+                <div><strong>Statistics Available:</strong> Yes</div>
+                <div><strong>Quality Score:</strong> {processing.statistics.quality_score ? `${(processing.statistics.quality_score * 100).toFixed(1)}%` : 'N/A'}</div>
+                <div><strong>Quality Grade:</strong> {processing.statistics.quality_grade || 'N/A'}</div>
+                <div><strong>Quality Confidence:</strong> {processing.statistics.quality_confidence ? `${(processing.statistics.quality_confidence * 100).toFixed(1)}%` : 'N/A'}</div>
+                <div><strong>Translation Coverage:</strong> {processing.statistics.translation_coverage ? `${(processing.statistics.translation_coverage * 100).toFixed(1)}%` : 'N/A'}</div>
+                <div><strong>Coverage Confidence:</strong> {processing.statistics.coverage_confidence ? `${(processing.statistics.coverage_confidence * 100).toFixed(1)}%` : 'N/A'}</div>
+                <div><strong>Total Subtitles:</strong> {processing.statistics.total_subtitles || 'N/A'}</div>
+                <div><strong>Total Duration:</strong> {processing.statistics.total_duration ? `${processing.statistics.total_duration.toFixed(1)}s` : 'N/A'}</div>
+                <div><strong>Word Count:</strong> {processing.statistics.word_count || 'N/A'}</div>
+                <div><strong>Algorithm Version:</strong> {processing.statistics.algorithm_version || 'N/A'}</div>
+                <details className="debug-details">
+                  <summary>Full Statistics Object</summary>
+                  <pre>{JSON.stringify(processing.statistics, null, 2)}</pre>
+                </details>
+              </div>
+            ) : (
+              <div style={{ color: '#ff6b6b' }}>
+                <div><strong>Statistics Available:</strong> No</div>
+                <div><strong>Reason:</strong> No statistics received from engine</div>
+                <div><strong>Check:</strong> Ensure engine generates and sends statistics via IPC</div>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Current CLI Command */}
         {config.inputFile && (
           <div className="debug-section">
@@ -287,7 +371,35 @@ export function DebugPanel() {
           </div>
         )}
 
-        {/* Log Stream */}
+        {/* Console Logs */}
+        <div className="debug-section">
+          <h4>Console Logs ({consoleLogs.length})</h4>
+          <div className="debug-logs">
+            {consoleLogs.length === 0 ? (
+              <div className="debug-no-logs">No console logs captured</div>
+            ) : (
+              consoleLogs.map(log => (
+                <div key={log.id} className={`debug-log-entry debug-console-${log.level}`}>
+                  <div className="debug-log-header">
+                    <span className="debug-timestamp">{log.timestamp}</span>
+                    <span className="debug-icon">
+                      {log.level === 'error' ? '❌' : log.level === 'warn' ? '⚠️' : 'ℹ️'}
+                    </span>
+                    <span className={`debug-type debug-console-type-${log.level}`}>
+                      CONSOLE.{log.level.toUpperCase()}
+                    </span>
+                    <span className="debug-source">Browser</span>
+                  </div>
+                  <div className="debug-log-message">
+                    <pre>{log.args.join(' ')}</pre>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Process Logs */}
         <div className="debug-section">
           <h4>Process Logs ({filteredLogs.length})</h4>
           <div className="debug-logs">
@@ -627,6 +739,42 @@ export function DebugPanel() {
           font-size: 10px;
           max-height: 200px;
           overflow-y: auto;
+        }
+
+        .debug-console-log {
+          border-left: 3px solid #4CAF50;
+        }
+
+        .debug-console-error {
+          border-left: 3px solid #ff4444;
+        }
+
+        .debug-console-warn {
+          border-left: 3px solid #ff9800;
+        }
+
+        .debug-console-info {
+          border-left: 3px solid #2196F3;
+        }
+
+        .debug-console-type-log {
+          background: #4CAF50;
+          color: white;
+        }
+
+        .debug-console-type-error {
+          background: #ff4444;
+          color: white;
+        }
+
+        .debug-console-type-warn {
+          background: #ff9800;
+          color: white;
+        }
+
+        .debug-console-type-info {
+          background: #2196F3;
+          color: white;
         }
       `}</style>
     </div>

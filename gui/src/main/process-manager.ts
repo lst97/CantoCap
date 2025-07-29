@@ -11,6 +11,8 @@ export class ProcessManager {
   private pythonPath: string | null = null
   private enginePath: string
   private venvActivated: boolean = false
+  private currentStatistics: any = null
+  private currentOutputFile: string | null = null
 
   constructor() {
     this.enginePath = this.getEnginePath()
@@ -110,6 +112,10 @@ export class ProcessManager {
         throw new Error('Another transcription process is already running')
       }
 
+      // Reset captured data for new processing
+      this.currentStatistics = null
+      this.currentOutputFile = null
+
       // Ensure engine setup before starting transcription
       callback('process-started', {
         message: 'Ensuring engine setup...',
@@ -193,16 +199,36 @@ export class ProcessManager {
         this.activeProcess = null
         
         if (code === 0) {
-          callback('process-complete', {
+          const completionData: any = {
             message: 'Transcription completed successfully',
             exitCode: code
-          })
+          }
+          
+          // Include statistics if captured
+          if (this.currentStatistics) {
+            completionData.statistics = this.currentStatistics
+          }
+          
+          // Include output file if captured
+          if (this.currentOutputFile) {
+            completionData.outputFile = this.currentOutputFile
+          }
+          
+          callback('process-complete', completionData)
+          
+          // Reset captured data for next run
+          this.currentStatistics = null
+          this.currentOutputFile = null
         } else {
           callback('process-error', {
             message: `Process exited with code ${code}`,
             type: 'exit_error',
             exitCode: code
           })
+          
+          // Reset captured data on error too
+          this.currentStatistics = null
+          this.currentOutputFile = null
         }
       })
 
@@ -592,6 +618,15 @@ export class ProcessManager {
         
         // Check for new IPC message format (has id and level)
         if (parsedData.id && parsedData.level) {
+          // Check if this is a result message with statistics
+          if (parsedData.category === 'process' && parsedData.source === 'result' && parsedData.data) {
+            if (parsedData.data.statistics) {
+              this.currentStatistics = parsedData.data.statistics
+            }
+            if (parsedData.data.output_path) {
+              this.currentOutputFile = parsedData.data.output_path
+            }
+          }
           callback('ipc-message', parsedData)
         } else {
           // Legacy format - convert to new format
