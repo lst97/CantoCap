@@ -21,7 +21,7 @@ import {
 import { useSubtitleEditStore } from "../../../stores/subtitle-edit-store";
 import { SubtitleEntry, SubtitleModification } from "../../../types/subtitle";
 import { ReviewCard, ModificationChip, ActionButton } from "./styles";
-import { formatTime, generateCharacterDiff } from "./utils";
+import { formatTime, generateCharacterDiff, generateBilingualDiff } from "./utils";
 import { SubtitleListPanelProps } from "./types";
 
 // Interface for gap state management
@@ -69,13 +69,17 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
   // 🚀 OPTIMIZED: Calculate all gap states once when subtitles change
   const gapStates = useMemo((): Map<number, GapState> => {
     const gaps = new Map<number, GapState>();
-    
+
     if (!session?.currentSubtitles || session.currentSubtitles.length < 2) {
       return gaps;
     }
 
-    console.log("🔧 RECALCULATING GAP STATES for", session.currentSubtitles.length, "subtitles");
-    
+    console.log(
+      "🔧 RECALCULATING GAP STATES for",
+      session.currentSubtitles.length,
+      "subtitles"
+    );
+
     // 🧪 TEST: Log all subtitle timestamps to understand the data structure
     session.currentSubtitles.forEach((subtitle, idx) => {
       console.log(`📝 Subtitle ${idx}:`, {
@@ -83,7 +87,7 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
         endTime: subtitle.endTime,
         startFormatted: formatTime(Number(subtitle.startTime)),
         endFormatted: formatTime(Number(subtitle.endTime)),
-        text: subtitle.text.substring(0, 30) + "..."
+        text: subtitle.text.substring(0, 30) + "...",
       });
     });
 
@@ -93,36 +97,12 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
 
       if (!prevSubtitle || !currSubtitle) continue;
 
-      // 🔢 ENHANCED: Ensure proper number conversion with detailed debugging
-      const prevEndTime = typeof prevSubtitle.endTime === 'number' 
-        ? prevSubtitle.endTime 
-        : parseFloat(prevSubtitle.endTime.toString());
-      const currStartTime = typeof currSubtitle.startTime === 'number'
-        ? currSubtitle.startTime 
-        : parseFloat(currSubtitle.startTime.toString());
-
-      // 🔍 DETAILED DEBUG: Log raw values before processing
-      console.log(`🕐 Raw timestamps at index ${i}:`, {
-        prevSubtitle: {
-          endTime: prevSubtitle.endTime,
-          endTimeType: typeof prevSubtitle.endTime,
-          parsed: prevEndTime,
-          text: prevSubtitle.text.substring(0, 20) + "..."
-        },
-        currSubtitle: {
-          startTime: currSubtitle.startTime,
-          startTimeType: typeof currSubtitle.startTime,
-          parsed: currStartTime,
-          text: currSubtitle.text.substring(0, 20) + "..."
-        }
-      });
+      // 🔢 Ensure proper number conversion
+      const prevEndTime = Number(prevSubtitle.endTime);
+      const currStartTime = Number(currSubtitle.startTime);
 
       // Validate the parsed numbers
       if (isNaN(prevEndTime) || isNaN(currStartTime)) {
-        console.warn(`⚠️ Invalid timestamp data at index ${i}:`, {
-          prevEndTime: prevSubtitle.endTime,
-          currStartTime: currSubtitle.startTime,
-        });
         continue;
       }
 
@@ -137,23 +117,6 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
         prevSubtitle,
         currSubtitle,
       });
-
-      // 📊 ENHANCED DEBUG: Log gap calculation details with formatted times
-      const prevFormatted = formatTime(prevEndTime);
-      const currFormatted = formatTime(currStartTime);
-      console.log(`📏 Gap ${i}: ${prevFormatted} (${prevEndTime}s) → ${currFormatted} (${currStartTime}s) = ${gapDuration.toFixed(2)}s (${isEnabled ? '✅ ENABLED' : '❌ disabled'})`);
-      
-      // 🎯 SPECIFIC DEBUG: Check for any gaps around 13-16 second range
-      if ((prevEndTime >= 10 && prevEndTime <= 15) || (currStartTime >= 10 && currStartTime <= 17)) {
-        console.log(`🎯 FOUND SUBTITLE AROUND 10-17s RANGE:`, {
-          prevEndTime,
-          currStartTime,
-          gapDuration,
-          isEnabled,
-          threshold: '≥1.0s',
-          shouldBeEnabled: gapDuration >= 1.0
-        });
-      }
     }
 
     return gaps;
@@ -204,7 +167,9 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
 
     const gapState = gapStates.get(index);
     if (!gapState || !gapState.isEnabled) {
-      console.warn(`❌ Cannot add subtitle - gap ${index} is disabled or invalid`);
+      console.warn(
+        `❌ Cannot add subtitle - gap ${index} is disabled or invalid`
+      );
       return;
     }
 
@@ -328,14 +293,18 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
       return modification.type;
     }
 
-    // For modified subtitles, check if there's actually a difference using git diff logic
-    // Only show if current text differs from original text (proper git diff check)
-    if (subtitle.originalText && subtitle.text !== subtitle.originalText) {
-      // Additional check: ensure it's not just whitespace differences
-      const originalTrimmed = subtitle.originalText.trim();
-      const currentTrimmed = subtitle.text.trim();
+    // For modified subtitles, check if there's actually a difference by comparing with original stored values
+    if (modification && modification.original && modification.type === 'modified') {
+      const originalChinese = modification.original.text || '';
+      const currentChinese = subtitle.text || '';
+      const originalTranslation = modification.original.originalText || '';
+      const currentTranslation = subtitle.originalText || '';
 
-      if (originalTrimmed !== currentTrimmed) {
+      // Check if either Chinese text or translation has changed
+      const chineseChanged = originalChinese.trim() !== currentChinese.trim();
+      const translationChanged = originalTranslation.trim() !== currentTranslation.trim();
+
+      if (chineseChanged || translationChanged) {
         return "modified";
       }
     }
@@ -374,15 +343,6 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
     );
   }
 
-  // 📊 DEBUG: Log all gap states for debugging
-  console.log("🗺️ CURRENT GAP STATES:", Array.from(gapStates.entries()).map(([index, state]) => ({
-    index,
-    gapDuration: state.gapDuration.toFixed(2) + 's',
-    isEnabled: state.isEnabled,
-    prevText: state.prevSubtitle.text.substring(0, 20) + "...",
-    currText: state.currSubtitle.text.substring(0, 20) + "...",
-  })));
-
   return (
     <ReviewCard
       sx={{
@@ -408,13 +368,23 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
           {session.isDirty && (
             <Chip label="Modified" size="small" color="warning" />
           )}
-          {/* 🔧 DEBUG: Show gap count */}
-          <Chip 
-            label={`${gapStates.size} gaps`} 
-            size="small" 
-            variant="outlined"
-            sx={{ fontSize: "0.65rem" }}
-          />
+          {/* Show available gaps only (gaps that are large enough for adding subtitles) */}
+          {(() => {
+            const availableGaps = Array.from(gapStates.values()).filter(gap => gap.isEnabled).length;
+            return availableGaps > 0 ? (
+              <Chip
+                label={`${availableGaps} gap${availableGaps > 1 ? 's' : ''}`}
+                size="small"
+                variant="outlined"
+                sx={{ 
+                  fontSize: "0.65rem",
+                  backgroundColor: "rgba(87, 242, 135, 0.1)",
+                  borderColor: "rgba(87, 242, 135, 0.3)",
+                  color: "#57F287"
+                }}
+              />
+            ) : null;
+          })()}
         </Box>
 
         <Box sx={{ display: "flex", gap: 1 }}>
@@ -446,107 +416,95 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
             return (
               <React.Fragment key={subtitle.id}>
                 {/* 🎯 OPTIMIZED: Gap area between subtitles with individual state */}
-                {index > 0 && (() => {
-                  const gapState = gapStates.get(index);
-                  
-                  // Skip if no gap state (shouldn't happen, but safety first)
-                  if (!gapState) {
-                    console.warn(`❌ No gap state found for index ${index}`);
-                    return null;
-                  }
+                {index > 0 &&
+                  (() => {
+                    const gapState = gapStates.get(index);
 
-                  const { gapDuration, isEnabled, prevSubtitle, currSubtitle } = gapState;
-                  const isGapHovered = hoveredGapIndex === index;
+                    // Skip if no gap state (shouldn't happen, but safety first)
+                    if (!gapState) {
+                      console.warn(`❌ No gap state found for index ${index}`);
+                      return null;
+                    }
 
-                  // 🔍 DEBUG: Log when hovering over specific gaps
-                  if (isGapHovered) {
-                    console.log(`👆 HOVERING over gap ${index}:`, {
-                      prevTime: formatTime(prevSubtitle.endTime),
-                      currTime: formatTime(currSubtitle.startTime),
-                      gapDuration: gapDuration.toFixed(2) + 's',
-                      isEnabled,
-                      threshold: '≥1.0s',
-                      actualSeconds: {
-                        prev: prevSubtitle.endTime,
-                        curr: currSubtitle.startTime
-                      }
-                    });
-                  }
+                    const { gapDuration, isEnabled } = gapState;
+                    const isGapHovered = hoveredGapIndex === index;
 
-                  return (
-                    <Box
-                      key={`gap-${index}`}
-                      sx={{
-                        height: isGapHovered ? "40px" : "8px", // Expand when hovered
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        position: "relative",
-                        backgroundColor: "transparent",
-                        borderTop: "1px solid rgba(0, 0, 0, 0.06)",
-                        borderBottom: "1px solid rgba(0, 0, 0, 0.06)",
-                        transition: "height 0.2s ease", // Smooth height transition
-                        "&:hover": {
-                          backgroundColor: "rgba(0, 0, 0, 0.02)",
-                          cursor: isEnabled ? "pointer" : "not-allowed",
-                        },
-                      }}
-                      onMouseEnter={() => setHoveredGapIndex(index)}
-                      onMouseLeave={() => setHoveredGapIndex(null)}
-                      onClick={() => isEnabled && handleAddBetween(index)}
-                    >
-                      {/* Only show button when hovering over gap */}
-                      {isGapHovered && (
-                        <Tooltip
-                          title={
-                            isEnabled
-                              ? `Add subtitle in ${gapDuration.toFixed(2)}s gap`
-                              : `Gap too small (${gapDuration.toFixed(2)}s) - need ≥1.0s`
-                          }
-                        >
-                          <Box
-                            className="add-button"
-                            sx={{
-                              width: "24px",
-                              height: "24px",
-                              borderRadius: "50%",
-                              backgroundColor: isEnabled
-                                ? "rgba(245, 158, 11, 0.1)" // Enabled: amber
-                                : "rgba(128, 128, 128, 0.1)", // Disabled: gray
-                              border: isEnabled
-                                ? "2px dashed #F59E0B" // Enabled: amber dashed
-                                : "2px dashed #666", // Disabled: gray dashed
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              cursor: isEnabled
-                                ? "pointer"
-                                : "not-allowed",
-                              transition: "all 0.2s ease",
-                              opacity: isEnabled ? 0.8 : 0.4,
-                              "&:hover": isEnabled
-                                ? {
-                                    opacity: 1,
-                                    backgroundColor:
-                                      "rgba(245, 158, 11, 0.15)",
-                                    borderColor: "#D97706",
-                                    transform: "scale(1.1)",
-                                  }
-                                : {},
-                            }}
+                    return (
+                      <Box
+                        key={`gap-${index}`}
+                        sx={{
+                          height: isGapHovered ? "40px" : "8px", // Expand when hovered
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          position: "relative",
+                          backgroundColor: "transparent",
+                          borderTop: "1px solid rgba(0, 0, 0, 0.06)",
+                          borderBottom: "1px solid rgba(0, 0, 0, 0.06)",
+                          transition: "height 0.2s ease", // Smooth height transition
+                          "&:hover": {
+                            backgroundColor: "rgba(0, 0, 0, 0.02)",
+                            cursor: isEnabled ? "pointer" : "not-allowed",
+                          },
+                        }}
+                        onMouseEnter={() => setHoveredGapIndex(index)}
+                        onMouseLeave={() => setHoveredGapIndex(null)}
+                        onClick={() => isEnabled && handleAddBetween(index)}
+                      >
+                        {/* Only show button when hovering over gap */}
+                        {isGapHovered && (
+                          <Tooltip
+                            title={
+                              isEnabled
+                                ? `Add subtitle in ${gapDuration.toFixed(
+                                    2
+                                  )}s gap`
+                                : `Gap too small (${gapDuration.toFixed(
+                                    2
+                                  )}s) - need ≥1.0s`
+                            }
                           >
-                            <AddIcon
+                            <Box
+                              className="add-button"
                               sx={{
-                                fontSize: "16px",
-                                color: isEnabled ? "#F59E0B" : "#666",
+                                width: "24px",
+                                height: "24px",
+                                borderRadius: "50%",
+                                backgroundColor: isEnabled
+                                  ? "rgba(245, 158, 11, 0.1)" // Enabled: amber
+                                  : "rgba(128, 128, 128, 0.1)", // Disabled: gray
+                                border: isEnabled
+                                  ? "2px dashed #F59E0B" // Enabled: amber dashed
+                                  : "2px dashed #666", // Disabled: gray dashed
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                cursor: isEnabled ? "pointer" : "not-allowed",
+                                transition: "all 0.2s ease",
+                                opacity: isEnabled ? 0.8 : 0.4,
+                                "&:hover": isEnabled
+                                  ? {
+                                      opacity: 1,
+                                      backgroundColor:
+                                        "rgba(245, 158, 11, 0.15)",
+                                      borderColor: "#D97706",
+                                      transform: "scale(1.1)",
+                                    }
+                                  : {},
                               }}
-                            />
-                          </Box>
-                        </Tooltip>
-                      )}
-                    </Box>
-                  );
-                })()}
+                            >
+                              <AddIcon
+                                sx={{
+                                  fontSize: "16px",
+                                  color: isEnabled ? "#F59E0B" : "#666",
+                                }}
+                              />
+                            </Box>
+                          </Tooltip>
+                        )}
+                      </Box>
+                    );
+                  })()}
 
                 <Box
                   ref={isCurrentlyPlaying ? currentSubtitleRef : null}
@@ -604,19 +562,20 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
                                 fontSize: "0.75rem",
                               }}
                             />
-                            {subtitle.confidence && (
-                              <Chip
-                                label={`${subtitle.confidence}%`}
-                                size="small"
-                                color={
-                                  subtitle.confidence > 90
-                                    ? "success"
-                                    : subtitle.confidence > 80
-                                    ? "warning"
-                                    : "error"
-                                }
-                              />
-                            )}
+                            {subtitle.confidence !== undefined &&
+                              subtitle.confidence > 0 && (
+                                <Chip
+                                  label={`${subtitle.confidence}%`}
+                                  size="small"
+                                  color={
+                                    subtitle.confidence > 90
+                                      ? "success"
+                                      : subtitle.confidence > 80
+                                      ? "warning"
+                                      : "error"
+                                  }
+                                />
+                              )}
                             {modificationType && (
                               <ModificationChip
                                 modificationType={modificationType}
@@ -660,9 +619,74 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
                             {subtitle.text}
                           </Typography>
 
-                          {subtitle.originalText &&
-                            subtitle.originalText !== subtitle.text &&
-                            showDiff && (
+                          {/* Display translation text if available */}
+                          {subtitle.originalText && 
+                           subtitle.originalText.trim() && 
+                           subtitle.originalText !== subtitle.text && (
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                fontWeight: 400,
+                                mb: 0.5,
+                                lineHeight: 1.4,
+                                whiteSpace: "pre-line",
+                                color: "text.secondary",
+                                fontStyle: "italic",
+                                fontSize: "0.9em",
+                              }}
+                            >
+                              {subtitle.originalText}
+                            </Typography>
+                          )}
+
+                          {modificationType === "modified" && showDiff && (() => {
+                            const modification = getModificationForSubtitle(subtitle.id);
+                            if (!modification || !modification.original) return null;
+
+                            const originalChinese = modification.original.text || '';
+                            const currentChinese = subtitle.text || '';
+                            const originalTranslation = modification.original.originalText || '';
+                            const currentTranslation = subtitle.originalText || '';
+
+                            const chineseChanged = originalChinese.trim() !== currentChinese.trim();
+                            const translationChanged = originalTranslation.trim() !== currentTranslation.trim();
+
+                            if (!chineseChanged && !translationChanged) return null;
+
+                            const renderDiffParts = (parts: any[]) => parts.map((part, index) => (
+                              <Typography
+                                key={index}
+                                component="span"
+                                sx={{
+                                  backgroundColor:
+                                    part.type === "added"
+                                      ? "rgba(87, 242, 135, 0.2)"
+                                      : part.type === "removed"
+                                      ? "rgba(237, 66, 69, 0.2)"
+                                      : "transparent",
+                                  color:
+                                    part.type === "added"
+                                      ? "#57F287"
+                                      : part.type === "removed"
+                                      ? "#ED4245"
+                                      : "inherit",
+                                  textDecoration:
+                                    part.type === "removed"
+                                      ? "line-through"
+                                      : "none",
+                                  padding:
+                                    part.type !== "unchanged"
+                                      ? "1px 2px"
+                                      : "0",
+                                  borderRadius: "2px",
+                                  whiteSpace: "pre-wrap",
+                                }}
+                              >
+                                {part.text}
+                              </Typography>
+                            ));
+
+                            return (
                               <Box
                                 sx={{
                                   mt: 1,
@@ -679,47 +703,41 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
                                 >
                                   Changes:
                                 </Typography>
-                                <Box
-                                  sx={{ fontSize: "0.8rem", lineHeight: 1.4 }}
-                                >
-                                  {generateCharacterDiff(
-                                    subtitle.originalText,
-                                    subtitle.text
-                                  ).map((part, index) => (
+                                
+                                {/* Chinese text changes */}
+                                {chineseChanged && (
+                                  <Box sx={{ mb: translationChanged ? 1 : 0 }}>
                                     <Typography
-                                      key={index}
-                                      component="span"
-                                      sx={{
-                                        backgroundColor:
-                                          part.type === "added"
-                                            ? "rgba(87, 242, 135, 0.2)"
-                                            : part.type === "removed"
-                                            ? "rgba(237, 66, 69, 0.2)"
-                                            : "transparent",
-                                        color:
-                                          part.type === "added"
-                                            ? "#57F287"
-                                            : part.type === "removed"
-                                            ? "#ED4245"
-                                            : "inherit",
-                                        textDecoration:
-                                          part.type === "removed"
-                                            ? "line-through"
-                                            : "none",
-                                        padding:
-                                          part.type !== "unchanged"
-                                            ? "1px 2px"
-                                            : "0",
-                                        borderRadius: "2px",
-                                        whiteSpace: "pre-wrap",
-                                      }}
+                                      variant="caption"
+                                      color="text.secondary"
+                                      sx={{ fontSize: "0.7rem", display: "block", mb: 0.25 }}
                                     >
-                                      {part.text}
+                                      Chinese:
                                     </Typography>
-                                  ))}
-                                </Box>
+                                    <Box sx={{ fontSize: "0.8rem", lineHeight: 1.4 }}>
+                                      {renderDiffParts(generateCharacterDiff(originalChinese, currentChinese))}
+                                    </Box>
+                                  </Box>
+                                )}
+
+                                {/* Translation changes */}
+                                {translationChanged && (
+                                  <Box>
+                                    <Typography
+                                      variant="caption"
+                                      color="text.secondary"
+                                      sx={{ fontSize: "0.7rem", display: "block", mb: 0.25 }}
+                                    >
+                                      Translation:
+                                    </Typography>
+                                    <Box sx={{ fontSize: "0.8rem", lineHeight: 1.4 }}>
+                                      {renderDiffParts(generateCharacterDiff(originalTranslation, currentTranslation))}
+                                    </Box>
+                                  </Box>
+                                )}
                               </Box>
-                            )}
+                            );
+                          })()}
 
                           {modification && (
                             <Typography

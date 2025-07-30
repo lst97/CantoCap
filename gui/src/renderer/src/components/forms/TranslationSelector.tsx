@@ -28,8 +28,12 @@ export const TranslationSelector: React.FC = () => {
 
   const handleTranslationChange = useCallback((event: any) => {
     const value = event.target.value
-    updateConfig('subtitle', value === 'none' ? null : value)
-  }, [updateConfig])
+    if (value === 'none') {
+      updateConfig('subtitle', null)
+    } else {
+      updateConfig('subtitle', value)
+    }
+  }, [updateConfig, config.subtitle])
 
   const translationOptions: TranslationOption[] = [
     { value: 'none', label: 'No Translation', description: 'Output in original language only' },
@@ -136,7 +140,8 @@ export const TranslationSelector: React.FC = () => {
           </Select>
         </FormControl>
         
-        {config.subtitle && (
+        
+        {config.subtitle && !Array.isArray(config.subtitle) && (
           <Paper sx={{ p: 2, backgroundColor: 'rgba(255, 255, 255, 0.05)' }}>
             <Typography variant="subtitle2" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
               📝 Output Format Preview:

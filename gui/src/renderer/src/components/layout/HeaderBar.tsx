@@ -91,7 +91,7 @@ export const HeaderBar: React.FC = () => {
                 lineHeight: 1
               }}
             >
-              Cantonese Subtitle Generator
+              Cantonese Caption Generator
             </Typography>
           </Box>
         </Box>

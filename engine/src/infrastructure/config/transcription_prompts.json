@@ -14,10 +14,25 @@
       ],
       "execution_checklist": {
         "vocabulary_conversion": {
-          "description": "You must convert Cantonese-specific words to their Standard Written Chinese equivalents.",
-          "mappings": {
-            "佢 (keoi5)": "他 / 她",
-            "哋 (dei6)": "們 (e.g., 佢哋 → 他們)",
+          "description": "You must convert Cantonese-specific words to their Standard Written Chinese equivalents, with special attention to pronoun refinement.",
+          "pronoun_refinement": {
+            "description": "CRITICAL: Convert the gender-neutral Cantonese '佢 (keoi5)' to the appropriate written Chinese pronoun (他/她/它).",
+            "context_clues": [
+              "**Clear Indicators**: Names (阿明→他, 阿美→她), titles (先生→他, 小姐→她), relationships (老公→他, 老婆→她, 爸爸→他, 媽媽→她)",
+              "**Visual Context**: Look at the video to see who is being referenced",
+              "**Conversation Context**: '我老婆話佢...' clearly refers to a woman, so use '她'",
+              "**Topic Context**: Discussions about pregnancy, motherhood → '她'; discussions about typical male roles → '他'",
+              "**Non-Human**: Objects, animals, concepts → '它' (the car broke, 佢壞咗 → 它壞了)"
+            ],
+            "guidelines": [
+              "Be consistent - if you determine someone is '他', use '他' for all references to that same person",
+              "When in doubt about gender, default to '他' (standard Chinese convention)",
+              "For '佢哋' (plural), apply the same logic: 他們/她們/它們",
+              "Always prioritize what you can see/hear in the video over assumptions"
+            ]
+          },
+          "other_mappings": {
+            "哋 (dei6)": "們 (e.g., 佢哋 → 他們/她們 - apply same pronoun logic + 們)",
             "喺 (hai2)": "在",
             "係 (hai6)": "是",
             "唔 (m4)": "不",
@@ -148,6 +163,11 @@
             "- **Emotional Register**: Tone, formality level, intimacy, excitement, etc.",
             "- **Cultural Elements**: Expressions, references, or terms specific to Cantonese culture"
           ]
+        },
+        "pronoun_context_analysis": {
+          "title": "**Pronoun Analysis (Written Style Only):**",
+          "description": "Pay attention to pronoun conversion when using written style:",
+          "guidance": "Watch the video and listen carefully to determine who '佢' refers to, then use the appropriate 他/她/它 consistently throughout."
         }
       },
       "phase_3": {
@@ -173,7 +193,12 @@
       },
       "phase_4": {
         "title": "### Phase 4: Language Style Implementation",
-        "compliance_note": "**Mandatory Style Compliance:**\nEvery subtitle line must strictly follow these requirements:"
+        "compliance_note": "**Mandatory Style Compliance:**\nEvery subtitle line must strictly follow these requirements:",
+        "pronoun_compliance": {
+          "title": "**Pronoun Conversion (Written Style Only):**",
+          "note": "For written style: Convert all '佢' to 他/她/它. For colloquial style: Keep '佢' as is.",
+          "reminder": "Be consistent with your pronoun choices for the same person throughout the transcript."
+        }
       },
       "phase_5": {
         "title": "### Phase 5: Cooperative Error Correction",
@@ -228,6 +253,14 @@
             "✓ Language style requirements applied consistently throughout",
             "✓ No validation tags ([TRIM], [REPEAT]) remain in final output",
             "✓ Speaker tags preserved when present in original SRT"
+          ]
+        },
+        "pronoun_validation": {
+          "title": "**Pronoun Check:**",
+          "checklist": [
+            "✓ Written style: All '佢' converted to 他/她/它 (Colloquial style: Keep '佢')",
+            "✓ Same person = same pronoun throughout the transcript",
+            "✓ Pronoun choices make sense based on video context"
           ]
         }
       }

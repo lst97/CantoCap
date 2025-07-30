@@ -32,8 +32,27 @@ export const ErrorCard = styled(Paper)(({ theme }) => ({
   backgroundColor: "rgba(237, 66, 69, 0.1)",
   borderRadius: 16,
   border: "1px solid rgba(237, 66, 69, 0.3)",
-  padding: theme.spacing(2),
+  padding: 0, // Remove padding to let internal content handle spacing
   marginTop: theme.spacing(2),
+  maxHeight: "80vh",
+  overflow: "auto",
+  display: "flex",
+  flexDirection: "column",
+  // Custom scrollbar styling
+  "&::-webkit-scrollbar": {
+    width: "8px",
+  },
+  "&::-webkit-scrollbar-track": {
+    background: "rgba(0, 0, 0, 0.1)",
+    borderRadius: "4px",
+  },
+  "&::-webkit-scrollbar-thumb": {
+    background: "rgba(237, 66, 69, 0.3)",
+    borderRadius: "4px",
+    "&:hover": {
+      background: "rgba(237, 66, 69, 0.5)",
+    },
+  },
 }));
 
 export const SuccessCard = styled(Paper)(({ theme }) => ({

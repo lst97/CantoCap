@@ -92,6 +92,29 @@ class ErrorHandler {
     const message = error.message.toLowerCase()
     const stack = error.stack?.toLowerCase() || ''
 
+    // Check for engine-specific errors first
+    if ('type' in error && typeof (error as any).type === 'string') {
+      const engineError = error as any
+      switch (engineError.type) {
+        case 'startup_error':
+          return ErrorCategory.ENGINE_STARTUP
+        case 'runtime_error':
+          return ErrorCategory.ENGINE_RUNTIME
+        case 'exit_error':
+          return ErrorCategory.ENGINE_EXIT
+        case 'spawn_error':
+          return ErrorCategory.ENGINE_SPAWN
+        case 'setup_error':
+          return ErrorCategory.ENGINE_SETUP
+      }
+    }
+
+    // Check for IPC-related errors
+    if (message.includes('ipc') || message.includes('engine communication') || 
+        message.includes('cantocap') || message.includes('engine process')) {
+      return ErrorCategory.ENGINE_IPC
+    }
+
     if (message.includes('network') || message.includes('fetch') || message.includes('xhr')) {
       return ErrorCategory.NETWORK
     }
@@ -120,6 +143,17 @@ class ErrorHandler {
     
     if (message.includes('critical') || message.includes('fatal') || category === ErrorCategory.FILE_SYSTEM) {
       return ErrorSeverity.CRITICAL
+    }
+    
+    // Engine errors are generally high severity as they affect core functionality
+    if (category === ErrorCategory.ENGINE_STARTUP || category === ErrorCategory.ENGINE_SPAWN ||
+        category === ErrorCategory.ENGINE_SETUP) {
+      return ErrorSeverity.CRITICAL
+    }
+    
+    if (category === ErrorCategory.ENGINE_RUNTIME || category === ErrorCategory.ENGINE_EXIT ||
+        category === ErrorCategory.ENGINE_IPC) {
+      return ErrorSeverity.HIGH
     }
     
     if (category === ErrorCategory.PROCESSING || category === ErrorCategory.NETWORK) {
@@ -214,6 +248,100 @@ class ErrorHandler {
           'Verify data format and values',
           'Review configuration settings',
           'Follow the input guidelines'
+        ]
+      },
+      [ErrorCategory.ENGINE_IPC]: {
+        title: 'Engine Communication Error',
+        description: 'Failed to communicate with the CantoCap engine process. This may be due to IPC connection issues or engine availability.',
+        possibleCauses: [
+          'Engine process not responding',
+          'IPC channel disconnected',
+          'Engine crashed or terminated'
+        ],
+        suggestedActions: [
+          'Restart the processing task',
+          'Check system resources',
+          'Try restarting the application',
+          'Verify engine installation'
+        ]
+      },
+      [ErrorCategory.ENGINE_STARTUP]: {
+        title: 'Engine Startup Error',
+        description: 'The CantoCap engine failed to start properly. This is typically due to missing dependencies or configuration issues.',
+        possibleCauses: [
+          'Python 3.12 not found or not accessible',
+          'Required Python packages missing',
+          'Engine installation corrupted',
+          'Insufficient system permissions'
+        ],
+        suggestedActions: [
+          'Verify Python 3.12 installation',
+          'Run engine setup from settings',
+          'Check system PATH configuration',
+          'Restart application as administrator'
+        ]
+      },
+      [ErrorCategory.ENGINE_RUNTIME]: {
+        title: 'Engine Runtime Error',
+        description: 'The CantoCap engine encountered an error during execution. This may be related to input processing or internal engine issues.',
+        possibleCauses: [
+          'Invalid input file format',
+          'Insufficient memory or disk space',
+          'Internal engine bug or crash'
+        ],
+        suggestedActions: [
+          'Try with a different input file',
+          'Check available system resources',
+          'Reduce processing complexity',
+          'Contact support with error details'
+        ]
+      },
+      [ErrorCategory.ENGINE_EXIT]: {
+        title: 'Engine Exit Error',
+        description: 'The CantoCap engine terminated unexpectedly with an error code. This indicates a critical processing failure.',
+        possibleCauses: [
+          'Engine crashed during processing',
+          'Critical dependency missing',
+          'System resource exhaustion',
+          'Processing configuration error'
+        ],
+        suggestedActions: [
+          'Check system resource availability',
+          'Review processing configuration',
+          'Try with simpler settings',
+          'Restart the application'
+        ]
+      },
+      [ErrorCategory.ENGINE_SPAWN]: {
+        title: 'Engine Spawn Error',
+        description: 'Failed to spawn the CantoCap engine process. This is a critical system-level error.',
+        possibleCauses: [
+          'Engine executable not found',
+          'Insufficient system permissions',
+          'System process limit reached',
+          'Antivirus blocking execution'
+        ],
+        suggestedActions: [
+          'Verify engine installation path',
+          'Run application as administrator',
+          'Check antivirus settings',
+          'Restart system if necessary'
+        ]
+      },
+      [ErrorCategory.ENGINE_SETUP]: {
+        title: 'Engine Setup Error',
+        description: 'Failed to set up or configure the CantoCap engine. This prevents the engine from running properly.',
+        possibleCauses: [
+          'Dependencies installation failed',
+          'Configuration file corruption',
+          'Network connection issues',
+          'Insufficient disk space'
+        ],
+        suggestedActions: [
+          'Run initialization setup again',
+          'Check internet connection',
+          'Free up disk space',
+          'Clear application cache'
         ]
       },
       [ErrorCategory.UNKNOWN]: {

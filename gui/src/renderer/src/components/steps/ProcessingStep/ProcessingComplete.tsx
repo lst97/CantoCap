@@ -775,77 +775,77 @@ export const ProcessingComplete: React.FC = () => {
           </Box>
 
           {/* Feature Chips */}
-          {(config.speakers ||
-            config.music ||
-            (config.geminiKey && !config.noGeminiRefinement) ||
-            config.written) && (
-            <Box sx={{ mt: 3 }}>
-              <Typography
-                variant="body2"
-                sx={{ color: "text.secondary", fontSize: "0.8rem", mb: 1.5 }}
-              >
-                ENABLED FEATURES
-              </Typography>
-              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
-                {config.speakers && (
-                  <Chip
-                    icon={<SpeakerIcon sx={{ fontSize: "1rem" }} />}
-                    label="Speaker Diarization"
-                    size="small"
-                    sx={{
-                      backgroundColor: "rgba(59, 130, 246, 0.2)",
-                      borderColor: "rgba(59, 130, 246, 0.4)",
-                      color: "#60A5FA",
-                      fontWeight: 500,
-                    }}
-                    variant="outlined"
-                  />
-                )}
-                {config.music && (
-                  <Chip
-                    icon={<MusicIcon sx={{ fontSize: "1rem" }} />}
-                    label="Music Detection"
-                    size="small"
-                    sx={{
-                      backgroundColor: "rgba(168, 85, 247, 0.2)",
-                      borderColor: "rgba(168, 85, 247, 0.4)",
-                      color: "#C084FC",
-                      fontWeight: 500,
-                    }}
-                    variant="outlined"
-                  />
-                )}
-                {config.geminiKey && !config.noGeminiRefinement && (
-                  <Chip
-                    icon={<AiIcon sx={{ fontSize: "1rem" }} />}
-                    label="AI Refinement (Gemini Flash)"
-                    size="small"
-                    sx={{
-                      backgroundColor: "rgba(34, 197, 94, 0.2)",
-                      borderColor: "rgba(34, 197, 94, 0.4)",
-                      color: "#4ADE80",
-                      fontWeight: 500,
-                    }}
-                    variant="outlined"
-                  />
-                )}
-                {config.written && (
-                  <Chip
-                    icon={<InfoIcon sx={{ fontSize: "1rem" }} />}
-                    label="Written Style"
-                    size="small"
-                    sx={{
-                      backgroundColor: "rgba(245, 158, 11, 0.2)",
-                      borderColor: "rgba(245, 158, 11, 0.4)",
-                      color: "#FBBF24",
-                      fontWeight: 500,
-                    }}
-                    variant="outlined"
-                  />
-                )}
-              </Box>
+          <Box sx={{ mt: 3 }}>
+            <Typography
+              variant="body2"
+              sx={{ color: "text.secondary", fontSize: "0.8rem", mb: 1.5 }}
+            >
+              PROCESSING FEATURES
+            </Typography>
+            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+              {/* Basic Features - Always show written style */}
+              <Chip
+                icon={<InfoIcon sx={{ fontSize: "1rem" }} />}
+                label={`Written Style${config.geminiKey ? ' (Enhanced)' : ''}`}
+                size="small"
+                sx={{
+                  backgroundColor: config.geminiKey 
+                    ? "rgba(34, 197, 94, 0.2)" 
+                    : "rgba(125, 211, 252, 0.2)",
+                  borderColor: config.geminiKey 
+                    ? "rgba(34, 197, 94, 0.4)" 
+                    : "rgba(125, 211, 252, 0.4)",
+                  color: config.geminiKey ? "#4ADE80" : "#7DD3FC",
+                  fontWeight: 500,
+                }}
+                variant="outlined"
+              />
+              
+              {/* Enhanced Options */}
+              {config.speakers && (
+                <Chip
+                  icon={<SpeakerIcon sx={{ fontSize: "1rem" }} />}
+                  label="Speaker Diarization"
+                  size="small"
+                  sx={{
+                    backgroundColor: "rgba(59, 130, 246, 0.2)",
+                    borderColor: "rgba(59, 130, 246, 0.4)",
+                    color: "#60A5FA",
+                    fontWeight: 500,
+                  }}
+                  variant="outlined"
+                />
+              )}
+              {config.music && (
+                <Chip
+                  icon={<MusicIcon sx={{ fontSize: "1rem" }} />}
+                  label="Music Detection"
+                  size="small"
+                  sx={{
+                    backgroundColor: "rgba(168, 85, 247, 0.2)",
+                    borderColor: "rgba(168, 85, 247, 0.4)",
+                    color: "#C084FC",
+                    fontWeight: 500,
+                  }}
+                  variant="outlined"
+                />
+              )}
+              {config.geminiKey && !config.noGeminiRefinement && (
+                <Chip
+                  icon={<AiIcon sx={{ fontSize: "1rem" }} />}
+                  label="AI Refinement (Gemini Flash)"
+                  size="small"
+                  sx={{
+                    backgroundColor: "rgba(34, 197, 94, 0.2)",
+                    borderColor: "rgba(34, 197, 94, 0.4)",
+                    color: "#4ADE80",
+                    fontWeight: 500,
+                  }}
+                  variant="outlined"
+                />
+              )}
             </Box>
-          )}
+          </Box>
         </InfoSection>
       </Stack>
     </SuccessCard>

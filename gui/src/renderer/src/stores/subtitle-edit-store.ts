@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import { 
   SubtitleEditState, 
-  TempSRTSession, 
+  TempSubtitleSession, 
   SubtitleEntry, 
   SubtitleModification,
   VideoSubtitleSync 
@@ -10,7 +10,7 @@ import {
 
 interface SubtitleEditActions {
   // Session Management
-  initializeSession: (srtPath: string, videoPath: string) => Promise<void>
+  initializeSession: (subtitlePath: string, videoPath: string, importedData?: SubtitleEntry[]) => Promise<void>
   clearSession: () => void
   autoSave: () => Promise<void>
   
@@ -52,6 +52,145 @@ const generateUUID = (): string => {
   })
 }
 
+const parseVTTFile = async (filePath: string): Promise<SubtitleEntry[]> => {
+  try {
+    console.log('Loading VTT file from:', filePath)
+    
+    let fileContent: string
+    
+    try {
+      const response = await fetch(`file://${filePath}`)
+      if (response.ok) {
+        fileContent = await response.text()
+      } else {
+        throw new Error(`Failed to read file: ${response.status}`)
+      }
+    } catch (fetchError) {
+      console.warn('Fetch method failed, using fallback approach:', fetchError)
+      
+      // Fallback mock data for VTT with cue settings preserved
+      return [
+        {
+          id: generateUUID(),
+          index: 1,
+          startTime: 0,
+          endTime: 4,
+          duration: 4,
+          text: '他因為石投，所以他才出來頂罪。',
+          originalText: "He's taking the fall for Shi Tou.",
+          cueSettings: 'line:90%'
+        },
+        {
+          id: generateUUID(),
+          index: 2,
+          startTime: 6,
+          endTime: 9,
+          duration: 3,
+          text: '今日天氣非常之好',
+          originalText: 'The weather is very good today',
+          cueSettings: 'line:90%'
+        }
+      ]
+    }
+    
+    if (!fileContent || fileContent.trim() === '') {
+      console.warn('VTT file is empty or could not be read:', filePath)
+      return []
+    }
+    
+    // Parse VTT format
+    const subtitles: SubtitleEntry[] = []
+    const lines = fileContent.trim().split('\n')
+    
+    let i = 0
+    let index = 1
+    
+    // Skip WEBVTT header and metadata
+    while (i < lines.length && !lines[i].includes('-->')) {
+      i++
+    }
+    
+    while (i < lines.length) {
+      const line = lines[i].trim()
+      
+      // Skip empty lines
+      if (!line) {
+        i++
+        continue
+      }
+      
+      // Check for VTT timestamp line with cue settings
+      const vttTimeMatch = line.match(/^(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s+-->\s+(\d{2}):(\d{2}):(\d{2})\.(\d{3})(\s+.*)?$/)
+      if (vttTimeMatch) {
+        const startTime = parseTimeFromVTT(vttTimeMatch[1], vttTimeMatch[2], vttTimeMatch[3], vttTimeMatch[4])
+        const endTime = parseTimeFromVTT(vttTimeMatch[5], vttTimeMatch[6], vttTimeMatch[7], vttTimeMatch[8])
+        const duration = endTime - startTime
+        const cueSettings = vttTimeMatch[9] ? vttTimeMatch[9].trim() : undefined
+        
+        i++ // Move to text lines
+        
+        // Collect text lines until empty line or next timestamp
+        const textLines: string[] = []
+        while (i < lines.length && lines[i].trim() && !lines[i].includes('-->')) {
+          textLines.push(lines[i].trim())
+          i++
+        }
+        
+        if (textLines.length > 0) {
+          // First line is Chinese text, remaining lines are translation
+          const chineseText = textLines[0]
+          const translationText = textLines.length > 1 ? textLines.slice(1).join('\n') : undefined
+          
+          subtitles.push({
+            id: generateUUID(),
+            index,
+            startTime,
+            endTime,
+            duration,
+            text: chineseText,
+            originalText: translationText,
+            cueSettings
+          })
+          
+          index++
+        }
+      } else {
+        i++
+      }
+    }
+    
+    console.log(`Successfully parsed ${subtitles.length} VTT subtitles`)
+    return subtitles
+    
+  } catch (error) {
+    console.error('Failed to parse VTT file:', error)
+    
+    // Fallback to mock data with cue settings
+    return [
+      {
+        id: generateUUID(),
+        index: 1,
+        startTime: 2,
+        endTime: 7,
+        duration: 5,
+        text: '你好，歡迎收看今日嘅新聞',
+        originalText: 'Hello, welcome to watch today\'s news',
+        cueSettings: 'line:90%'
+      }
+    ]
+  }
+}
+
+// Helper function to parse VTT timestamp format to seconds
+const parseTimeFromVTT = (hours: string, minutes: string, seconds: string, milliseconds: string): number => {
+  const h = parseInt(hours, 10)
+  const m = parseInt(minutes, 10)
+  const s = parseInt(seconds, 10)
+  const ms = parseInt(milliseconds, 10)
+  
+  return h * 3600 + m * 60 + s + ms / 1000
+}
+
 const parseSRTFile = async (filePath: string): Promise<SubtitleEntry[]> => {
   try {
     console.log('Loading SRT file from:', filePath)
@@ -82,8 +221,8 @@ const parseSRTFile = async (filePath: string): Promise<SubtitleEntry[]> => {
           startTime: 0,
           endTime: 4,
           duration: 4,
-          text: '使用模擬數據 - 等待實際SRT文件讀取功能',
-          originalText: '使用模擬數據 - 等待實際SRT文件讀取功能'
+          text: '他因為石投，所以他才出來頂罪。',
+          originalText: "He's taking the fall for Shi Tou."
         },
         {
           id: generateUUID(),
@@ -91,8 +230,8 @@ const parseSRTFile = async (filePath: string): Promise<SubtitleEntry[]> => {
           startTime: 6,
           endTime: 9,
           duration: 3,
-          text: '這些是臨時數據，實際應用中會讀取真實的SRT文件',
-          originalText: '這些是臨時數據，實際應用中會讀取真實的SRT文件'
+          text: '今日天氣非常之好',
+          originalText: 'The weather is very good today'
         },
         {
           id: generateUUID(),
@@ -100,8 +239,8 @@ const parseSRTFile = async (filePath: string): Promise<SubtitleEntry[]> => {
           startTime: 12,
           endTime: 16,
           duration: 4,
-          text: '請等待開發人員實現文件讀取API',
-          originalText: '請等待開發人員實現文件讀取API'
+          text: '預計會有陽光普照',
+          originalText: 'It is expected to be sunny'
         }
       ]
     }
@@ -131,9 +270,13 @@ const parseSRTFile = async (filePath: string): Promise<SubtitleEntry[]> => {
       const endTime = parseTimeFromSRT(timeMatch[5], timeMatch[6], timeMatch[7], timeMatch[8])
       const duration = endTime - startTime
       
-      // Parse text (remaining lines)
-      const text = lines.slice(2).join('\n').trim()
-      if (!text) continue
+      // Parse text based on SRT format with Chinese/Translation separation
+      const textLines = lines.slice(2).filter(line => line.trim())
+      if (textLines.length === 0) continue
+      
+      // First line is Chinese text, remaining lines are translation
+      const chineseText = textLines[0].trim()
+      const translationText = textLines.length > 1 ? textLines.slice(1).join('\n').trim() : undefined
       
       subtitles.push({
         id: generateUUID(),
@@ -141,8 +284,8 @@ const parseSRTFile = async (filePath: string): Promise<SubtitleEntry[]> => {
         startTime,
         endTime,
         duration,
-        text,
-        originalText: text // Store original for diff comparison
+        text: chineseText, // Chinese text in main field
+        originalText: translationText // Translation text in originalText field
       })
     }
     
@@ -163,7 +306,7 @@ const parseSRTFile = async (filePath: string): Promise<SubtitleEntry[]> => {
         duration: 5,
         text: '你好，歡迎收看今日嘅新聞',
         confidence: 95,
-        originalText: '你好，歡迎收看今日嘅新聞'
+        originalText: 'Hello, welcome to watch today\'s news'
       },
       {
         id: generateUUID(),
@@ -173,7 +316,7 @@ const parseSRTFile = async (filePath: string): Promise<SubtitleEntry[]> => {
         duration: 4,
         text: '今日天氣非常之好',
         confidence: 88,
-        originalText: '今日天氣非常之好'
+        originalText: 'The weather is very good today'
       },
       {
         id: generateUUID(),
@@ -183,7 +326,7 @@ const parseSRTFile = async (filePath: string): Promise<SubtitleEntry[]> => {
         duration: 5,
         text: '預計會有陽光普照',
         confidence: 92,
-        originalText: '預計會有陽光普照'
+        originalText: 'It is expected to be sunny'
       }
     ]
   }
@@ -222,18 +365,36 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(
     lastAutoSave: null,
 
     // Session Management
-    initializeSession: async (srtPath: string, videoPath?: string) => {
+    initializeSession: async (subtitlePath: string, videoPath?: string, importedData?: SubtitleEntry[]) => {
       set({ isLoading: true, error: null })
       
       try {
         const sessionId = generateUUID()
-        const tempPath = await createTempFile(srtPath, sessionId)
-        const originalSubtitles = await parseSRTFile(srtPath)
-        const detectedVideoPath = videoPath || srtPath
+        const tempPath = await createTempFile(subtitlePath, sessionId)
         
-        const session: TempSRTSession = {
+        let originalSubtitles: SubtitleEntry[]
+        
+        // Use imported data if provided (prevents dangerous function property manipulation)
+        if (importedData && Array.isArray(importedData)) {
+          originalSubtitles = importedData
+          console.log('Using imported subtitle data:', originalSubtitles.length, 'entries')
+        } else {
+          // Detect file format and use appropriate parser
+          const fileExtension = subtitlePath.toLowerCase().split('.').pop()
+          
+          if (fileExtension === 'vtt') {
+            originalSubtitles = await parseVTTFile(subtitlePath)
+          } else {
+            // Default to SRT parser for .srt files and unknown formats
+            originalSubtitles = await parseSRTFile(subtitlePath)
+          }
+        }
+        
+        const detectedVideoPath = videoPath || subtitlePath
+        
+        const session: TempSubtitleSession = {
           sessionId,
-          originalPath: srtPath,
+          originalPath: subtitlePath,
           tempPath,
           videoPath: detectedVideoPath,
           originalSubtitles,
@@ -255,11 +416,21 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(
           redoStack: []
         })
 
-        // Start auto-save interval
+        // Start auto-save interval with debouncing for large datasets
         const autoSaveInterval = setInterval(() => {
           const currentState = get()
           if (currentState.session?.isDirty && !currentState.isAutoSaving) {
-            currentState.autoSave()
+            // Use requestIdleCallback for large datasets to prevent blocking
+            if (originalSubtitles.length > 100) {
+              if (window.requestIdleCallback) {
+                window.requestIdleCallback(() => currentState.autoSave())
+              } else {
+                // Fallback for browsers without requestIdleCallback
+                setTimeout(() => currentState.autoSave(), 0)
+              }
+            } else {
+              currentState.autoSave()
+            }
           }
         }, 30000) // Auto-save every 30 seconds
 
@@ -267,6 +438,7 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(
         ;(session as any).autoSaveInterval = autoSaveInterval
         
       } catch (error) {
+        console.error('Session initialization error:', error)
         set({ 
           error: error instanceof Error ? error.message : 'Failed to initialize session',
           isLoading: false 

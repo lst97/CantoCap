@@ -178,6 +178,7 @@ export const InputPanel = () => {
     <Box 
       sx={{ 
         width: '100%',
+        height: '90%',
         display: 'flex',
         flexDirection: 'column',
         backgroundColor: 'transparent',

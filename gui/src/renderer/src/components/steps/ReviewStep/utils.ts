@@ -24,6 +24,22 @@ export const parseTime = (timeString: string): number => {
   return 0;
 };
 
+// Bilingual diff function for Chinese text and translation
+export const generateBilingualDiff = (
+  originalChinese: string,
+  currentChinese: string,
+  originalTranslation: string,
+  currentTranslation: string
+): { chinese: DiffPart[]; translation: DiffPart[] } => {
+  const chineseDiff = generateCharacterDiff(originalChinese, currentChinese);
+  const translationDiff = generateCharacterDiff(originalTranslation, currentTranslation);
+  
+  return {
+    chinese: chineseDiff,
+    translation: translationDiff
+  };
+};
+
 // Character-level diff function using proper edit distance algorithm
 export const generateCharacterDiff = (
   originalText: string,

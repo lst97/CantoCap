@@ -6,6 +6,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 CantoCap is an advanced CLI tool for generating accurate Cantonese subtitles from audio/video files using OpenAI Whisper with AI-powered enhancements via Google Gemini Flash. The project follows Clean Architecture and Domain-Driven Design principles with comprehensive features including speaker diarization, music detection, automatic language style conversion, and intelligent hardware optimization.
 
+### Project Structure
+- **Engine** (`/engine/`): Python-based backend with Clean Architecture (this directory)
+- **GUI** (`/gui/`): Electron-based frontend with TypeScript/React for desktop application
+- **Integration**: IPC communication between engine and GUI for unified user experience
+
+### Current Development State
+- **Active Branch**: `dev` (main development branch)
+- **Main Branch**: `master` (production releases)
+- **Recent Focus**: GUI integration, engine improvements, comprehensive testing framework
+- **Version**: 0.1.0-alpha (early development phase)
+
 ## Development Commands
 
 ### Setup and Installation
@@ -435,6 +446,175 @@ If working with GPU acceleration:
 - **Contextual error messages** with actionable guidance for users
 - **Stack trace management** with appropriate detail levels for different modes
 
+## Claude Code Agent Dispatch Protocol
+
+### Specialized Agent Activation Patterns
+
+When working with this codebase, Claude Code should auto-activate specialized agents based on the domain and complexity:
+
+#### Backend Architecture Agent (`--persona-backend`)
+**Auto-triggers on**:
+- Domain layer modifications (`src/domain/`)
+- Repository pattern implementations (`src/infrastructure/repositories/`)
+- Service layer changes (`src/infrastructure/services/`)
+- Dependency injection container updates (`src/presentation/di/`)
+
+**Key Focus Areas**:
+- Clean Architecture compliance and layer separation
+- Domain-Driven Design patterns and value object integrity
+- Service orchestration and dependency management
+- Error handling and resource cleanup patterns
+
+#### Python Development Agent (`--persona-python-pro`)
+**Auto-triggers on**:
+- Infrastructure service implementations
+- CLI command processing (`src/presentation/cli/`)
+- Testing framework enhancements (`tests/`)
+- Type checking and validation logic
+
+**Key Focus Areas**:
+- Modern Python patterns (3.9-3.12 compatibility)
+- Async/await patterns for AI service integrations
+- Type safety with mypy strict mode
+- Performance optimization for ML workloads
+
+#### QA Testing Agent (`--persona-qa`)
+**Auto-triggers on**:
+- Test file modifications (`tests/unit/`, `tests/integration/`, `tests/e2e/`)
+- Test configuration updates (`pytest.ini`, `conftest.py`)
+- Coverage reporting and quality gates
+- CI/CD pipeline enhancements
+
+**Key Focus Areas**:
+- Test pyramid strategy (unit → integration → e2e)
+- Pytest fixtures and advanced testing patterns
+- Mock service implementations for external dependencies
+- Performance testing and benchmarking
+
+#### AI/ML Specialist Agent (`--persona-ai-engineer`)
+**Auto-triggers on**:
+- Whisper/WhisperX service implementations
+- Gemini Flash integration services
+- Speaker diarization and audio processing
+- LLM prompt engineering and optimization
+
+**Key Focus Areas**:
+- Model selection and hardware optimization
+- GPU memory management and CUDA acceleration
+- Prompt engineering for transcription refinement
+- Audio processing pipeline optimization
+
+### Command-Specific Agent Recommendations
+
+```bash
+# Architecture analysis and system design
+/analyze src/domain/ --persona-backend --think-hard --seq
+
+# Test coverage improvements
+/improve tests/ --persona-qa --focus quality --test-strategy
+
+# AI service optimization
+/analyze src/infrastructure/services/ --persona-ai-engineer --focus performance
+
+# CLI experience enhancement
+/improve src/presentation/cli/ --persona-python-pro --focus usability
+
+# Integration testing workflow
+/test --persona-qa --integration --requires_ffmpeg --requires_api
+```
+
+### Integration Patterns with GUI Component
+
+#### IPC Communication Layer
+- **Engine Side**: `src/presentation/cli/ipc_handler.py` - Structured JSON output
+- **GUI Side**: `../gui/src/main/process-manager.ts` - Process orchestration
+- **Protocol**: JSON-based bidirectional communication with error handling
+
+#### Cross-Component Development Workflow
+```bash
+# Engine changes affecting GUI
+1. Modify engine IPC output format
+2. Update engine integration tests
+3. Test GUI integration with: cd ../gui && npm run test:integration
+4. Validate end-to-end workflow
+
+# GUI changes requiring engine support
+1. Define IPC message schema
+2. Implement engine handler in ipc_handler.py
+3. Add integration tests for new message types
+4. Update engine CLI for new parameters
+```
+
+## Advanced Development Patterns
+
+### Service Layer Architecture
+
+#### Domain Services Pattern
+```python
+# Domain services contain business logic
+class SubtitleFormattingService:
+    """Pure business logic, no external dependencies"""
+    
+# Infrastructure services handle external integrations  
+class WhisperService:
+    """External service integration with error handling"""
+```
+
+#### Repository Pattern Implementation
+```python
+# Abstract interface in domain layer
+class IAudioRepository(Protocol):
+    def extract_audio(self, media_file: MediaFile) -> AudioStream: ...
+
+# Concrete implementation in infrastructure
+class FFmpegAudioRepository:
+    """FFmpeg-based audio extraction with validation"""
+```
+
+#### Use Case Orchestration
+```python
+# Use cases coordinate between services and repositories
+class GenerateSubtitlesUseCase:
+    """Business workflow orchestration with comprehensive error handling"""
+```
+
+### Error Handling Strategies
+
+#### Layered Error Handling
+- **Domain**: Business rule violations → Custom domain exceptions
+- **Application**: Validation errors → Application-specific exceptions  
+- **Infrastructure**: External service failures → Infrastructure exceptions
+- **Presentation**: User-friendly error display → Rich console formatting
+
+#### Graceful Degradation
+- **GPU → CPU**: Automatic fallback for model inference
+- **API Failures**: Continue processing without optional AI features
+- **Format Issues**: Attempt format conversion before failing
+
+### Performance Optimization Patterns
+
+#### Lazy Loading
+```python
+# Services load heavy resources only when needed
+@cached_property
+def whisper_model(self) -> WhisperModel:
+    return load_model(self.model_name)
+```
+
+#### Chunked Processing
+```python
+# Large files processed in configurable chunks
+for chunk in media_chunker.chunk_audio(duration=self.max_chunk_duration):
+    process_chunk(chunk)
+```
+
+#### Hardware Detection
+```python
+# Intelligent hardware utilization
+hardware_info = self.hardware_detector.detect()
+optimal_model = self.model_selector.select_optimal(hardware_info, priority)
+```
+
 ## Additional Documentation
 
 ### Related Files
@@ -442,6 +622,7 @@ If working with GPU acceleration:
 - **`GPU_SETUP_GUIDE.md`**: Detailed GPU acceleration setup instructions
 - **`ARGUMENT_VALIDATION.md`**: Command-line argument validation documentation
 - **`examples/terminology_config.json`**: Sample custom terminology configuration
+- **`../gui/CLAUDE.md`**: GUI-specific development guidance and integration patterns
 
 ### Key Features Summary
 - **Multi-format support**: MP4, AVI, MKV, WAV, MP3, FLAC, and more
@@ -451,3 +632,4 @@ If working with GPU acceleration:
 - **Professional CLI**: Rich formatting, progress indicators, and comprehensive error handling
 - **Modular architecture**: Clean separation of concerns with dependency injection
 - **Extensible design**: Easy addition of new AI services and processing features
+- **GUI Integration**: Seamless desktop application with Electron frontend

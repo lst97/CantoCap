@@ -217,6 +217,12 @@ export class ErrorBoundary extends Component<Props, State> {
       [ErrorCategory.FILE_SYSTEM]: '#FEE75C', // Discord Yellow
       [ErrorCategory.PROCESSING]: '#F59E0B', // Primary Amber
       [ErrorCategory.VALIDATION]: '#F87171', // Light Red
+      [ErrorCategory.ENGINE_IPC]: '#7C3AED', // Purple - IPC Communication
+      [ErrorCategory.ENGINE_STARTUP]: '#DC2626', // Red - Critical Startup
+      [ErrorCategory.ENGINE_RUNTIME]: '#EA580C', // Orange - Runtime Issues
+      [ErrorCategory.ENGINE_EXIT]: '#B91C1C', // Dark Red - Exit Errors
+      [ErrorCategory.ENGINE_SPAWN]: '#7C2D12', // Dark Orange - Spawn Errors
+      [ErrorCategory.ENGINE_SETUP]: '#1E40AF', // Blue - Setup Issues
       [ErrorCategory.UNKNOWN]: '#96989D' // Discord Medium Text
     }
     return colors[category] || colors[ErrorCategory.UNKNOWN]
@@ -248,10 +254,13 @@ export class ErrorBoundary extends Component<Props, State> {
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            justifyContent: 'center',
-            minHeight: '80vh',
+            justifyContent: 'flex-start',
+            minHeight: '100vh',
+            maxHeight: '100vh',
+            overflow: 'auto',
             p: { xs: 2, md: 4 },
             background: '#36393F', // Discord Dark Gray background
+            py: { xs: 2, md: 4 },
           }}
         >
           <Fade in timeout={500}>
@@ -259,12 +268,15 @@ export class ErrorBoundary extends Component<Props, State> {
               sx={{
                 maxWidth: 800,
                 width: '100%',
+                maxHeight: 'calc(100vh - 64px)',
                 backgroundColor: '#2F3136', // Discord Darker Gray
                 border: '1px solid rgba(64, 68, 75, 0.3)', // Discord Border Color
                 borderRadius: 4,
                 overflow: 'hidden',
                 position: 'relative',
-                boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.15), 0px 2px 4px rgba(0, 0, 0, 0.3)'
+                boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.15), 0px 2px 4px rgba(0, 0, 0, 0.3)',
+                display: 'flex',
+                flexDirection: 'column'
               }}
             >
               {/* Error Header */}
@@ -342,7 +354,25 @@ export class ErrorBoundary extends Component<Props, State> {
               </Box>
 
               {/* Error Summary */}
-              <Box sx={{ p: 4 }}>
+              <Box sx={{ 
+                p: 4, 
+                flex: 1, 
+                overflow: 'auto',
+                '&::-webkit-scrollbar': {
+                  width: 8,
+                },
+                '&::-webkit-scrollbar-track': {
+                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                  borderRadius: 4,
+                },
+                '&::-webkit-scrollbar-thumb': {
+                  backgroundColor: 'rgba(245, 158, 11, 0.5)',
+                  borderRadius: 4,
+                  '&:hover': {
+                    backgroundColor: 'rgba(245, 158, 11, 0.7)',
+                  },
+                },
+              }}>
                 <Alert 
                   severity="error" 
                   sx={{ 
@@ -490,7 +520,24 @@ export class ErrorBoundary extends Component<Props, State> {
                         🔬 Technical Details
                       </Typography>
                     </AccordionSummary>
-                    <AccordionDetails>
+                    <AccordionDetails sx={{ 
+                      maxHeight: 400, 
+                      overflow: 'auto',
+                      '&::-webkit-scrollbar': {
+                        width: 6,
+                      },
+                      '&::-webkit-scrollbar-track': {
+                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                        borderRadius: 3,
+                      },
+                      '&::-webkit-scrollbar-thumb': {
+                        backgroundColor: 'rgba(245, 158, 11, 0.4)',
+                        borderRadius: 3,
+                        '&:hover': {
+                          backgroundColor: 'rgba(245, 158, 11, 0.6)',
+                        },
+                      },
+                    }}>
                       <Stack spacing={3}>
                         {/* Error Stack */}
                         <Box>

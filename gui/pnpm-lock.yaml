@@ -23,6 +23,12 @@ dependencies:
   '@mui/material':
     specifier: ^7.2.0
     version: 7.2.0(@emotion/react@11.14.0)(@emotion/styled@11.14.1)(@types/react@19.1.9)(react-dom@19.1.1)(react@19.1.1)
+  '@types/highlight.js':
+    specifier: ^10.1.0
+    version: 10.1.0
+  highlight.js:
+    specifier: ^11.11.1
+    version: 11.11.1
   react:
     specifier: ^19.1.1
     version: 19.1.1
@@ -1623,6 +1629,13 @@ packages:
     dependencies:
       '@types/node': 24.1.0
     dev: true
+
+  /@types/highlight.js@10.1.0:
+    resolution: {integrity: sha512-77hF2dGBsOgnvZll1vymYiNUtqJ8cJfXPD6GG/2M0aLRc29PkvB7Au6sIDjIEFcSICBhCh2+Pyq6WSRS7LUm6A==}
+    deprecated: This is a stub types definition. highlight.js provides its own type definitions, so you do not need this installed.
+    dependencies:
+      highlight.js: 11.11.1
+    dev: false
 
   /@types/http-cache-semantics@4.0.4:
     resolution: {integrity: sha512-1m0bIFVc7eJWyve9S0RnuRgcQqF/Xd5QsUZAZeQFr1Q3/p9JWoQQEqmVy+DPTNpGXwhgIetAoYF8JSc33q29QA==}
@@ -3547,6 +3560,11 @@ packages:
     dependencies:
       hermes-estree: 0.25.1
     dev: true
+
+  /highlight.js@11.11.1:
+    resolution: {integrity: sha512-Xwwo44whKBVCYoliBQwaPvtd/2tYFkRQtXDWj1nackaV2JPXx3L0+Jvd8/qCJ2p+ML0/XVkJ2q+Mr+UVdpJK5w==}
+    engines: {node: '>=12.0.0'}
+    dev: false
 
   /hoist-non-react-statics@3.3.2:
     resolution: {integrity: sha512-/gGivxi8JPKWNm/W0jSmzcMPpfpPLc3dY/6GxhX2hQ9iGj3aDfklV4ET7NjKpSinLpJ5vafa9iiGIEZg10SfBw==}

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import { navigateToProcessing, navigateToConfig } from '../utils/workflow-navigation'
+import { useWorkflowStore } from '../stores/workflow-store'
 import type { 
   AppState, 
   AppConfig, 
@@ -32,6 +33,8 @@ interface AppActions {
 
   // Configuration
   updateConfig: <K extends keyof AppConfig>(key: K, value: AppConfig[K]) => void
+  saveStateToStorage: () => void
+  restoreUIState: () => void
 
   // UI Actions
   setActiveModal: (modal: string | null) => void
@@ -107,11 +110,12 @@ export const useAppStore = create<AppStore>()(
       language: 'zh',
       model: null,
       priority: 'balanced',
-      speakers: true,
+      speakers: false,
       written: true,
       music: false,
       charset: 'traditional',
       geminiKey: '',
+      hfToken: '',
       noGeminiRefinement: false,
       maxChunkDuration: 15,
       videoQuality: '360p',
@@ -121,7 +125,8 @@ export const useAppStore = create<AppStore>()(
       duration: 10.0,
       verbose: false,
       startTime: null,
-      endTime: null
+      endTime: null,
+      importedJsonFile: null
     },
     
     // UI State
@@ -263,23 +268,161 @@ export const useAppStore = create<AppStore>()(
       
       // Save config to localStorage for persistence
       const currentConfig = get().config
-      localStorage.setItem('cantocap-config', JSON.stringify({
+      const updatedConfig = {
         ...currentConfig,
         [key]: value
-      }))
+      }
+      localStorage.setItem('cantocap-config', JSON.stringify(updatedConfig))
+      
+      // Also persist certain settings to main process config manager
+      try {
+        // Save important paths to main process
+        if (key === 'inputFile' && value) {
+          window.cantocapAPI.setLastInputPath(value as string).catch(console.error)
+        }
+        if (key === 'outputFile' && value) {
+          window.cantocapAPI.setLastOutputPath(value as string).catch(console.error)
+        }
+        
+        // Save other relevant config sections
+        if (key === 'geminiKey' || key === 'hfToken' || key === 'apiKeys') {
+          window.cantocapAPI.updateConfigSection('apiKeys', { 
+            gemini: updatedConfig.geminiKey,
+            huggingface: updatedConfig.hfToken
+          }).catch(console.error)
+        }
+        
+        if (key === 'ffmpegPath') {
+          window.cantocapAPI.updateConfigSection('dependencies', {
+            ffmpegPath: value
+          }).catch(console.error)
+        }
+        
+        // Save UI preferences
+        if (['theme', 'showAdvanced'].includes(key)) {
+          window.cantocapAPI.updateConfigSection('ui', {
+            theme: updatedConfig.theme || 'system',
+            showAdvanced: updatedConfig.showAdvanced !== undefined ? updatedConfig.showAdvanced : true
+          }).catch(console.error)
+        }
+        
+        // Save processing preferences
+        if (['priority', 'language', 'charset', 'speakers', 'music', 'written'].includes(key)) {
+          const modelSettings = {
+            priority: updatedConfig.priority || 'balanced'
+          }
+          const advancedSettings = {
+            language: updatedConfig.language || 'zh',
+            charset: updatedConfig.charset || 'traditional',
+            translation: updatedConfig.written || true,
+            speakerDiarization: updatedConfig.speakers || false,
+            musicDetection: updatedConfig.music || false
+          }
+          
+          window.cantocapAPI.updateConfigSection('modelSettings', modelSettings).catch(console.error)
+          window.cantocapAPI.updateConfigSection('advancedSettings', advancedSettings).catch(console.error)
+        }
+        
+        // Save imported JSON file path
+        if (key === 'importedJsonFile') {
+          window.cantocapAPI.updateConfigSection('importedCaption', {
+            jsonFilePath: value
+          }).catch(console.error)
+        }
+      } catch (error) {
+        console.error('Failed to persist config to main process:', error)
+      }
     },
 
-    loadConfigFromStorage: () => {
+    saveStateToStorage: () => {
       try {
-        const saved = localStorage.getItem('cantocap-config')
-        if (saved) {
-          const config = JSON.parse(saved) as Partial<AppConfig>
+        const state = get()
+        
+        // Save UI state to localStorage
+        const uiState = {
+          theme: state.ui.theme,
+          showAdvanced: state.ui.showAdvanced,
+          sidebarExpanded: state.ui.sidebarExpanded,
+          processingHistory: state.ui.processingHistory
+        }
+        
+        localStorage.setItem('cantocap-ui-state', JSON.stringify(uiState))
+        
+        // Also save to main process if relevant
+        window.cantocapAPI.updateConfigSection('ui', {
+          theme: state.ui.theme,
+          showAdvanced: state.ui.showAdvanced
+        }).catch(console.error)
+        
+      } catch (error) {
+        console.error('Failed to save state to storage:', error)
+      }
+    },
+
+    restoreUIState: () => {
+      try {
+        const savedState = localStorage.getItem('cantocap-ui-state')
+        if (savedState) {
+          const uiState = JSON.parse(savedState)
           set((state: AppStore) => ({
-            config: { ...state.config, ...config }
+            ui: {
+              ...state.ui,
+              ...uiState,
+              notifications: [] // Don't restore notifications
+            }
           }))
         }
       } catch (error) {
+        console.error('Failed to restore UI state:', error)
+      }
+    },
+
+    loadConfigFromStorage: async () => {
+      try {
+        // First try to load from main process config manager
+        const mainConfig = await window.cantocapAPI.getConfig().catch(() => null)
+        
+        // Also load from localStorage as fallback
+        const localStorageConfig = localStorage.getItem('cantocap-config')
+        const localConfig = localStorageConfig ? JSON.parse(localStorageConfig) : null
+        
+        // Merge configs with main process taking priority for certain settings
+        const mergedConfig = {
+          ...get().config, // Start with defaults
+          ...localConfig,  // Apply localStorage config
+          ...mainConfig    // Main process overrides
+        }
+        
+        set((state: AppStore) => ({
+          config: { ...state.config, ...mergedConfig }
+        }))
+        
+        // Set paths from main config if available
+        if (mainConfig?.lastInputPath) {
+          set((state: AppStore) => ({
+            config: { ...state.config, inputFile: mainConfig.lastInputPath }
+          }))
+        }
+        if (mainConfig?.lastOutputPath) {
+          set((state: AppStore) => ({
+            config: { ...state.config, outputFile: mainConfig.lastOutputPath }
+          }))
+        }
+        
+      } catch (error) {
         console.error('Failed to load config from storage:', error)
+        // Fallback to localStorage only
+        try {
+          const saved = localStorage.getItem('cantocap-config')
+          if (saved) {
+            const config = JSON.parse(saved) as Partial<AppConfig>
+            set((state: AppStore) => ({
+              config: { ...state.config, ...config }
+            }))
+          }
+        } catch (localError) {
+          console.error('Failed to load from localStorage:', localError)
+        }
       }
     },
     
@@ -312,6 +455,11 @@ export const useAppStore = create<AppStore>()(
         return
       }
 
+      if (!config.hfToken) {
+        get().showNotification('HuggingFace token is required for Whisper model downloads', 'error')
+        return
+      }
+
       if (!dependencies.ffmpeg.available) {
         get().showNotification('FFmpeg is not available. Please install FFmpeg and restart the app.', 'error')
         return
@@ -329,7 +477,15 @@ export const useAppStore = create<AppStore>()(
         }
       }))
 
-      // Navigate to processing step (step 3)
+      // Reset steps 4-5 when generate subtitle button is clicked
+      const workflowStore = useWorkflowStore.getState()
+      workflowStore.resetStepsFromRange('review', 'export')
+      
+      // Clear any error state from processing step when starting new transcription
+      workflowStore.clearStepError('processing')
+      
+      // Ensure processing step is accessible and navigate to it
+      workflowStore.completeStep('config') // This enables processing step
       navigateToProcessing()
 
       // Add to processing history
@@ -348,6 +504,11 @@ export const useAppStore = create<AppStore>()(
           message: 'Transcription cancelled'
         }
       }))
+      
+      // Disable processing step and reset workflow from config step
+      const workflowStore = useWorkflowStore.getState()
+      workflowStore.disableStep('processing')
+      workflowStore.resetWorkflowFromStep('config')
       
       // Navigate back to config step when cancelled
       navigateToConfig()
@@ -394,10 +555,13 @@ export const useAppStore = create<AppStore>()(
         ui: { ...state.ui, activeModal: null }
       })),
 
-    toggleAdvanced: () =>
+    toggleAdvanced: () => {
       set((state: AppStore) => ({
         ui: { ...state.ui, showAdvanced: !state.ui.showAdvanced }
-      })),
+      }))
+      // Auto-save UI state when toggling advanced options
+      setTimeout(() => get().saveStateToStorage(), 100)
+    },
 
     showNotification: (message: string, type: 'success' | 'error' | 'warning' | 'info' = 'info', duration: number = 5000) => {
       const id = Date.now()
@@ -440,6 +604,9 @@ export const useAppStore = create<AppStore>()(
           processingHistory: [entry, ...state.ui.processingHistory.slice(0, 9)] // Keep last 10
         }
       }))
+      
+      // Auto-save when adding to history
+      setTimeout(() => get().saveStateToStorage(), 100)
     },
 
     // Utility Functions
@@ -447,9 +614,11 @@ export const useAppStore = create<AppStore>()(
       const { config, dependencies, processing } = get()
       return (
         !!config.inputFile &&
+        !!config.hfToken &&
         dependencies.python.available &&
         dependencies.ffmpeg.available &&
-        !processing.isActive
+        !processing.isActive &&
+        !config.importedJsonFile // Disable if JSON caption is imported
       )
     },
 
@@ -472,7 +641,7 @@ export const useAppStore = create<AppStore>()(
       if (config.videoQuality !== '360p') args.push('--video-quality', config.videoQuality)
       if (config.terminologyConfig) args.push('--config', config.terminologyConfig)
       if (config.ffmpegPath) args.push('--ffmpeg-path', config.ffmpegPath)
-      if (config.subtitle) args.push('--subtitle', config.subtitle)
+      if (config.subtitle && typeof config.subtitle === 'string') args.push('--subtitle', config.subtitle)
       if (config.startTime !== null && config.endTime !== null) {
         args.push('--start-time', String(config.startTime))
         args.push('--end-time', String(config.endTime))

@@ -1,5 +1,16 @@
 // Application Types and Interfaces
 
+export interface SubtitleData {
+  id: number
+  startTime: number
+  endTime: number
+  text: string
+  translation?: string
+  confidence?: number
+  speaker?: string | null
+  isMusic?: boolean
+}
+
 export interface DependencyStatus {
   name: string
   status: 'checking' | 'found' | 'missing' | 'error'
@@ -60,16 +71,18 @@ export interface AppConfig {
   music: boolean
   charset: 'traditional' | 'simplified'
   geminiKey: string
+  hfToken: string
   noGeminiRefinement: boolean
   maxChunkDuration: number
   videoQuality: '360p' | '480p' | '720p'
   terminologyConfig: string | null
   ffmpegPath: string | null
-  subtitle: string | null
+  subtitle: string | SubtitleData[] | null
   duration: number
   verbose: boolean
   startTime: number | null
   endTime: number | null
+  importedJsonFile: string | null
 }
 
 export interface UIState {
@@ -226,6 +239,11 @@ export interface FileDialogResult {
   filePaths: string[]
 }
 
+export interface SaveFileDialogResult {
+  canceled: boolean
+  filePath?: string
+}
+
 // Initialization Types
 export interface InitializationResult {
   success: boolean
@@ -244,8 +262,24 @@ export interface ElectronAPI {
   runEngineSetup: () => Promise<boolean>
   getAppVersion: () => Promise<string>
   openExternalUrl: (url: string) => Promise<void>
+  getPlatform: () => Promise<string>
   openFileDialog: (options?: FileDialogOptions) => Promise<FileDialogResult>
   openFolderDialog: () => Promise<FileDialogResult>
+  saveFileDialog: (options?: {
+    defaultPath?: string;
+    filters?: Array<{ name: string; extensions: string[] }>;
+  }) => Promise<SaveFileDialogResult>
+  writeExportFile: (filePath: string, content: string) => Promise<{ success: boolean }>
+  readJsonFile: (filePath: string) => Promise<any>
+  getConfig: () => Promise<any>
+  setConfig: (section: string, value: any) => Promise<void>
+  updateConfig: (updates: any) => Promise<void>
+  getConfigSection: (section: string) => Promise<any>
+  updateConfigSection: (section: string, updates: any) => Promise<void>
+  setLastInputPath: (path: string) => Promise<void>
+  setLastOutputPath: (path: string) => Promise<void>
+  resetConfig: () => Promise<void>
+  resetConfigSection: (section: string) => Promise<void>
   startTranscription: (config: AppConfig) => void
   cancelProcess: () => void
   checkHardware: () => Promise<HardwareInfo>

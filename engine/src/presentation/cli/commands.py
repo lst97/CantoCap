@@ -1102,7 +1102,7 @@ def _display_file_info(input_file: Path, output_file: Optional[Path], ipc_mode: 
         # Output file info as JSON log messages
         ipc_log(f"Input file: {str(input_file)}")
         ipc_log(f"Output file: {output_path}")
-        ipc_log("CantoCap - Cantonese Subtitle Generator initialized")
+        ipc_log("CantoCap - Cantonese Cation Generator initialized")
     else:
         # Use rich console output
         info_text = Text()
@@ -1113,7 +1113,7 @@ def _display_file_info(input_file: Path, output_file: Optional[Path], ipc_mode: 
         
         console.print(Panel(
             info_text,
-            title="🎬 CantoCap - Cantonese Subtitle Generator",
+            title="🎬 CantoCap - Cantonese Caption Generator",
             title_align="left",
             border_style="blue"
         ))

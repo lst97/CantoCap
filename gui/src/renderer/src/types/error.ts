@@ -6,6 +6,12 @@ export enum ErrorCategory {
   FILE_SYSTEM = 'file_system',
   PROCESSING = 'processing',
   VALIDATION = 'validation',
+  ENGINE_IPC = 'engine_ipc',
+  ENGINE_STARTUP = 'engine_startup',
+  ENGINE_RUNTIME = 'engine_runtime',
+  ENGINE_EXIT = 'engine_exit',
+  ENGINE_SPAWN = 'engine_spawn',
+  ENGINE_SETUP = 'engine_setup',
   UNKNOWN = 'unknown'
 }
 
@@ -76,4 +82,27 @@ export interface ErrorExplanation {
   possibleCauses: string[]
   suggestedActions: string[]
   technicalDetails?: string
+}
+
+// Engine-specific error types
+export interface EngineError extends Error {
+  category: ErrorCategory
+  type: 'startup_error' | 'runtime_error' | 'exit_error' | 'spawn_error' | 'setup_error'
+  exitCode?: number
+  engineStage?: string
+  ipcData?: any
+}
+
+export interface EngineErrorContext extends ErrorContext {
+  engineType: 'startup_error' | 'runtime_error' | 'exit_error' | 'spawn_error' | 'setup_error'
+  engineStage?: string
+  exitCode?: number
+  ipcData?: any
+  recoveryAttempts?: number
+}
+
+export interface EngineRecoveryAction extends RecoveryAction {
+  engineSpecific?: boolean
+  requiresRestart?: boolean
+  requiresEngineSetup?: boolean
 }

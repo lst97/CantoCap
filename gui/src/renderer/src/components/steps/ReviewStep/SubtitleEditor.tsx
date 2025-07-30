@@ -45,6 +45,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
   const { setCurrentStep, completeStep } = useWorkflowStore();
 
   const [editText, setEditText] = useState("");
+  const [editTranslation, setEditTranslation] = useState("");
   const [editStartTime, setEditStartTime] = useState("");
   const [editEndTime, setEditEndTime] = useState("");
   const [hasChanges, setHasChanges] = useState(false);
@@ -56,11 +57,15 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
   // Check if this is a new subtitle (empty text and no original text)
   const isNewSubtitle =
     editingSubtitle && !editingSubtitle.text && !editingSubtitle.originalText;
+  
+  // Check if subtitle has translation
+  const hasTranslation = editingSubtitle && editingSubtitle.originalText && editingSubtitle.originalText.trim() && editingSubtitle.originalText !== editingSubtitle.text;
 
   // Update local state when selected subtitle changes
   useEffect(() => {
     if (editingSubtitle) {
       setEditText(editingSubtitle.text);
+      setEditTranslation(editingSubtitle.originalText || "");
       setEditStartTime(formatTime(editingSubtitle.startTime));
       setEditEndTime(formatTime(editingSubtitle.endTime));
       setHasChanges(false);
@@ -69,7 +74,12 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
 
   const handleTextChange = (value: string) => {
     setEditText(value);
-    setHasChanges(editingSubtitle?.text !== value);
+    setHasChanges(editingSubtitle?.text !== value || (editingSubtitle?.originalText || "") !== editTranslation);
+  };
+
+  const handleTranslationChange = (value: string) => {
+    setEditTranslation(value);
+    setHasChanges(editingSubtitle?.text !== editText || (editingSubtitle?.originalText || "") !== value);
   };
 
   const handleSave = () => {
@@ -77,6 +87,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
 
     updateSubtitle(editingSubtitle.id, {
       text: editText,
+      originalText: editTranslation || undefined,
       startTime: parseTime(editStartTime),
       endTime: parseTime(editEndTime),
     });
@@ -86,6 +97,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
   const handleCancel = () => {
     if (editingSubtitle) {
       setEditText(editingSubtitle.text);
+      setEditTranslation(editingSubtitle.originalText || "");
       setEditStartTime(formatTime(editingSubtitle.startTime));
       setEditEndTime(formatTime(editingSubtitle.endTime));
       setHasChanges(false);
@@ -93,18 +105,12 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
   };
 
   const handleReset = () => {
-    if (editingSubtitle && editingSubtitle.originalText) {
-      // Update the subtitle in the store with original text
-      updateSubtitle(editingSubtitle.id, {
-        text: editingSubtitle.originalText,
-      });
-
-      // Update local editing state
-      setEditText(editingSubtitle.originalText);
+    if (editingSubtitle) {
+      // Reset to initial values - this is different from the subtitle list reset
+      // Here we reset to the current stored values, not to "original" text
+      setEditText(editingSubtitle.text);
+      setEditTranslation(editingSubtitle.originalText || "");
       setHasChanges(false);
-
-      // Clear undo/redo stacks since we've reset to original state
-      clearUndoRedo();
     }
   };
 
@@ -169,14 +175,11 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
 
         {/* Undo/Redo and Reset buttons */}
         <Box sx={{ display: "flex", gap: 1 }}>
-          <Tooltip title="Reset to Original">
+          <Tooltip title="Reset Changes">
             <IconButton
               size="small"
               onClick={handleReset}
-              disabled={
-                !editingSubtitle?.originalText ||
-                editingSubtitle.originalText === editText
-              }
+              disabled={!hasChanges}
               sx={{ color: "#F59E0B" }}
             >
               <RestoreIcon />
@@ -232,11 +235,11 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
 
           {/* Text Editor */}
           <TextField
-            label="Subtitle Text"
+            label="Subtitle"
             value={editText}
             onChange={(e) => handleTextChange(e.target.value)}
             multiline
-            rows={4}
+            rows={hasTranslation ? 2 : 4}
             fullWidth
             variant="outlined"
             sx={{
@@ -247,6 +250,26 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
               },
             }}
           />
+
+          {/* Translation Editor - Show if translation exists or if we're editing one */}
+          {(hasTranslation || editTranslation.trim()) && (
+            <TextField
+              label="Translation"
+              value={editTranslation}
+              onChange={(e) => handleTranslationChange(e.target.value)}
+              multiline
+              rows={2}
+              fullWidth
+              variant="outlined"
+              sx={{
+                "& .MuiOutlineInputBase-root": {
+                  backgroundColor: hasChanges
+                    ? "rgba(245, 158, 11, 0.05)"
+                    : "transparent",
+                },
+              }}
+            />
+          )}
 
           {/* Confidence and Info */}
           {editingSubtitle.confidence && (

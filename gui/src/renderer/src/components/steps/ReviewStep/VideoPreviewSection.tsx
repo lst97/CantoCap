@@ -258,25 +258,42 @@ export const VideoPreviewSection: React.FC<VideoPreviewSectionProps> = () => {
             </Box>
 
             {/* Centered subtitle text */}
-            <Typography
-              variant="h6"
-              sx={{
-                fontWeight: 600,
-                fontSize: "1.1rem", // Slightly smaller to fit 3 lines better
-                lineHeight: 1.3, // Tighter line height
-                color: "white",
-                textAlign: "center",
-                whiteSpace: "pre-line",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                display: "-webkit-box",
-                WebkitLineClamp: 3, // Limit to exactly 3 lines
-                WebkitBoxOrient: "vertical",
-                pt: 1, // Add padding top to avoid overlap with timestamp
-              }}
-            >
-              {currentSubtitle.text}
-            </Typography>
+            <Box sx={{ pt: 1 }}>
+              <Typography
+                variant="h6"
+                sx={{
+                  fontWeight: 600,
+                  fontSize: "1.1rem",
+                  lineHeight: 1.3,
+                  color: "white",
+                  textAlign: "center",
+                  whiteSpace: "pre-line",
+                  mb: currentSubtitle.originalText && currentSubtitle.originalText.trim() && currentSubtitle.originalText !== currentSubtitle.text ? 0.5 : 0,
+                }}
+              >
+                {currentSubtitle.text}
+              </Typography>
+              
+              {/* Display translation if available */}
+              {currentSubtitle.originalText && 
+               currentSubtitle.originalText.trim() && 
+               currentSubtitle.originalText !== currentSubtitle.text && (
+                <Typography
+                  variant="body2"
+                  sx={{
+                    fontWeight: 400,
+                    fontSize: "0.9rem",
+                    lineHeight: 1.2,
+                    color: "rgba(255, 255, 255, 0.8)",
+                    textAlign: "center",
+                    whiteSpace: "pre-line",
+                    fontStyle: "italic",
+                  }}
+                >
+                  {currentSubtitle.originalText}
+                </Typography>
+              )}
+            </Box>
           </>
         ) : (
           <Typography

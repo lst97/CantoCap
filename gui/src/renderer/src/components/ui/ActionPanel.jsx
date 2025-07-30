@@ -41,6 +41,8 @@ export const ActionPanel = () => {
     if (!canStartTranscription()) {
       if (!config.inputFile) {
         showNotification('Please select an input file first', 'error')
+      } else if (!config.hfToken) {
+        showNotification('HuggingFace token is required for Whisper model downloads', 'error')
       } else if (!dependencies.python.available) {
         showNotification('Python 3.12 is required but not available', 'error')
       } else if (!dependencies.ffmpeg.available) {
@@ -50,7 +52,7 @@ export const ActionPanel = () => {
     }
     
     startTranscription()
-  }, [canStartTranscription, startTranscription, config.inputFile, dependencies, showNotification])
+  }, [canStartTranscription, startTranscription, config.inputFile, config.hfToken, dependencies, showNotification])
 
   const handleCancelTranscription = useCallback(() => {
     cancelTranscription()
@@ -64,6 +66,17 @@ export const ActionPanel = () => {
         className: 'cancel-btn',
         action: handleCancelTranscription,
         disabled: false
+      }
+    }
+    
+    // If JSON caption is imported, disable the generate button
+    if (config.importedJsonFile) {
+      return {
+        text: 'Subtitles Already Imported',
+        icon: '📁',
+        className: 'generate-btn disabled',
+        action: () => {},
+        disabled: true
       }
     }
     
@@ -89,9 +102,19 @@ export const ActionPanel = () => {
   const buttonState = getButtonState()
 
   const getReadinessStatus = () => {
+    // If JSON caption is imported, show different status
+    if (config.importedJsonFile) {
+      return { 
+        ready: true, 
+        message: 'Subtitles imported from JSON file - proceed to review and export', 
+        icon: '📁' 
+      }
+    }
+    
     const issues = []
     
     if (!config.inputFile) issues.push('No input file selected')
+    if (!config.hfToken) issues.push('HuggingFace token required')
     if (!dependencies.python.available) issues.push('Python 3.12 not available')
     if (!dependencies.ffmpeg.available) issues.push('FFmpeg not available')
     
@@ -111,20 +134,9 @@ export const ActionPanel = () => {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
       {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1, fontWeight: 600 }}>
-          🚀 Actions
-        </Typography>
-        <Button
-          variant="outlined"
-          size="small"
-          startIcon={<SettingsIcon />}
-          onClick={toggleAdvanced}
-          sx={{ fontSize: '0.75rem' }}
-        >
-          {ui.showAdvanced ? 'Hide Advanced' : 'Show Advanced'}
-        </Button>
-      </Box>
+      <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1, fontWeight: 600, mb: 1 }}>
+        🚀 Actions
+      </Typography>
 
       {/* Enhanced Readiness Status */}
       <Fade in={true}>
@@ -150,7 +162,7 @@ export const ActionPanel = () => {
           }}
         >
           <Typography variant="body2" sx={{ fontWeight: 500 }}>
-            {readiness.ready ? '✨ Ready to Generate' : '⚠️ Issues Found'}
+            {readiness.ready ? '✨ Ready to Generate' : 'Issues Found'}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem', mt: 0.5 }}>
             {readiness.message}
@@ -287,6 +299,15 @@ export const ActionPanel = () => {
             </Box>
           )}
           
+          {config.importedJsonFile && (
+            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+              <Typography variant="body2" color="text.secondary">Imported JSON:</Typography>
+              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'success.main' }}>
+                {config.importedJsonFile.split(/[\\/]/).pop()}
+              </Typography>
+            </Box>
+          )}
+          
           <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
             <Typography variant="body2" color="text.secondary">Language:</Typography>
             <Typography variant="body2">
@@ -310,19 +331,42 @@ export const ActionPanel = () => {
           
           {config.subtitle && (
             <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-              <Typography variant="body2" color="text.secondary">Translation:</Typography>
+              <Typography variant="body2" color="text.secondary">
+                {Array.isArray(config.subtitle) ? 'Imported Subtitles:' : 'Translation:'}
+              </Typography>
               <Typography variant="body2">
-                {config.subtitle.toUpperCase()}
+                {Array.isArray(config.subtitle) 
+                  ? `${config.subtitle.length} subtitle${config.subtitle.length > 1 ? 's' : ''}`
+                  : config.subtitle.toUpperCase()
+                }
               </Typography>
             </Box>
           )}
           
           <Box>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>Enhanced Options:</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>Features:</Typography>
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+              {/* Basic Features - Always show written style since it's a core function */}
+              <Chip 
+                label={`✍️ Written Style${config.geminiKey ? ' (Enhanced)' : ''}`}
+                size="small" 
+                sx={{ 
+                  fontSize: '0.7rem', 
+                  height: 24,
+                  backgroundColor: config.geminiKey 
+                    ? 'rgba(87, 242, 135, 0.15)' 
+                    : 'rgba(125, 211, 252, 0.15)',
+                  color: config.geminiKey ? 'success.main' : 'info.main',
+                  border: config.geminiKey 
+                    ? '1px solid rgba(87, 242, 135, 0.3)' 
+                    : '1px solid rgba(125, 211, 252, 0.3)',
+                  fontWeight: 500
+                }}
+              />
+              
+              {/* Enhanced Options */}
               {[
                 config.speakers && { label: 'Speakers', icon: '👥' },
-                config.written && { label: 'Written Style', icon: '✍️' },
                 config.music && { label: 'Music Detection', icon: '🎵' },
                 config.geminiKey && { label: 'AI Refinement', icon: '✨' }
               ].filter(Boolean).map((option, index) => (
@@ -340,18 +384,6 @@ export const ActionPanel = () => {
                   }}
                 />
               ))}
-              {![config.speakers, config.written, config.music, config.geminiKey].some(Boolean) && (
-                <Chip 
-                  label="Standard Mode" 
-                  size="small" 
-                  sx={{ 
-                    fontSize: '0.7rem',
-                    height: 24,
-                    backgroundColor: 'rgba(150, 152, 157, 0.15)',
-                    color: 'text.secondary'
-                  }}
-                />
-              )}
             </Box>
           </Box>
         </Stack>

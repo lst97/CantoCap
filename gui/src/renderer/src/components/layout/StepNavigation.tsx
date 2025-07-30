@@ -11,7 +11,9 @@ import {
 } from '@mui/material'
 import {
   MoreHoriz as MoreIcon,
-  Check as CheckIcon
+  Check as CheckIcon,
+  Remove as SkipIcon,
+  Error as ErrorIcon
 } from '@mui/icons-material'
 import { useWorkflowStore } from '../../stores/workflow-store'
 import { useAppStore } from '../../store/app-store'
@@ -107,15 +109,22 @@ export const StepNavigation: React.FC = () => {
                     width: 28, 
                     height: 28,
                     borderRadius: '50%',
-                    backgroundColor: step.isCompleted ? 'success.main' : 
+                    backgroundColor: step.hasError ? 'error.main' :
+                                    step.isSkipped ? 'grey.500' :
+                                    step.isCompleted ? 'success.main' : 
                                     currentStep === step.id ? 'primary.main' : 
                                     step.isAccessible ? 'grey.600' : 'grey.800',
                     color: 'white',
                     fontSize: '0.75rem',
                     fontWeight: 600,
-                    transition: 'all 0.2s'
+                    transition: 'all 0.2s',
+                    opacity: step.isSkipped ? 0.7 : 1
                   }}>
-                    {step.isCompleted ? (
+                    {step.hasError ? (
+                      <ErrorIcon sx={{ fontSize: 16 }} />
+                    ) : step.isSkipped ? (
+                      <SkipIcon sx={{ fontSize: 16 }} />
+                    ) : step.isCompleted ? (
                       <CheckIcon sx={{ fontSize: 16 }} />
                     ) : (
                       index + 1
@@ -125,10 +134,34 @@ export const StepNavigation: React.FC = () => {
                 <ListItemText
                   primary={
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                      <Typography 
+                        variant="body2" 
+                        sx={{ 
+                          fontWeight: 600, 
+                          fontSize: '0.875rem',
+                          opacity: step.isSkipped ? 0.7 : 1,
+                          textDecoration: step.isSkipped ? 'line-through' : 'none'
+                        }}
+                      >
                         {step.title}
                       </Typography>
-                      {step.isCompleted && (
+                      {step.hasError && (
+                        <Chip 
+                          label="Error" 
+                          size="small" 
+                          color="error"
+                          sx={{ height: 16, fontSize: '0.65rem' }}
+                        />
+                      )}
+                      {step.isSkipped && !step.hasError && (
+                        <Chip 
+                          label="Skipped" 
+                          size="small" 
+                          color="default"
+                          sx={{ height: 16, fontSize: '0.65rem', opacity: 0.7 }}
+                        />
+                      )}
+                      {step.isCompleted && !step.isSkipped && !step.hasError && (
                         <Chip 
                           label="Done" 
                           size="small" 

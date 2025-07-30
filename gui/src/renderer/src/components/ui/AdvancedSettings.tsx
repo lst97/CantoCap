@@ -156,14 +156,14 @@ export const AdvancedSettings: React.FC = () => {
 
   return (
     <Stack spacing={3}>
-      <Grid container spacing={3}>
-        <Grid xs={12} md={6}>
-          <SettingGroup
-            icon={<TimerIcon color="primary" fontSize="small" />}
-            title="Max Chunk Duration"
-            description="Maximum duration for processing chunks. Smaller values use less memory but may increase processing time."
-          >
-            <Box sx={{ mb: 2 }}>
+      <SettingGroup
+        icon={<TimerIcon color="primary" fontSize="small" />}
+        title="Max Chunk Duration"
+        description="Maximum duration for processing chunks. Smaller values use less memory but may increase processing time."
+      >
+        <Grid container spacing={3} alignItems="center">
+          <Grid item xs={12} md={8}>
+            <Box sx={{ px: 1, py: 2 }}>
               <Slider
                 value={config.maxChunkDuration}
                 onChange={(_, value) => updateConfig('maxChunkDuration', value)}
@@ -175,29 +175,39 @@ export const AdvancedSettings: React.FC = () => {
                 valueLabelFormat={(value) => `${value} min`}
                 sx={{
                   color: '#F59E0B',
+                  height: 8,
                   '& .MuiSlider-thumb': {
                     backgroundColor: '#F59E0B',
                     border: '2px solid #2F3136',
+                    width: 20,
+                    height: 20,
                     '&:hover, &.Mui-focusVisible': {
                       boxShadow: '0 0 0 8px rgba(245, 158, 11, 0.16)',
                     },
                   },
                   '& .MuiSlider-track': {
                     backgroundColor: '#F59E0B',
+                    height: 6,
                   },
                   '& .MuiSlider-rail': {
                     backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                    height: 6,
                   },
                   '& .MuiSlider-mark': {
                     backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                    width: 3,
+                    height: 3,
                   },
                   '& .MuiSlider-markLabel': {
                     color: '#96989D',
                     fontSize: '0.7rem',
+                    top: 28,
                   },
                 }}
               />
             </Box>
+          </Grid>
+          <Grid item xs={12} md={4}>
             <TextField
               type="number"
               value={config.maxChunkDuration}
@@ -218,38 +228,36 @@ export const AdvancedSettings: React.FC = () => {
                 '& .MuiInputBase-input': { color: '#DCDDDE' },
               }}
             />
-          </SettingGroup>
+          </Grid>
         </Grid>
+      </SettingGroup>
 
-        <Grid xs={12} md={6}>
-          <SettingGroup
-            icon={<DurationIcon color="primary" fontSize="small" />}
-            title="Duration Estimate"
-            description="Expected audio duration for hardware estimation and optimization."
-          >
-            <TextField
-              type="number"
-              value={config.duration}
-              onChange={(e) => handleNumericChange('duration', e.target.value)}
-              inputProps={{ min: 0.1, max: 1440, step: 0.5 }}
-              size="small"
-              fullWidth
-              InputProps={{
-                endAdornment: <InputAdornment position="end">minutes</InputAdornment>
-              }}
-              sx={{
-                '& .MuiOutlinedInput-root': {
-                  backgroundColor: '#2F3136',
-                  '& fieldset': { borderColor: '#40444B' },
-                  '&:hover fieldset': { borderColor: '#5865F2' },
-                  '&.Mui-focused fieldset': { borderColor: '#5865F2' },
-                },
-                '& .MuiInputBase-input': { color: '#DCDDDE' },
-              }}
-            />
-          </SettingGroup>
-        </Grid>
-      </Grid>
+      <SettingGroup
+        icon={<DurationIcon color="primary" fontSize="small" />}
+        title="Duration Estimate"
+        description="Expected audio duration for hardware estimation and optimization."
+      >
+        <TextField
+          type="number"
+          value={config.duration}
+          onChange={(e) => handleNumericChange('duration', e.target.value)}
+          inputProps={{ min: 0.1, max: 1440, step: 0.5 }}
+          size="small"
+          fullWidth
+          InputProps={{
+            endAdornment: <InputAdornment position="end">minutes</InputAdornment>
+          }}
+          sx={{
+            '& .MuiOutlinedInput-root': {
+              backgroundColor: '#2F3136',
+              '& fieldset': { borderColor: '#40444B' },
+              '&:hover fieldset': { borderColor: '#5865F2' },
+              '&.Mui-focused fieldset': { borderColor: '#5865F2' },
+            },
+            '& .MuiInputBase-input': { color: '#DCDDDE' },
+          }}
+        />
+      </SettingGroup>
 
       <SettingGroup
         icon={<VideoIcon color="primary" fontSize="small" />}

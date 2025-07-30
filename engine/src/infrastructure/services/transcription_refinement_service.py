@@ -174,6 +174,9 @@ class GeminiTranscriptionRefinementService(ITranscriptionRefinementService):
             "\n### Phase 7: Validation Processing",
             "\n" + validation_tag_instructions,
             "\n" + "\n".join(template["phases"]["phase_7"]["quality_checklist"]["items"]),
+            # Add pronoun validation if present
+            "\n" + (template["phases"]["phase_7"]["pronoun_validation"]["title"] if "pronoun_validation" in template["phases"]["phase_7"] else ""),
+            "\n" + ("\n".join(template["phases"]["phase_7"]["pronoun_validation"]["checklist"]) if "pronoun_validation" in template["phases"]["phase_7"] else ""),
             "\n" + template["final_output_requirements"]["title"],
             "\n" + template["final_output_requirements"]["srt_format"]["title"],
             template["final_output_requirements"]["srt_format"]["description"],
@@ -204,7 +207,29 @@ class GeminiTranscriptionRefinementService(ITranscriptionRefinementService):
             for key, value in style_config["execution_checklist"].items():
                 if isinstance(value, dict):
                     parts.append(f"    {value['description']}")
-                    if "mappings" in value:
+                    
+                    # Handle simplified pronoun_refinement structure
+                    if key == "vocabulary_conversion" and "pronoun_refinement" in value:
+                        pronoun_ref = value["pronoun_refinement"]
+                        parts.append(f"    {pronoun_ref['description']}")
+                        
+                        # Add context clues
+                        if "context_clues" in pronoun_ref:
+                            parts.append("    **Context Clues:**")
+                            parts.extend([f"        - {clue}" for clue in pronoun_ref["context_clues"]])
+                        
+                        # Add guidelines
+                        if "guidelines" in pronoun_ref:
+                            parts.append("    **Guidelines:**")
+                            parts.extend([f"        - {guideline}" for guideline in pronoun_ref["guidelines"]])
+                        
+                        # Add other mappings
+                        if "other_mappings" in value:
+                            parts.append("    **Other Vocabulary Conversions:**")
+                            for k, v in value["other_mappings"].items():
+                                parts.append(f"        {k} → {v}")
+                                
+                    elif "mappings" in value:
                         for k, v in value["mappings"].items():
                             parts.append(f"        {k} → {v}")
                     elif "example" in value:
@@ -241,6 +266,20 @@ class GeminiTranscriptionRefinementService(ITranscriptionRefinementService):
                         phases_parts.append(value["description"])
                     if "items" in value:
                         phases_parts.extend(value["items"])
+                    if "steps" in value:  # Handle steps array (for pronoun_context_analysis)
+                        phases_parts.extend(value["steps"])
+                    if "requirements" in value:  # Handle requirements array (for pronoun_compliance)
+                        phases_parts.extend(value["requirements"])
+                    if "checklist" in value:  # Handle checklist array (for pronoun_validation)
+                        phases_parts.extend(value["checklist"])
+                    if "critical_note" in value:  # Handle critical_note (for pronoun_compliance)
+                        phases_parts.append(value["critical_note"])
+                    if "guidance" in value:  # Handle guidance (for simplified pronoun_context_analysis)
+                        phases_parts.append(value["guidance"])
+                    if "note" in value:  # Handle note (for simplified pronoun_compliance)
+                        phases_parts.append(value["note"])
+                    if "reminder" in value:  # Handle reminder (for simplified pronoun_compliance)
+                        phases_parts.append(value["reminder"])
                     if "compliance_note" in value:  # Handle nested compliance_note
                         phases_parts.append(value["compliance_note"])
                         phases_parts.append(style_description)

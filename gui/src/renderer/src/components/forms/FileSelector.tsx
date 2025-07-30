@@ -21,6 +21,9 @@ import {
   Edit as EditIcon,
   AccessTime as TimeIcon,
   Folder as FolderIcon,
+  ImportExport as ImportIcon,
+  Attachment as AttachmentIcon,
+  Delete as DeleteIcon,
 } from "@mui/icons-material";
 import { useAppStore } from "../../store/app-store";
 import { useWorkflowStore } from "../../stores/workflow-store";
@@ -33,7 +36,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
   onFileRemoved,
 }) => {
   const { config, updateConfig, showNotification } = useAppStore();
-  const { completeStep } = useWorkflowStore();
+  const { completeStep, resetStepsFromRange } = useWorkflowStore();
   const [isDragOver, setIsDragOver] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isGeneratingMetadata, setIsGeneratingMetadata] = useState(false);
@@ -43,6 +46,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
     size?: string;
     resolution?: string;
   } | null>(null);
+  const [isImportingJson, setIsImportingJson] = useState(false);
 
   // Function to generate video thumbnail and metadata
   const generateVideoMetadata = useCallback(async (filePath: string) => {
@@ -195,6 +199,9 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
           updateConfig("outputFile", outputPath);
         }
 
+        // Reset steps 2-5 when new video is uploaded
+        resetStepsFromRange("config", "export");
+
         // Generate video metadata if it's a video file
         const ext = filePath.split(".").pop()?.toLowerCase();
         const videoExts = ["mp4", "avi", "mov", "mkv", "webm", "flv"];
@@ -220,13 +227,25 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
     if (config.outputFile && config.outputFile.endsWith(".srt")) {
       updateConfig("outputFile", null);
     }
+    
+    // Also clear imported JSON caption if it exists
+    if (config.importedJsonFile) {
+      updateConfig("subtitle", null);
+      updateConfig("importedJsonFile", null);
+    }
+    
     // Clear video metadata and loading states
     setVideoThumbnail(null);
     setVideoMetadata(null);
     setIsGeneratingMetadata(false);
+    
+    // Reset workflow to initial state when main file is removed
+    const workflowStore = useWorkflowStore.getState();
+    workflowStore.resetStepsFromRange('config', 'export');
+    
     // Notify parent component that file was removed
     onFileRemoved?.();
-  }, [updateConfig, config.outputFile, onFileRemoved]);
+  }, [updateConfig, config.outputFile, config.importedJsonFile, onFileRemoved]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -291,6 +310,9 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
               updateConfig("outputFile", outputPath);
             }
 
+            // Reset steps 2-5 when new video is uploaded
+            resetStepsFromRange("config", "export");
+
             // Generate video metadata if it's a video file
             const ext = filePath.split(".").pop()?.toLowerCase();
             const videoExts = ["mp4", "avi", "mov", "mkv", "webm", "flv"];
@@ -343,6 +365,149 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
     if (audioExts.includes(ext || "")) return "Audio File";
     return "Media File";
   };
+
+  // JSON validation function
+  const validateCantocapJson = (jsonData: any): boolean => {
+    if (!jsonData || typeof jsonData !== 'object') return false;
+    
+    // Check for required structure
+    if (!jsonData.metadata || !jsonData.subtitles) return false;
+    
+    // Validate metadata
+    const { metadata } = jsonData;
+    if (!metadata.format || !metadata.version) return false;
+    
+    // Check if it's CantoCap format
+    if (!metadata.format.includes('CantoCap')) return false;
+    
+    // Validate subtitles array
+    const { subtitles } = jsonData;
+    if (!Array.isArray(subtitles) || subtitles.length === 0) return false;
+    
+    // Validate subtitle structure
+    return subtitles.every((sub: any) => {
+      return (
+        typeof sub.index === 'number' &&
+        typeof sub.startTime === 'number' &&
+        typeof sub.endTime === 'number' &&
+        typeof sub.caption === 'string' &&
+        (sub.translation === undefined || typeof sub.translation === 'string')
+      );
+    });
+  };
+
+  // Convert CantoCap JSON to Step 4 format
+  const convertJsonToStep4Format = (jsonData: any) => {
+    const { subtitles } = jsonData;
+    
+    return subtitles.map((sub: any, index: number) => ({
+      id: sub.index || index + 1,
+      startTime: sub.startTime,
+      endTime: sub.endTime,
+      text: sub.caption,
+      translation: sub.translation || '',
+      confidence: sub.confidence || 0,
+      speaker: sub.speaker || null,
+      isMusic: sub.isMusic || false
+    }));
+  };
+
+  // Handle JSON import
+  const handleJsonImport = useCallback(async () => {
+    try {
+      setIsImportingJson(true);
+      console.log('🔄 Starting JSON import process');
+      
+      const result = await window.cantocapAPI.openFileDialog({
+        filters: [
+          {
+            name: "JSON Files",
+            extensions: ["json"],
+          },
+          { name: "All Files", extensions: ["*"] },
+        ],
+      });
+
+      if (!result.canceled && result.filePaths.length > 0) {
+        const filePath = result.filePaths[0];
+        console.log('📁 Reading JSON file:', filePath);
+        
+        // Read the JSON file
+        const jsonContent = await window.cantocapAPI.readJsonFile(filePath);
+        console.log('📄 JSON content loaded, validating structure...');
+        
+        // Validate the JSON structure
+        if (!validateCantocapJson(jsonContent)) {
+          console.error('❌ JSON validation failed');
+          showNotification('Invalid CantoCap JSON format. Please select a valid subtitle export file.', 'error');
+          return;
+        }
+        
+        console.log('✅ JSON validation passed, converting format...');
+        
+        // Convert to Step 4 format and store in app config
+        const convertedSubtitles = convertJsonToStep4Format(jsonContent);
+        console.log('🔄 Converted subtitles:', convertedSubtitles.length, 'entries');
+        
+        // Update config with converted data
+        updateConfig('subtitle', convertedSubtitles);
+        updateConfig('importedJsonFile', filePath); // Store the imported JSON file path
+        
+        // Set metadata from JSON
+        if (jsonContent.metadata?.statistics) {
+          const stats = jsonContent.metadata.statistics;
+          if (stats.totalDuration) {
+            updateConfig('duration', stats.totalDuration);
+          }
+        }
+        
+        showNotification('JSON subtitles imported successfully!', 'success');
+        console.log('✅ JSON import complete, navigating to review step...');
+        
+        // Skip Steps 2 (Config) and 3 (Processing) and navigate to Step 4 (Review)
+        // Use setTimeout to ensure this happens after the current render cycle
+        setTimeout(() => {
+          try {
+            const workflowStore = useWorkflowStore.getState();
+            workflowStore.skipStepsAndNavigate(['config', 'processing'], 'review');
+            console.log('✅ Navigation to review step completed');
+          } catch (navError) {
+            console.error('❌ Navigation error:', navError);
+            showNotification('Navigation failed. Please manually go to Review step.', 'warning');
+          }
+        }, 100); // Slightly longer delay to ensure state updates complete
+      }
+    } catch (error) {
+      console.error('❌ JSON import error:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      showNotification(`Failed to import JSON: ${errorMsg}`, 'error');
+    } finally {
+      setIsImportingJson(false);
+      console.log('🔄 JSON import process finished');
+    }
+  }, [updateConfig, showNotification, completeStep]);
+
+  // Handle JSON caption removal
+  const handleRemoveJsonCaption = useCallback(() => {
+    console.log('🗑️ Removing imported JSON caption');
+    
+    // Clear subtitle data and imported file path
+    updateConfig('subtitle', null);
+    updateConfig('importedJsonFile', null);
+    
+    // Reset workflow from config step when JSON is removed
+    // This will re-enable step 2 (config) and reset steps 4-5
+    const workflowStore = useWorkflowStore.getState();
+    workflowStore.resetStepsFromRange('config', 'export');
+    
+    // Ensure config step is accessible and completed if we have input file
+    if (config.inputFile) {
+      workflowStore.completeStep('input-file');
+    }
+    
+    showNotification('Imported subtitle removed. You can now configure subtitle generation.', 'info');
+    console.log('✅ JSON caption removal completed');
+  }, [updateConfig, config.inputFile, showNotification]);
 
   return (
     <Box>
@@ -548,6 +713,66 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
                     </Typography>
                   </Box>
                   
+                  {/* Imported JSON Caption Path and Import Button - Horizontal Layout */}
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                    {config.importedJsonFile ? (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, minWidth: 0 }}>
+                        <AttachmentIcon sx={{ fontSize: 18, color: 'success.main', flexShrink: 0 }} />
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, minWidth: 0, overflow: 'hidden' }}>
+                          <Typography 
+                            variant="body1" 
+                            color="success.main" 
+                            sx={{ 
+                              fontSize: '0.85rem',
+                              wordBreak: 'break-all',
+                              lineHeight: 1.3,
+                              overflow: 'hidden'
+                            }}
+                          >
+                            Captions: <strong>{config.importedJsonFile}</strong>
+                          </Typography>
+                          <IconButton
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemoveJsonCaption();
+                            }}
+                            size="small"
+                            sx={{ 
+                              color: 'error.main',
+                              padding: '2px',
+                              flexShrink: 0,
+                              '&:hover': {
+                                backgroundColor: 'error.lighter'
+                              }
+                            }}
+                            title="Remove imported caption"
+                          >
+                            <DeleteIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
+                        </Box>
+                      </Box>
+                    ) : (
+                      <Box sx={{ flex: 1 }} />
+                    )}
+                    
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={isImportingJson ? <CircularProgress size={16} /> : <ImportIcon />}
+                      onClick={handleJsonImport}
+                      disabled={isImportingJson}
+                      sx={{ 
+                        fontSize: '0.8rem',
+                        px: 2,
+                        py: 0.5,
+                        minWidth: 'unset',
+                        flexShrink: 0
+                      }}
+                    >
+                      {isImportingJson ? 'Importing...' : 'Import Caption'}
+                    </Button>
+                  </Box>
+                  
                   <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
                     <FolderIcon sx={{ fontSize: 18, color: 'text.secondary', mt: 0.2 }} />
                     <Typography 
@@ -559,7 +784,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
                         lineHeight: 1.4,
                         overflow: 'hidden',
                         display: '-webkit-box',
-                        WebkitLineClamp: 3,
+                        WebkitLineClamp: 2,
                         WebkitBoxOrient: 'vertical'
                       }}
                     >
@@ -629,8 +854,8 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
                   sx={{ alignSelf: 'flex-start', mb: 2 }}
                 />
                 
-                <Box sx={{ flex: 1, display: 'flex', alignItems: 'center' }}>
-                  <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, width: '100%' }}>
+                <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, width: '100%', mb: 2 }}>
                     <FolderIcon sx={{ fontSize: 18, color: 'text.secondary', mt: 0.2 }} />
                     <Typography 
                       variant="body1" 
@@ -641,12 +866,72 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
                         lineHeight: 1.4,
                         overflow: 'hidden',
                         display: '-webkit-box',
-                        WebkitLineClamp: 4,
+                        WebkitLineClamp: 3,
                         WebkitBoxOrient: 'vertical'
                       }}
                     >
                       <strong>{config.inputFile}</strong>
                     </Typography>
+                  </Box>
+                  
+                  {/* Imported JSON Caption Path and Import Button - Horizontal Layout */}
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                    {config.importedJsonFile ? (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, minWidth: 0 }}>
+                        <AttachmentIcon sx={{ fontSize: 18, color: 'success.main', flexShrink: 0 }} />
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, minWidth: 0, overflow: 'hidden' }}>
+                          <Typography 
+                            variant="body1" 
+                            color="success.main" 
+                            sx={{ 
+                              fontSize: '0.85rem',
+                              wordBreak: 'break-all',
+                              lineHeight: 1.3,
+                              overflow: 'hidden'
+                            }}
+                          >
+                            Captions: <strong>{config.importedJsonFile}</strong>
+                          </Typography>
+                          <IconButton
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemoveJsonCaption();
+                            }}
+                            size="small"
+                            sx={{ 
+                              color: 'error.main',
+                              padding: '2px',
+                              flexShrink: 0,
+                              '&:hover': {
+                                backgroundColor: 'error.lighter'
+                              }
+                            }}
+                            title="Remove imported caption"
+                          >
+                            <DeleteIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
+                        </Box>
+                      </Box>
+                    ) : (
+                      <Box sx={{ flex: 1 }} />
+                    )}
+                    
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={isImportingJson ? <CircularProgress size={16} /> : <ImportIcon />}
+                      onClick={handleJsonImport}
+                      disabled={isImportingJson}
+                      sx={{ 
+                        fontSize: '0.8rem',
+                        px: 2,
+                        py: 0.5,
+                        minWidth: 'unset',
+                        flexShrink: 0
+                      }}
+                    >
+                      {isImportingJson ? 'Importing...' : 'Import Caption'}
+                    </Button>
                   </Box>
                 </Box>
               </CardContent>
@@ -710,6 +995,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
           </Stack>
         )}
       </Paper>
+
     </Box>
   );
 };

@@ -74,7 +74,11 @@ const ConfigPreview: React.FC = () => {
         <Box sx={{ p: 2, borderRadius: 2, backgroundColor: 'rgba(255, 255, 255, 0.02)' }}>
           <Typography variant="subtitle2" color="primary" sx={{ mb: 1, fontWeight: 600 }}>🌐 Language & Format</Typography>
           <Typography variant="body2">
-            {config.charset === 'traditional' ? '繁體中文' : '简体中文'} • {config.subtitle?.toUpperCase() || 'SRT'}
+            {config.charset === 'traditional' ? '繁體中文' : '简体中文'} • {
+              Array.isArray(config.subtitle) 
+                ? `Imported (${config.subtitle.length} subtitles)` 
+                : config.subtitle?.toUpperCase() || 'SRT'
+            }
           </Typography>
         </Box>
         
@@ -85,15 +89,15 @@ const ConfigPreview: React.FC = () => {
           </Typography>
         </Box>
         
-        {(config.speakers || config.written || config.music || config.geminiKey) && (
+        {(config.speakers || config.music || config.geminiKey) && (
           <Fade in={true}>
             <Box sx={{ p: 2, borderRadius: 2, backgroundColor: 'rgba(87, 242, 135, 0.05)', border: '1px solid rgba(87, 242, 135, 0.1)' }}>
               <Typography variant="subtitle2" color="success.main" sx={{ mb: 1, fontWeight: 600 }}>✨ Enhanced Features</Typography>
               <Stack spacing={0.5}>
                 {config.speakers && <Typography variant="body2" sx={{ fontSize: '0.8rem' }}>• Speaker identification</Typography>}
-                {config.written && <Typography variant="body2" sx={{ fontSize: '0.8rem' }}>• Written style optimization</Typography>}
                 {config.music && <Typography variant="body2" sx={{ fontSize: '0.8rem' }}>• Music detection</Typography>}
                 {config.geminiKey && <Typography variant="body2" sx={{ fontSize: '0.8rem' }}>• AI refinement (Gemini)</Typography>}
+                {config.geminiKey && config.written && <Typography variant="body2" sx={{ fontSize: '0.8rem' }}>• Enhanced written style conversion</Typography>}
               </Stack>
             </Box>
           </Fade>
@@ -195,12 +199,7 @@ export const ConfigStep: React.FC = () => {
             <APIKeyInput />
           </ConfigSection>
           
-          <ConfigSection 
-            title="Advanced Settings" 
-            icon={<Box sx={{ fontSize: '1.25rem' }}>🔧</Box>}
-          >
-            <AdvancedPanel />
-          </ConfigSection>
+          <AdvancedPanel />
         </Stack>
         
         {/* Bottom padding for better scrolling */}

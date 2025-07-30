@@ -229,6 +229,7 @@ export const AdvancedPanel: React.FC = () => {
                         fontSize: '0.7rem',
                         height: 20,
                         minWidth: 20,
+                        right: 10,
                         backgroundColor: section.badgeColor === 'error' 
                           ? '#ED4245' 
                           : section.badgeColor === 'warning'

@@ -532,7 +532,7 @@ export class ProcessManager {
       args.push('--ffmpeg-path', 'ffmpeg')
     }
 
-    if (config.subtitle) {
+    if (config.subtitle && typeof config.subtitle === 'string') {
       args.push('--subtitle', config.subtitle)
     }
 

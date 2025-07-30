@@ -23,6 +23,7 @@ interface OptionType {
   description: string
   recommended?: boolean
   performance?: 'fast' | 'balanced' | 'quality'
+  experimental?: boolean
 }
 
 export const ModelSettings: React.FC = () => {
@@ -44,33 +45,35 @@ export const ModelSettings: React.FC = () => {
     { 
       value: 'auto', 
       label: 'Auto-select', 
-      description: 'Automatically choose the best model for your hardware',
+      description: 'Automatically choose the best OpenAI model for your hardware',
       recommended: true,
       performance: 'balanced'
     },
     { 
-      value: 'whisperX/large-v3', 
-      label: 'WhisperX Large v3', 
-      description: 'Highest accuracy, requires powerful GPU',
-      performance: 'quality'
-    },
-    { 
       value: 'openai/whisper-large-v3', 
       label: 'OpenAI Whisper Large v3', 
-      description: 'High accuracy, slower processing',
-      performance: 'quality'
+      description: 'Best accuracy for Cantonese transcription (recommended)',
+      performance: 'quality',
+      recommended: true
     },
     { 
       value: 'openai/whisper-medium', 
       label: 'OpenAI Whisper Medium', 
-      description: 'Standard accuracy and speed',
+      description: 'Good accuracy for Cantonese, balanced speed',
       performance: 'balanced'
     },
     { 
       value: 'openai/whisper-small', 
       label: 'OpenAI Whisper Small', 
-      description: 'Fast processing, basic accuracy',
+      description: 'Fast processing, basic accuracy for Cantonese',
       performance: 'fast'
+    },
+    { 
+      value: 'whisperX/large-v3', 
+      label: 'WhisperX Large v3', 
+      description: 'Lower accuracy for Cantonese than OpenAI, but faster processing. Backup model only.',
+      performance: 'fast',
+      experimental: true
     }
   ]
 
@@ -154,6 +157,20 @@ export const ModelSettings: React.FC = () => {
               height: 20,
               backgroundColor: 'rgba(245, 158, 11, 0.15)',
               color: '#F59E0B'
+            }}
+          />
+        )}
+        {option.experimental && (
+          <Chip
+            label="Experimental"
+            size="small"
+            sx={{
+              fontSize: '0.65rem',
+              height: 20,
+              backgroundColor: 'rgba(255, 152, 0, 0.15)',
+              color: '#FF9800',
+              border: '1px solid rgba(255, 152, 0, 0.3)',
+              fontWeight: 600,
             }}
           />
         )}
@@ -269,6 +286,20 @@ export const ModelSettings: React.FC = () => {
                           height: 18,
                           backgroundColor: 'rgba(245, 158, 11, 0.2)',
                           color: '#F59E0B'
+                        }}
+                      />
+                    )}
+                    {option.experimental && (
+                      <Chip
+                        label="Experimental"
+                        size="small"
+                        sx={{
+                          fontSize: '0.65rem',
+                          height: 18,
+                          backgroundColor: 'rgba(255, 152, 0, 0.15)',
+                          color: '#FF9800',
+                          border: '1px solid rgba(255, 152, 0, 0.3)',
+                          fontWeight: 600,
                         }}
                       />
                     )}

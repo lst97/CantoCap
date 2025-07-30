@@ -44,7 +44,7 @@ export const CustomTitleBar: React.FC = () => {
           CantoCap
         </Typography>
         <Typography variant="body2" sx={{ ml: 1, color: 'text.secondary' }}>
-          Cantonese Subtitle Generator
+          Cantonese Caption Generator
         </Typography>
       </Box>
     </Box>

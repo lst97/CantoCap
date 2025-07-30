@@ -1,5 +1,6 @@
 import { app, shell, BrowserWindow, ipcMain, dialog } from "electron";
 import { join } from "path";
+import { writeFile, readFile } from "fs/promises";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import { DependencyChecker } from "./dependency-checker";
 import { ProcessManager } from "./process-manager";
@@ -249,6 +250,98 @@ class CantoCap {
         await shell.openExternal(url);
       }
     );
+
+    // Config Management
+    ipcMain.handle("config:get", () => {
+      return this.configManager.getConfig();
+    });
+
+    ipcMain.handle("config:set", (_event, section: string, value: any) => {
+      this.configManager.set(section as any, value);
+    });
+
+    ipcMain.handle("config:update", (_event, updates: any) => {
+      // Update multiple config sections at once
+      Object.entries(updates).forEach(([key, value]) => {
+        this.configManager.set(key as any, value);
+      });
+    });
+
+    ipcMain.handle("config:getSection", (_event, section: string) => {
+      return this.configManager.get(section as any);
+    });
+
+    ipcMain.handle("config:updateSection", (_event, section: string, updates: any) => {
+      if (section === 'modelSettings') {
+        this.configManager.updateModelSettings(updates);
+      } else if (section === 'advancedSettings') {
+        this.configManager.updateAdvancedSettings(updates);
+      } else if (section === 'ui') {
+        this.configManager.updateUISettings(updates);
+      } else if (section === 'apiKeys') {
+        Object.entries(updates).forEach(([provider, key]) => {
+          this.configManager.updateApiKey(provider as any, key as string);
+        });
+      } else if (section === 'dependencies') {
+        Object.entries(updates).forEach(([dep, path]) => {
+          this.configManager.updateDependency(dep as any, path as string);
+        });
+      }
+    });
+
+    ipcMain.handle("config:setLastInputPath", (_event, path: string) => {
+      this.configManager.setLastInputPath(path);
+    });
+
+    ipcMain.handle("config:setLastOutputPath", (_event, path: string) => {
+      this.configManager.setLastOutputPath(path);
+    });
+
+    ipcMain.handle("config:reset", () => {
+      this.configManager.reset();
+    });
+
+    ipcMain.handle("config:resetSection", (_event, section: string) => {
+      this.configManager.resetSection(section as any);
+    });
+
+    // Export Operations
+    ipcMain.handle("dialog:saveFile", async (_event, options?: {
+      defaultPath?: string;
+      filters?: Array<{ name: string; extensions: string[] }>;
+    }) => {
+      if (!this.mainWindow) return { canceled: true, filePath: null };
+
+      const result = await dialog.showSaveDialog(this.mainWindow, {
+        defaultPath: options?.defaultPath,
+        filters: options?.filters || [
+          { name: "All Files", extensions: ["*"] }
+        ]
+      });
+
+      return result;
+    });
+
+    ipcMain.handle("export:writeFile", async (_event, filePath: string, content: string) => {
+      try {
+        await writeFile(filePath, content, 'utf8');
+        return { success: true };
+      } catch (error) {
+        console.error('Failed to write export file:', error);
+        throw new Error(`Failed to write file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    });
+
+    // File Reading Operations
+    ipcMain.handle("file:readJson", async (_event, filePath: string) => {
+      try {
+        const content = await readFile(filePath, 'utf8');
+        return JSON.parse(content);
+      } catch (error) {
+        console.error('Failed to read JSON file:', error);
+        throw new Error(`Failed to read JSON file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    });
   }
 
   public async initialize(): Promise<void> {

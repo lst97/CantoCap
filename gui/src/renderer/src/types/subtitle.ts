@@ -10,6 +10,7 @@ export interface SubtitleEntry {
   originalText?: string
   confidence?: number
   speaker?: string
+  cueSettings?: string // VTT cue settings like "line:90%"
 }
 
 export interface SubtitleModification {
@@ -23,7 +24,7 @@ export interface SubtitleModification {
   description: string
 }
 
-export interface TempSRTSession {
+export interface TempSubtitleSession {
   sessionId: string
   originalPath: string
   tempPath: string
@@ -41,7 +42,7 @@ export interface TempSRTSession {
 }
 
 export interface SubtitleEditState {
-  session: TempSRTSession | null
+  session: TempSubtitleSession | null
   isLoading: boolean
   error: string | null
   undoStack: SubtitleModification[]

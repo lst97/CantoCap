@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { ThemeProvider } from '@mui/material/styles'
 import { CssBaseline, Box } from '@mui/material'
 import { useAppStore } from './store/app-store'
+import { useWorkflowStore } from './stores/workflow-store'
 import { navigateToReview } from './utils/workflow-navigation'
 import { CustomTitleBar } from './components/layout/CustomTitleBar'
 import { WorkspacePanel } from './components/layout/WorkspacePanel'
@@ -24,12 +25,14 @@ function App(): JSX.Element {
     showNotification,
     addToHistory,
     loadConfigFromStorage,
+    restoreUIState,
     addDebugMessage
   } = useAppStore()
 
   useEffect(() => {
     initializeApp()
     loadConfigFromStorage()
+    restoreUIState()
 
     // Setup IPC event listeners
     const cleanupFunctions: (() => void)[] = []
@@ -104,7 +107,7 @@ function App(): JSX.Element {
 
     // Process completed
     cleanupFunctions.push(
-      window.cantocapAPI.onProcessComplete((data) => {
+      window.cantocapAPI.onProcessComplete(async (data) => {
         // Debug logging to check what data is being received from engine
         console.log('onProcessComplete Debug:')
         console.log('- data:', data)
@@ -123,6 +126,32 @@ function App(): JSX.Element {
           statistics: data.statistics
         })
         
+        // Clear any error state from processing step
+        const workflowStore = useWorkflowStore.getState()
+        workflowStore.clearStepError('processing')
+        workflowStore.completeStep('processing')
+        
+        // Load subtitle data with translations if available
+        const currentConfig = useAppStore.getState().config
+        if (data.outputFile && currentConfig.subtitle && typeof currentConfig.subtitle === 'string') {
+          try {
+            // Try to load JSON subtitle data (contains translations)
+            const jsonPath = data.outputFile.replace(/\.[^/.]+$/, ".json")
+            console.log('Loading subtitle translations from:', jsonPath)
+            
+            const subtitleData = await window.cantocapAPI.readJsonFile(jsonPath)
+            if (subtitleData && Array.isArray(subtitleData)) {
+              // Update config with subtitle data containing translations
+              const { updateConfig } = useAppStore.getState()
+              updateConfig('subtitle', subtitleData)
+              console.log(`Loaded ${subtitleData.length} subtitles with translation data`)
+            }
+          } catch (error) {
+            console.warn('Could not load subtitle translation data:', error)
+            // Continue without translations - not a critical error
+          }
+        }
+        
         showNotification('Transcription completed successfully!', 'success')
         addToHistory(useAppStore.getState().config.inputFile!, 'completed', data.outputFile)
         
@@ -134,12 +163,31 @@ function App(): JSX.Element {
     // Process errors
     cleanupFunctions.push(
       window.cantocapAPI.onProcessError((data) => {
+        // Preserve existing processing state when error occurs
+        const currentProcessing = useAppStore.getState().processing
         updateProcessing({
+          ...currentProcessing, // Preserve all existing values
           isActive: false,
           stage: 'error',
           error: data.message || 'An error occurred',
-          message: `Error: ${data.message || 'Unknown error'}`
+          message: `Error: ${data.message || 'Unknown error'}`,
+          // Calculate final time elapsed if we have a start time
+          timeElapsed: currentProcessing.startTime 
+            ? Math.floor((Date.now() - currentProcessing.startTime) / 1000)
+            : currentProcessing.timeElapsed
         })
+        
+        // Mark processing step as having an error
+        const workflowStore = useWorkflowStore.getState()
+        workflowStore.markStepAsError('processing', data.message || 'Processing failed')
+        
+        // Add error as debug message for detailed tracking
+        addDebugMessage(
+          'error',
+          `${data.type || 'process_error'}: ${data.message || 'Unknown error'}${data.exitCode ? ` (Exit Code: ${data.exitCode})` : ''}`,
+          'error',
+          'process_error'
+        )
         
         showNotification(`Error: ${data.message || 'Unknown error'}`, 'error')
         addToHistory(useAppStore.getState().config.inputFile!, 'failed')
