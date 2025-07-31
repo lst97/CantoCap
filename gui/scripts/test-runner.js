@@ -174,6 +174,7 @@ const SCENARIOS = {
 };
 
 // Handle special scenarios
+const args = process.argv.slice(2);
 if (args[0] && SCENARIOS[args[0]]) {
   const scenario = SCENARIOS[args[0]];
   console.log(`Running scenario: ${scenario.description}`);

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { useAppStore } from '../../store/app-store'
+import { useAppStore } from '../../stores/app-store'
 import { MessageProcessor } from '../../services/message-processor'
 import type { IPCMessage, ProcessedMessage } from '../../../../types'
 
@@ -310,6 +310,60 @@ export function DebugPanel() {
             <div><strong>Input File:</strong> {config.inputFile || 'None'}</div>
             <div><strong>Model:</strong> {config.model || 'Auto'}</div>
             <div><strong>Language:</strong> {config.language}</div>
+          </div>
+        </div>
+
+        {/* Performance Monitor */}
+        <div className="debug-section">
+          <h4>Subtitle Performance Monitor</h4>
+          <div className="debug-info">
+            {(() => {
+              try {
+                const perfMonitor = require('../../utils/performance-utils').PerformanceMonitor.getInstance();
+                const stats = perfMonitor.getPerformanceStats();
+                const cacheStats = require('../../utils/subtitle-transformation').getCacheStats();
+                
+                return (
+                  <div>
+                    <div><strong>Average Operation Time:</strong> {stats.averageDuration.toFixed(2)}ms</div>
+                    <div><strong>Total Operations:</strong> {stats.operationCount}</div>
+                    <div><strong>Slow Operations:</strong> {stats.slowOperations}</div>
+                    <div><strong>Cache Entries:</strong> {cacheStats.size}</div>
+                    <div><strong>Performance Status:</strong> 
+                      <span style={{ 
+                        color: stats.averageDuration < 30 ? '#4CAF50' : 
+                               stats.averageDuration < 100 ? '#ff9800' : '#ff4444',
+                        fontWeight: 'bold',
+                        marginLeft: '5px'
+                      }}>
+                        {stats.averageDuration < 30 ? 'Excellent' : 
+                         stats.averageDuration < 100 ? 'Good' : 'Needs Optimization'}
+                      </span>
+                    </div>
+                    {stats.fastestOperation && (
+                      <div><strong>Fastest Operation:</strong> {stats.fastestOperation.name} ({stats.fastestOperation.duration.toFixed(2)}ms)</div>
+                    )}
+                    {stats.slowestOperation && (
+                      <div><strong>Slowest Operation:</strong> {stats.slowestOperation.name} ({stats.slowestOperation.duration.toFixed(2)}ms)</div>
+                    )}
+                    <details className="debug-details">
+                      <summary>Performance Targets</summary>
+                      <div style={{ padding: '8px', backgroundColor: '#1a1a1a', borderRadius: '4px', marginTop: '4px' }}>
+                        <div>• Small datasets (≤20 items): &lt;30ms</div>
+                        <div>• Medium datasets (20-100 items): &lt;150ms</div>
+                        <div>• Large datasets (&gt;100 items): &lt;300ms</div>
+                        <div style={{ marginTop: '8px', color: '#61dafb' }}>
+                          Current Target Achievement: {stats.averageDuration < 30 ? '✅ Excellent' : 
+                                                     stats.averageDuration < 100 ? '⚠️ Acceptable' : '❌ Needs Work'}
+                        </div>
+                      </div>
+                    </details>
+                  </div>
+                );
+              } catch (error) {
+                return <div style={{ color: '#ff6b6b' }}>Performance monitoring unavailable</div>;
+              }
+            })()}
           </div>
         </div>
 

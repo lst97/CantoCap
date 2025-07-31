@@ -2,9 +2,11 @@ import { create } from 'zustand'
 import { persist, subscribeWithSelector } from 'zustand/middleware'
 import { useSubtitleEditStore } from './subtitle-edit-store'
 import { useWorkflowStore } from './workflow-store'
-import { useAppStore } from '../store/app-store'
+import { useAppStore } from '../stores/app-store'
+import { useWorkspaceStore } from './workspace-store'
 import { convertToSRT, convertToVTT, convertToASS, convertToJSON } from '../utils/format-converters'
 import type { SubtitleEntry } from '../types/subtitle'
+import type { ExportSession } from '../types/workspace'
 
 export interface ExportFormat {
   id: string
@@ -82,6 +84,11 @@ interface ExportActions {
   addToHistory: (item: Omit<ExportHistoryItem, 'id'>) => void
   removeFromHistory: (id: string) => void
   clearHistory: () => void
+  
+  // Workspace Integration
+  saveToWorkspace: () => Promise<void>
+  loadFromWorkspace: () => Promise<void>
+  syncWithWorkspace: () => Promise<void>
   
   // Utility
   getSubtitleData: () => SubtitleEntry[]
@@ -526,6 +533,11 @@ export const useExportStore = create<ExportStore>()(
         set(state => ({
           history: [historyItem, ...state.history.slice(0, 19)] // Keep last 20 items
         }))
+
+        // Auto-save to workspace after adding to history
+        get().saveToWorkspace().catch(error => {
+          console.error('Failed to auto-save export history to workspace:', error)
+        })
       },
 
       removeFromHistory: (id: string) => {
@@ -536,6 +548,79 @@ export const useExportStore = create<ExportStore>()(
 
       clearHistory: () => {
         set({ history: [] })
+      },
+
+      // Workspace Integration
+      saveToWorkspace: async () => {
+        try {
+          const workspaceStore = useWorkspaceStore.getState()
+          if (workspaceStore.currentWorkspace) {
+            const { settings, history } = get()
+            
+            const sessionData: ExportSession = {
+              lastExportConfig: settings,
+              exportHistory: history.map(item => ({
+                format: item.format,
+                filePath: item.filePath,
+                timestamp: item.timestamp,
+                fileSize: item.size
+              })),
+              exportPresets: [] // Could be enhanced to include export presets
+            }
+
+            await workspaceStore.saveWorkspaceSession('export', sessionData)
+          }
+        } catch (error) {
+          console.error('Failed to save export session to workspace:', error)
+          set({ lastError: 'Failed to save export session to workspace' })
+        }
+      },
+
+      loadFromWorkspace: async () => {
+        try {
+          const workspaceStore = useWorkspaceStore.getState()
+          if (workspaceStore.currentWorkspace) {
+            const sessionData = await workspaceStore.loadWorkspaceSession(
+              workspaceStore.currentWorkspace.id,
+              'export'
+            ) as ExportSession | null
+
+            if (sessionData) {
+              // Restore export settings and history from workspace
+              set(state => ({
+                settings: sessionData.lastExportConfig ? {
+                  ...state.settings,
+                  ...sessionData.lastExportConfig
+                } : state.settings,
+                history: sessionData.exportHistory ? 
+                  sessionData.exportHistory.map(item => ({
+                    id: `export_${item.timestamp}`,
+                    fileName: item.filePath.split('/').pop() || 'unknown',
+                    filePath: item.filePath,
+                    format: item.format,
+                    timestamp: item.timestamp,
+                    size: item.fileSize || 0,
+                    settings: state.settings, // Use current settings as fallback
+                    subtitleCount: 0 // Could be enhanced to track subtitle count
+                  })) : state.history
+              }))
+            }
+          }
+        } catch (error) {
+          console.error('Failed to load export session from workspace:', error)
+          set({ lastError: 'Failed to load export session from workspace' })
+        }
+      },
+
+      syncWithWorkspace: async () => {
+        try {
+          // Load from workspace first, then save current state
+          await get().loadFromWorkspace()
+          await get().saveToWorkspace()
+        } catch (error) {
+          console.error('Failed to sync with workspace:', error)
+          set({ lastError: 'Failed to sync with workspace' })
+        }
       },
 
       // Utility functions

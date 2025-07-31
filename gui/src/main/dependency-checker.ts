@@ -88,7 +88,7 @@ export class DependencyChecker {
             result.available = true
             return result
           }
-        } catch (_error) {
+        } catch {
           // Continue to next command
           continue
         }
@@ -153,7 +153,7 @@ export class DependencyChecker {
     let executablePath: string
     try {
       executablePath = await this.resolveExecutablePath(command)
-    } catch (_error) {
+    } catch {
       // Fallback to command name if path resolution fails
       executablePath = command
     }

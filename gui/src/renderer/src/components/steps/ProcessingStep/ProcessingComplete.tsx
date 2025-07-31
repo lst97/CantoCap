@@ -20,7 +20,7 @@ import {
   Info as InfoIcon,
   Celebration as CelebrationIcon,
 } from "@mui/icons-material";
-import { useAppStore } from "../../../store/app-store";
+import { useAppStore } from "../../../stores/app-store";
 import { SuccessCard, InfoSection, CelebrationHeader } from "./styles";
 import { formatTime } from "./utils";
 

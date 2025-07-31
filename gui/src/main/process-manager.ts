@@ -48,7 +48,7 @@ export class ProcessManager {
         this.pythonPath = candidate
         this.venvActivated = false
         return candidate
-      } catch (error) {
+      } catch {
         continue
       }
     }
@@ -289,7 +289,7 @@ export class ProcessManager {
               // Try to parse as JSON first
               const hardwareInfo = JSON.parse(stdout)
               resolve(hardwareInfo)
-            } catch (e) {
+            } catch {
               // Fallback to plain text parsing
               resolve({
                 raw_output: stdout,
@@ -381,12 +381,12 @@ export class ProcessManager {
         shell: true
       })
 
-      let stdout = ''
+      let _stdout = ''
       let stderr = ''
 
       setupProcess.stdout?.on('data', (data: Buffer) => {
         const output = data.toString()
-        stdout += output
+        _stdout += output
         if (callback) {
           callback('process-message', { message: output.trim() })
         }
@@ -633,7 +633,7 @@ export class ProcessManager {
           const convertedMessage = this.convertLegacyMessage(parsedData, stream)
           callback('ipc-message', convertedMessage)
         }
-      } catch (e) {
+      } catch {
         // Non-JSON output - create new format message
         const enhancedMessage = this.createEnhancedMessage(line.trim(), stream)
         callback('ipc-message', enhancedMessage)
@@ -659,7 +659,7 @@ export class ProcessManager {
     }
   }
 
-  private convertLegacyMessage(parsedData: any, stream: string): any {
+  private convertLegacyMessage(parsedData: any, _stream: string): any {
     // Convert old message format to new format
     let level = 'info'
     let category = 'process'

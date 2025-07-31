@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2020",
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "lib": ["ES2020", "DOM", "DOM.Iterable", "WebWorker"],
     "module": "ESNext",
     "skipLibCheck": true,
     "moduleResolution": "bundler",
@@ -23,7 +23,8 @@
       "@main/*": ["src/main/*"],
       "@preload/*": ["src/preload/*"],
       "@renderer/*": ["src/renderer/*"]
-    }
+    },
+    "types": ["node", "@types/node"]
   },
   "include": [
     "src/**/*.ts",

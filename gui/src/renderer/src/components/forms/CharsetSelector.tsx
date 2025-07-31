@@ -11,7 +11,7 @@ import {
 import {
   Language as LanguageIcon
 } from '@mui/icons-material'
-import { useAppStore } from '../../store/app-store'
+import { useAppStore } from '../../stores/app-store'
 
 interface CharsetOption {
   value: string

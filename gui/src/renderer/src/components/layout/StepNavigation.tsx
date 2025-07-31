@@ -16,7 +16,7 @@ import {
   Error as ErrorIcon
 } from '@mui/icons-material'
 import { useWorkflowStore } from '../../stores/workflow-store'
-import { useAppStore } from '../../store/app-store'
+import { useAppStore } from '../../stores/app-store'
 
 export const StepNavigation: React.FC = () => {
   const { currentStep, steps, setCurrentStep } = useWorkflowStore()

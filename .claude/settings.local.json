@@ -30,7 +30,14 @@
       "mcp__filesystem__list_directory",
       "Bash(pnpm add:*)",
       "Bash(npx tsc:*)",
-      "Bash(pnpm build:*)"
+      "Bash(pnpm build:*)",
+      "mcp__filesystem__read_file",
+      "Bash(npm test:*)",
+      "Bash(mv:*)",
+      "Bash(pnpm test:*)",
+      "Bash(pnpm start:*)",
+      "Bash(timeout:*)",
+      "Bash(pnpm preview:*)"
     ],
     "deny": []
   }

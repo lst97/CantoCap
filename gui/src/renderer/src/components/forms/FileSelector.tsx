@@ -25,7 +25,7 @@ import {
   Attachment as AttachmentIcon,
   Delete as DeleteIcon,
 } from "@mui/icons-material";
-import { useAppStore } from "../../store/app-store";
+import { useAppStore } from "../../stores/app-store";
 import { useWorkflowStore } from "../../stores/workflow-store";
 
 interface FileSelectorProps {

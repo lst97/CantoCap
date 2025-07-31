@@ -1,0 +1,21 @@
+# Build outputs
+dist/
+dist-electron/
+out/
+coverage/
+
+# Dependencies
+node_modules/
+
+# Cache files
+.eslintcache
+*.log
+
+# Configuration files that should maintain their format
+package.json
+package-lock.json
+pnpm-lock.yaml
+
+# Generated files
+*.d.ts
+CHANGELOG.md

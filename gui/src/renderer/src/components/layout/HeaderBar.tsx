@@ -13,7 +13,7 @@ import {
   Error as ErrorIcon,
   Pending as PendingIcon
 } from '@mui/icons-material'
-import { useAppStore } from '../../store/app-store'
+import { useAppStore } from '../../stores/app-store'
 
 export const HeaderBar: React.FC = () => {
   const { appVersion, dependencies } = useAppStore()

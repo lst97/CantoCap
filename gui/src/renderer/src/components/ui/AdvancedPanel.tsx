@@ -16,7 +16,7 @@ import {
 import { ModelSettings } from './ModelSettings'
 import { AdvancedSettings } from './AdvancedSettings'
 import { SystemStatus } from '../feedback/SystemStatus'
-import { useAppStore } from '../../store/app-store'
+import { useAppStore } from '../../stores/app-store'
 
 interface AccordionSection {
   id: string

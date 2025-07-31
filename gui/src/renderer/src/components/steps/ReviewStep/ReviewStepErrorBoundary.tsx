@@ -1,6 +1,6 @@
 import React, { Component, ReactNode } from 'react';
 import { Box, Typography, Button, Alert } from '@mui/material';
-import { useAppStore } from '../../../store/app-store';
+import { useAppStore } from '../../../stores/app-store';
 import { useSubtitleEditStore } from '../../../stores/subtitle-edit-store';
 
 interface Props {

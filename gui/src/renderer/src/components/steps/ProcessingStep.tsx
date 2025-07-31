@@ -1,11 +1,16 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Box,
   Typography,
   LinearProgress,
+  Alert,
+  Snackbar,
+  Chip
 } from "@mui/material";
-import { useAppStore } from "../../store/app-store";
+import { CheckCircle, Save, Error as ErrorIcon } from '@mui/icons-material'
+import { useAppStore } from "../../stores/app-store";
 import { useWorkflowStore } from "../../stores/workflow-store";
+import { useProcessingStepConfig, useWorkspaceConfig } from '../../contexts/WorkspaceConfigContext';
 import { ProcessingErrorBoundary } from "../common/ProcessingErrorBoundary";
 import { IdleState } from "./ProcessingStep/IdleState";
 import { ProcessingControls } from "./ProcessingStep/ProcessingControls";
@@ -18,7 +23,44 @@ import { getStageInfo } from "./ProcessingStep/utils";
 export const ProcessingStep: React.FC = () => {
   const { processing, updateProcessing } = useAppStore();
   const { completeStep } = useWorkflowStore();
-  
+  const [config, updateConfig, { isLoading, error, isReady }] = useProcessingStepConfig()
+  const { autoSaveStatus, isAutoSaving, lastError, clearError } = useWorkspaceConfig()
+  const [showAutoSaveNotification, setShowAutoSaveNotification] = useState(false)
+  const [showErrorNotification, setShowErrorNotification] = useState(false)
+
+  // Handle auto-save status changes
+  useEffect(() => {
+    if (autoSaveStatus.lastSaveTime && !isAutoSaving) {
+      setShowAutoSaveNotification(true)
+    }
+  }, [autoSaveStatus.lastSaveTime, isAutoSaving])
+
+  // Handle errors
+  useEffect(() => {
+    if (lastError || error) {
+      setShowErrorNotification(true)
+    }
+  }, [lastError, error])
+
+  // Save processing state changes to workspace
+  useEffect(() => {
+    if (isReady && processing) {
+      updateConfig({
+        processingState: {
+          stage: processing.stage,
+          progress: processing.progress,
+          timeElapsed: processing.timeElapsed,
+          isActive: processing.isActive,
+          startTime: processing.startTime,
+          error: processing.error
+        },
+        lastModified: Date.now()
+      }).catch(error => {
+        console.error('Failed to save processing state:', error)
+      })
+    }
+  }, [processing, updateConfig, isReady])
+
   // Complete the processing step when processing finishes successfully
   useEffect(() => {
     if (processing.stage === 'completed' && !processing.error) {
@@ -39,35 +81,109 @@ export const ProcessingStep: React.FC = () => {
     return () => clearInterval(interval);
   }, [processing.isActive, processing.startTime, processing.stage, updateProcessing]);
 
+  // Show loading state while workspace is initializing
+  if (!isReady) {
+    return (
+      <Box sx={{ 
+        p: 3,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: '100%'
+      }}>
+        <LinearProgress sx={{ width: '100%', maxWidth: 400, mb: 2 }} />
+        <Typography variant="body2" color="text.secondary">
+          Loading processing configuration...
+        </Typography>
+      </Box>
+    )
+  }
+
   return (
-    <ProcessingErrorBoundary
-      enableEngineRecovery={true}
-      enableIpcMonitoring={true}
-      processingStep={processing.stage}
-      onEngineError={(error, errorInfo) => {
-        console.error('Engine error in ProcessingStep:', error, errorInfo)
-        // Update processing state to show error while preserving existing values
-        updateProcessing({ 
-          ...processing, // Preserve all existing values
-          stage: 'error', 
-          error: error.message,
-          isActive: false,
-          // Calculate final time elapsed if we have a start time
-          timeElapsed: processing.startTime 
-            ? Math.floor((Date.now() - processing.startTime) / 1000)
-            : processing.timeElapsed
-        })
-      }}
-    >
-      <Box
-        sx={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 3,
-          height: "100%",
-          p: 3,
+    <>
+      <ProcessingErrorBoundary
+        enableEngineRecovery={true}
+        enableIpcMonitoring={true}
+        processingStep={processing.stage}
+        onEngineError={(error, errorInfo) => {
+          console.error('Engine error in ProcessingStep:', error, errorInfo)
+          // Update processing state to show error while preserving existing values
+          updateProcessing({ 
+            ...processing, // Preserve all existing values
+            stage: 'error', 
+            error: error.message,
+            isActive: false,
+            // Calculate final time elapsed if we have a start time
+            timeElapsed: processing.startTime 
+              ? Math.floor((Date.now() - processing.startTime) / 1000)
+              : processing.timeElapsed
+          })
         }}
       >
+        <Box
+          sx={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 3,
+            height: "100%",
+            p: 3,
+          }}
+        >
+          {/* Auto-save Status Indicator */}
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: 1, 
+            mb: 2,
+            minHeight: 32
+          }}>
+            {isAutoSaving && (
+              <Chip
+                icon={<Save />}
+                label="Auto-saving..."
+                size="small"
+                color="primary"
+                variant="outlined"
+              />
+            )}
+            {autoSaveStatus.lastSaveTime && !isAutoSaving && (
+              <Chip
+                icon={<CheckCircle />}
+                label="Saved"
+                size="small"
+                color="success"
+                variant="outlined"
+              />
+            )}
+            {(lastError || error) && (
+              <Chip
+                icon={<ErrorIcon />}
+                label="Save error"
+                size="small"
+                color="error"
+                variant="outlined"
+              />
+            )}
+          </Box>
+
+          {/* Configuration Loading State */}
+          {isLoading && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Loading processing configuration...
+            </Alert>
+          )}
+
+          {/* Configuration Error State */}
+          {error && (
+            <Alert 
+              severity="error" 
+              sx={{ mb: 2 }}
+              onClose={() => clearError()}
+            >
+              Failed to load configuration: {error.message}
+            </Alert>
+          )}
         {/* Progress Header - Hidden in idle state and error state */}
         {processing.stage !== "idle" && processing.stage !== "error" && (
           <Box sx={{ textAlign: "center", mb: 2 }}>
@@ -216,5 +332,44 @@ export const ProcessingStep: React.FC = () => {
         {processing.stage !== "error" && <ErrorDisplay error={processing.error} />}
       </Box>
     </ProcessingErrorBoundary>
+
+    {/* Auto-save Success Notification */}
+    <Snackbar
+      open={showAutoSaveNotification}
+      autoHideDuration={3000}
+      onClose={() => setShowAutoSaveNotification(false)}
+      anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+    >
+      <Alert 
+        onClose={() => setShowAutoSaveNotification(false)} 
+        severity="success"
+        variant="filled"
+      >
+        Processing state saved automatically
+      </Alert>
+    </Snackbar>
+
+    {/* Error Notification */}
+    <Snackbar
+      open={showErrorNotification}
+      autoHideDuration={6000}
+      onClose={() => {
+        setShowErrorNotification(false)
+        clearError()
+      }}
+      anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+    >
+      <Alert 
+        onClose={() => {
+          setShowErrorNotification(false)
+          clearError()
+        }} 
+        severity="error"
+        variant="filled"
+      >
+        {lastError?.message || error?.message || 'Failed to save processing state'}
+      </Alert>
+    </Snackbar>
+  </>
   );
 };

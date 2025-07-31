@@ -7,7 +7,7 @@ import {
 import {
   Info as InfoIcon,
 } from "@mui/icons-material";
-import { useAppStore } from "../../../store/app-store";
+import { useAppStore } from "../../../stores/app-store";
 import { ProcessingCard } from "./styles";
 import { getStageEmoji, getStageDescription } from "./utils";
 

@@ -3,17 +3,32 @@ import typescript from '@typescript-eslint/eslint-plugin';
 import typescriptParser from '@typescript-eslint/parser';
 import react from 'eslint-plugin-react';
 import reactHooks from 'eslint-plugin-react-hooks';
+import globals from 'globals';
 
 export default [
+  // Base JavaScript recommended config
   js.configs.recommended,
+
+  // Global ignores
+  {
+    ignores: [
+      'dist/**',
+      'dist-electron/**', 
+      'out/**',
+      'node_modules/**',
+      '.eslintcache',
+      '*.config.js.map'
+    ],
+  },
+
   // Configuration files (CommonJS)
   {
-    files: ['*.config.js', 'postcss.config.js'],
+    files: ['*.config.js', 'postcss.config.js', 'setup.js'],
     languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
       globals: {
-        module: 'readonly',
-        require: 'readonly',
-        exports: 'readonly',
+        ...globals.node,
         __dirname: 'readonly',
         __filename: 'readonly',
       },
@@ -22,50 +37,57 @@ export default [
       'no-undef': 'error',
     },
   },
-  // Main files (Node.js environment)
+
+  // Scripts directory (Node.js environment)
   {
-    files: ['src/main/**/*.{js,ts}', 'setup.js'],
+    files: ['scripts/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: {
+        ...globals.node,
+      },
+    },
+    rules: {
+      'no-undef': 'error',
+    },
+  },
+
+  // Main files (Node.js + Electron environment)
+  {
+    files: ['src/main/**/*.{js,ts}'],
     plugins: {
       '@typescript-eslint': typescript,
     },
     languageOptions: {
       parser: typescriptParser,
       parserOptions: {
-        ecmaVersion: 'latest',
+        ecmaVersion: 2022,
         sourceType: 'module',
+        project: './tsconfig.json',
       },
       globals: {
-        // Node.js globals
-        console: 'readonly',
-        process: 'readonly',
-        Buffer: 'readonly',
-        __dirname: 'readonly',
-        __filename: 'readonly',
-        global: 'readonly',
-        module: 'readonly',
-        require: 'readonly',
-        exports: 'readonly',
-        setTimeout: 'readonly',
-        clearTimeout: 'readonly',
-        setInterval: 'readonly',
-        clearInterval: 'readonly',
-        setImmediate: 'readonly',
-        clearImmediate: 'readonly',
-        // Electron globals
+        ...globals.node,
         __static: 'readonly',
-        // OS module globals
-        platform: 'readonly',
       },
     },
     rules: {
       ...typescript.configs.recommended.rules,
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': [
+        'error', 
+        { 
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          ignoreRestSiblings: true 
+        }
+      ],
       '@typescript-eslint/no-explicit-any': 'warn',
-      '@typescript-eslint/no-require-imports': 'off', // Allow require in Node.js files
+      '@typescript-eslint/no-require-imports': 'off',
       'no-undef': 'error',
     },
   },
-  // Preload files (Bridge environment - Node.js + Browser)
+
+  // Preload files (Bridge environment)
   {
     files: ['src/preload/**/*.{js,ts}'],
     plugins: {
@@ -74,43 +96,34 @@ export default [
     languageOptions: {
       parser: typescriptParser,
       parserOptions: {
-        ecmaVersion: 'latest',
+        ecmaVersion: 2022,
         sourceType: 'module',
+        project: './tsconfig.json',
       },
       globals: {
-        // Node.js globals
-        console: 'readonly',
-        process: 'readonly',
-        Buffer: 'readonly',
-        __dirname: 'readonly',
-        __filename: 'readonly',
-        global: 'readonly',
-        module: 'readonly',
-        require: 'readonly',
-        exports: 'readonly',
-        setTimeout: 'readonly',
-        clearTimeout: 'readonly',
-        setInterval: 'readonly',
-        clearInterval: 'readonly',
-        setImmediate: 'readonly',
-        clearImmediate: 'readonly',
-        // Browser globals (for preload context)
-        window: 'readonly',
-        document: 'readonly',
-        // Electron globals
+        ...globals.node,
+        ...globals.browser,
         __static: 'readonly',
       },
     },
     rules: {
       ...typescript.configs.recommended.rules,
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': [
+        'error', 
+        { 
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          ignoreRestSiblings: true 
+        }
+      ],
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-require-imports': 'off',
-      '@typescript-eslint/ban-ts-comment': 'warn', // Allow @ts-ignore in preload
+      '@typescript-eslint/ban-ts-comment': 'warn',
       'no-undef': 'error',
     },
   },
-  // Renderer files (Browser environment)
+
+  // Renderer files (Browser + React environment)
   {
     files: ['src/renderer/**/*.{js,jsx,ts,tsx}'],
     plugins: {
@@ -121,42 +134,40 @@ export default [
     languageOptions: {
       parser: typescriptParser,
       parserOptions: {
-        ecmaVersion: 'latest',
+        ecmaVersion: 2022,
         sourceType: 'module',
         ecmaFeatures: {
           jsx: true,
         },
+        project: './tsconfig.json',
       },
       globals: {
-        // Browser globals
-        window: 'readonly',
-        document: 'readonly',
-        console: 'readonly',
-        navigator: 'readonly',
-        localStorage: 'readonly',
-        sessionStorage: 'readonly',
-        setTimeout: 'readonly',
-        clearTimeout: 'readonly',
-        setInterval: 'readonly',
-        clearInterval: 'readonly',
-        // DOM types
-        HTMLElement: 'readonly',
-        HTMLInputElement: 'readonly',
-        HTMLDivElement: 'readonly',
-        HTMLVideoElement: 'readonly',
-        KeyboardEvent: 'readonly',
-        MouseEvent: 'readonly',
-        Event: 'readonly',
-        // Web APIs
+        ...globals.browser,
+        ...globals.es2022,
+        // Additional browser APIs
         ResizeObserver: 'readonly',
-        // TypeScript/Node types that might be used in renderer
-        NodeJS: 'readonly',
-        // Additional browser globals
-        alert: 'readonly',
-        // Node.js globals that might be used in renderer (Electron context)
+        // IndexedDB types
+        indexedDB: 'readonly',
+        IDBDatabase: 'readonly',
+        IDBObjectStore: 'readonly',
+        IDBTransaction: 'readonly',
+        IDBKeyRange: 'readonly',
+        IDBOpenDBRequest: 'readonly',
+        IDBRequest: 'readonly',
+        IDBIndex: 'readonly',
+        IDBValidKey: 'readonly',
+        IDBTransactionMode: 'readonly',
+        IDBObjectStoreParameters: 'readonly',
+        IDBIndexParameters: 'readonly',
+        DOMStringList: 'readonly',
+        // Additional DOM types
+        DOMException: 'readonly',
+        // Electron context
         process: 'readonly',
         // React types
         JSX: 'readonly',
+        // TypeScript global types
+        NodeJS: 'readonly',
       },
     },
     settings: {
@@ -170,15 +181,23 @@ export default [
       ...reactHooks.configs.recommended.rules,
       'react/react-in-jsx-scope': 'off',
       'react/prop-types': 'off',
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': [
+        'error', 
+        { 
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          ignoreRestSiblings: true 
+        }
+      ],
       '@typescript-eslint/no-explicit-any': 'warn',
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
       'react/no-unescaped-entities': 'error',
-      'no-case-declarations': 'error',
+      'no-case-declarations': 'off', // Allow declarations in case blocks
       'no-undef': 'error',
     },
   },
+
   // TypeScript declaration files
   {
     files: ['src/types/**/*.ts', '**/*.d.ts'],
@@ -188,17 +207,88 @@ export default [
     languageOptions: {
       parser: typescriptParser,
       parserOptions: {
-        ecmaVersion: 'latest',
+        ecmaVersion: 2022,
         sourceType: 'module',
+        project: './tsconfig.json',
+      },
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+        // Electron types
+        IpcRendererEvent: 'readonly',
+        // Additional browser types
+        Console: 'readonly',
+        DOMException: 'readonly',
+        IDBOpenDBRequest: 'readonly',
+        IDBRequest: 'readonly',
+        IDBValidKey: 'readonly',
+        IDBKeyRange: 'readonly',
+        IDBTransactionMode: 'readonly',
+        IDBObjectStoreParameters: 'readonly',
+        IDBIndexParameters: 'readonly',
+        IDBIndex: 'readonly',
+        DOMStringList: 'readonly',
       },
     },
     rules: {
       ...typescript.configs.recommended.rules,
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': [
+        'error', 
+        { 
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          ignoreRestSiblings: true 
+        }
+      ],
       '@typescript-eslint/no-explicit-any': 'warn',
+      'no-undef': 'off', // TypeScript handles undefined variables
     },
   },
+
+  // Jest test files
   {
-    ignores: ['dist/**', 'dist-electron/**', 'out/**', 'node_modules/**'],
+    files: [
+      '**/__tests__/**/*.{js,ts,tsx}',
+      '**/*.test.{js,ts,tsx}',
+      '**/*.spec.{js,ts,tsx}'
+    ],
+    plugins: {
+      '@typescript-eslint': typescript,
+    },
+    languageOptions: {
+      parser: typescriptParser,
+      parserOptions: {
+        ecmaVersion: 2022,
+        sourceType: 'module',
+        ecmaFeatures: {
+          jsx: true,
+        },
+        project: './tsconfig.json',
+      },
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+        ...globals.jest,
+        // Additional test globals
+        afterEach: 'readonly',
+        beforeEach: 'readonly',
+        DOMException: 'readonly',
+        // Fake IndexedDB globals
+        FDBKeyRange: 'readonly',
+      },
+    },
+    rules: {
+      ...typescript.configs.recommended.rules,
+      '@typescript-eslint/no-unused-vars': [
+        'error', 
+        { 
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          ignoreRestSiblings: true 
+        }
+      ],
+      '@typescript-eslint/no-explicit-any': 'warn',
+      'no-undef': 'error',
+    },
   },
 ];

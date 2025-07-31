@@ -25,7 +25,7 @@ import {
   Terminal as ConsoleIcon,
   PowerSettingsNew as PowerIcon,
 } from "@mui/icons-material";
-import { useAppStore } from "../../../store/app-store";
+import { useAppStore } from "../../../stores/app-store";
 import { useWorkflowStore } from "../../../stores/workflow-store";
 import { ErrorCategory } from "../../../types/error";
 import { errorHandler } from "../../../utils/errorHandler";

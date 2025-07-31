@@ -18,7 +18,7 @@ import {
   Clear as ClearIcon,
   OpenInNew as OpenInNewIcon
 } from '@mui/icons-material'
-import { useAppStore } from '../../store/app-store'
+import { useAppStore } from '../../stores/app-store'
 
 interface KeyValidation {
   valid: boolean

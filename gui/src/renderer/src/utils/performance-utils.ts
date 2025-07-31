@@ -33,8 +33,16 @@ export const throttle = <T extends (...args: any[]) => any>(
 export class PerformanceMonitor {
   private static instance: PerformanceMonitor;
   private startTime: number = 0;
+  private operationName: string = '';
   private warningThreshold: number = 100; // ms
   private errorThreshold: number = 1000;   // ms
+  private operationHistory: Array<{
+    name: string;
+    duration: number;
+    dataSize?: number;
+    timestamp: number;
+    throughput?: number;
+  }> = [];
 
   static getInstance(): PerformanceMonitor {
     if (!PerformanceMonitor.instance) {
@@ -45,6 +53,7 @@ export class PerformanceMonitor {
 
   startOperation(operationName: string): void {
     this.startTime = performance.now();
+    this.operationName = operationName;
     console.log(`🚀 Starting operation: ${operationName}`);
   }
 
@@ -52,15 +61,83 @@ export class PerformanceMonitor {
     const endTime = performance.now();
     const duration = endTime - this.startTime;
     
+    // Calculate throughput for data operations
+    const throughput = dataSize && duration > 0 ? (dataSize / duration * 1000) : undefined;
+    const throughputInfo = throughput ? ` (${throughput.toFixed(1)} items/sec)` : '';
+    
     const sizeInfo = dataSize ? ` (${dataSize} items)` : '';
     
-    if (duration > this.errorThreshold) {
-      console.error(`🚨 PERFORMANCE ISSUE: ${operationName}${sizeInfo} took ${duration.toFixed(2)}ms`);
-    } else if (duration > this.warningThreshold) {
-      console.warn(`⚠️ SLOW OPERATION: ${operationName}${sizeInfo} took ${duration.toFixed(2)}ms`);
-    } else {
-      console.log(`✅ Operation completed: ${operationName}${sizeInfo} in ${duration.toFixed(2)}ms`);
+    // Store operation in history
+    this.operationHistory.push({
+      name: operationName,
+      duration,
+      dataSize,
+      timestamp: Date.now(),
+      throughput
+    });
+    
+    // Keep only last 50 operations
+    if (this.operationHistory.length > 50) {
+      this.operationHistory.shift();
     }
+    
+    // Enhanced logging with performance targets
+    if (duration > this.errorThreshold) {
+      console.error(`🚨 PERFORMANCE ISSUE: ${operationName}${sizeInfo} took ${duration.toFixed(2)}ms${throughputInfo}`);
+    } else if (duration > this.warningThreshold) {
+      console.warn(`⚠️ SLOW OPERATION: ${operationName}${sizeInfo} took ${duration.toFixed(2)}ms${throughputInfo}`);
+      
+      // Provide optimization suggestions for subtitle operations
+      if (operationName.includes('Session Init') && dataSize) {
+        const targetTime = dataSize * 3; // Target: 3ms per item
+        if (duration > targetTime) {
+          console.warn(`💡 OPTIMIZATION TIP: Target time for ${dataSize} items should be ~${targetTime}ms. Consider async processing or caching.`);
+        }
+      }
+    } else {
+      console.log(`✅ Operation completed: ${operationName}${sizeInfo} in ${duration.toFixed(2)}ms${throughputInfo}`);
+    }
+  }
+  
+  // Get performance statistics
+  getPerformanceStats(): {
+    averageDuration: number;
+    operationCount: number;
+    slowOperations: number;
+    fastestOperation: { name: string; duration: number } | null;
+    slowestOperation: { name: string; duration: number } | null;
+  } {
+    if (this.operationHistory.length === 0) {
+      return {
+        averageDuration: 0,
+        operationCount: 0,
+        slowOperations: 0,
+        fastestOperation: null,
+        slowestOperation: null
+      };
+    }
+    
+    const durations = this.operationHistory.map(op => op.duration);
+    const averageDuration = durations.reduce((sum, d) => sum + d, 0) / durations.length;
+    const slowOperations = this.operationHistory.filter(op => op.duration > this.warningThreshold).length;
+    
+    const sortedOps = [...this.operationHistory].sort((a, b) => a.duration - b.duration);
+    
+    return {
+      averageDuration,
+      operationCount: this.operationHistory.length,
+      slowOperations,
+      fastestOperation: sortedOps[0] ? { name: sortedOps[0].name, duration: sortedOps[0].duration } : null,
+      slowestOperation: sortedOps[sortedOps.length - 1] ? { 
+        name: sortedOps[sortedOps.length - 1].name, 
+        duration: sortedOps[sortedOps.length - 1].duration 
+      } : null
+    };
+  }
+  
+  // Clear performance history
+  clearHistory(): void {
+    this.operationHistory = [];
   }
 }
 

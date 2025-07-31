@@ -15,6 +15,27 @@ import type {
   IPCProcessMessage,
   InitializationResult,
 } from "../types";
+import type {
+  WorkspaceMetadata,
+  MigrationStatus,
+  WorkspacePerformanceMetrics
+} from "../renderer/src/types/workspace";
+import type {
+  SUBTITLE_IPC_CHANNELS,
+  CreateSubtitleFileParams,
+  LoadSubtitleFileParams,
+  SaveSubtitleFileParams,
+  DeleteSubtitleFileParams,
+  GetSubtitleMetadataParams,
+  CleanupSubtitleFilesParams,
+  BatchSubtitleOperationParams,
+  SubtitleFileResult,
+  SubtitleFileContent,
+  SubtitleFileMetadata,
+  BatchSubtitleOperationResult,
+  PathValidationResult,
+  SubtitleFileCacheMetrics
+} from "../types/subtitle-ipc";
 
 // Custom APIs for renderer
 const api: ElectronAPI = {
@@ -44,6 +65,11 @@ const api: ElectronAPI = {
 
   // Window Controls (these are handled separately)
   getPlatform: (): Promise<string> => ipcRenderer.invoke("get-platform"),
+
+  // DevTools Controls
+  openDevTools: (): Promise<void> => ipcRenderer.invoke("devtools:open"),
+  closeDevTools: (): Promise<void> => ipcRenderer.invoke("devtools:close"),
+  toggleDevTools: (): Promise<void> => ipcRenderer.invoke("devtools:toggle"),
 
   // File System Operations
   openFileDialog: (options?: FileDialogOptions): Promise<FileDialogResult> =>
@@ -157,6 +183,129 @@ const api: ElectronAPI = {
     return () => ipcRenderer.removeListener("process-message", wrappedCallback);
   },
 
+  // Workspace Management
+  listWorkspaces: (): Promise<Array<WorkspaceMetadata & { id: string, name: string, isActive: boolean }>> =>
+    ipcRenderer.invoke("workspace:list"),
+
+  createWorkspace: (name: string): Promise<{ success: boolean, workspaceId: string }> =>
+    ipcRenderer.invoke("workspace:create", name),
+
+  deleteWorkspace: (workspaceId: string): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke("workspace:delete", workspaceId),
+
+  syncWorkspace: (workspaceId: string): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke("workspace:sync", workspaceId),
+
+  // Configuration Management
+  getWorkspaceConfig: (workspaceId: string): Promise<AppConfig | null> =>
+    ipcRenderer.invoke("workspace:getConfig", workspaceId),
+
+  syncWorkspaceConfig: (workspaceId: string, config: AppConfig): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke("workspace:syncConfig", workspaceId, config),
+
+  // Migration Operations
+  startWorkspaceMigration: (): Promise<{ success: boolean, backupPath: string }> =>
+    ipcRenderer.invoke("workspace:startMigration"),
+
+  completeWorkspaceMigration: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke("workspace:completeMigration"),
+
+  rollbackWorkspaceMigration: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke("workspace:rollbackMigration"),
+
+  getWorkspaceMigrationStatus: (): Promise<MigrationStatus | null> =>
+    ipcRenderer.invoke("workspace:getMigrationStatus"),
+
+  // Backup & Recovery
+  createWorkspaceBackup: (workspaceId: string): Promise<{ success: boolean, backupPath: string }> =>
+    ipcRenderer.invoke("workspace:createBackup", workspaceId),
+
+  restoreWorkspaceBackup: (backupPath: string): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke("workspace:restoreBackup", backupPath),
+
+  // Performance Monitoring
+  getWorkspacePerformanceMetrics: (): Promise<WorkspacePerformanceMetrics[]> =>
+    ipcRenderer.invoke("workspace:getPerformanceMetrics"),
+
+  clearWorkspacePerformanceMetrics: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke("workspace:clearPerformanceMetrics"),
+
+  // Initialization
+  initializeWorkspaceSystem: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke("workspace:initialize"),
+
+  // Workspace Event Listeners
+  onWorkspaceMigrationUpdate: (callback: (data: MigrationStatus) => void): (() => void) => {
+    const wrappedCallback = (_: IpcRendererEvent, data: MigrationStatus) => callback(data);
+    ipcRenderer.on("workspace:migrationUpdate", wrappedCallback);
+    return () => ipcRenderer.removeListener("workspace:migrationUpdate", wrappedCallback);
+  },
+
+  onWorkspaceMigrationProgress: (callback: (data: { phase: string, progress: number, message: string }) => void): (() => void) => {
+    const wrappedCallback = (_: IpcRendererEvent, data: { phase: string, progress: number, message: string }) => callback(data);
+    ipcRenderer.on("workspace:migrationProgress", wrappedCallback);
+    return () => ipcRenderer.removeListener("workspace:migrationProgress", wrappedCallback);
+  },
+
+  onWorkspaceMigrationRollback: (callback: (data: { success: boolean, message: string }) => void): (() => void) => {
+    const wrappedCallback = (_: IpcRendererEvent, data: { success: boolean, message: string }) => callback(data);
+    ipcRenderer.on("workspace:migrationRollback", wrappedCallback);
+    return () => ipcRenderer.removeListener("workspace:migrationRollback", wrappedCallback);
+  },
+
+  // ============================================================================
+  // SUBTITLE FILE OPERATIONS
+  // ============================================================================
+
+  // Core subtitle file operations
+  createSubtitleFile: (params: CreateSubtitleFileParams): Promise<SubtitleFileResult<SubtitleFileMetadata>> =>
+    ipcRenderer.invoke(SUBTITLE_IPC_CHANNELS.CREATE, params),
+
+  loadSubtitleFile: (params: LoadSubtitleFileParams): Promise<SubtitleFileResult<SubtitleFileContent>> =>
+    ipcRenderer.invoke(SUBTITLE_IPC_CHANNELS.LOAD, params),
+
+  saveSubtitleFile: (params: SaveSubtitleFileParams): Promise<SubtitleFileResult<SubtitleFileMetadata>> =>
+    ipcRenderer.invoke(SUBTITLE_IPC_CHANNELS.SAVE, params),
+
+  deleteSubtitleFile: (params: DeleteSubtitleFileParams): Promise<SubtitleFileResult<boolean>> =>
+    ipcRenderer.invoke(SUBTITLE_IPC_CHANNELS.DELETE, params),
+
+  getSubtitleMetadata: (params: GetSubtitleMetadataParams): Promise<SubtitleFileResult<SubtitleFileMetadata[]>> =>
+    ipcRenderer.invoke(SUBTITLE_IPC_CHANNELS.METADATA, params),
+
+  cleanupSubtitleFiles: (params: CleanupSubtitleFilesParams): Promise<SubtitleFileResult<{
+    deletedFiles: string[]
+    compressedFiles: string[]
+    freedSpace: number
+  }>> =>
+    ipcRenderer.invoke(SUBTITLE_IPC_CHANNELS.CLEANUP, params),
+
+  // Batch operations
+  batchSubtitleOperation: (params: BatchSubtitleOperationParams): Promise<BatchSubtitleOperationResult> =>
+    ipcRenderer.invoke(SUBTITLE_IPC_CHANNELS.BATCH_OPERATION, params),
+
+  // Cache management
+  getSubtitleCacheMetrics: (): Promise<SubtitleFileCacheMetrics | null> =>
+    ipcRenderer.invoke(SUBTITLE_IPC_CHANNELS.CACHE_METRICS),
+
+  clearSubtitleCache: (workspaceId?: string): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke(SUBTITLE_IPC_CHANNELS.CACHE_CLEAR, workspaceId),
+
+  // Performance monitoring
+  getSubtitlePerformanceMetrics: (): Promise<any[]> =>
+    ipcRenderer.invoke(SUBTITLE_IPC_CHANNELS.PERFORMANCE_METRICS),
+
+  // Validation
+  validateSubtitlePath: (workspaceId: string, path: string, operation: 'read' | 'write' | 'delete'): Promise<PathValidationResult> =>
+    ipcRenderer.invoke(SUBTITLE_IPC_CHANNELS.VALIDATE_PATH, { workspaceId, path, operation }),
+
+  // Event listeners for subtitle operations
+  onSubtitleStreamProgress: (callback: (data: any) => void): (() => void) => {
+    const wrappedCallback = (_: IpcRendererEvent, data: any) => callback(data);
+    ipcRenderer.on(SUBTITLE_IPC_CHANNELS.STREAM_PROGRESS, wrappedCallback);
+    return () => ipcRenderer.removeListener(SUBTITLE_IPC_CHANNELS.STREAM_PROGRESS, wrappedCallback);
+  },
+
   // Utility Functions
   removeAllListeners: (): void => {
     ipcRenderer.removeAllListeners("ipc-message");
@@ -165,6 +314,12 @@ const api: ElectronAPI = {
     ipcRenderer.removeAllListeners("process-complete");
     ipcRenderer.removeAllListeners("process-error");
     ipcRenderer.removeAllListeners("process-message");
+    // Workspace listeners
+    ipcRenderer.removeAllListeners("workspace:migrationUpdate");
+    ipcRenderer.removeAllListeners("workspace:migrationProgress");
+    ipcRenderer.removeAllListeners("workspace:migrationRollback");
+    // Subtitle file listeners
+    ipcRenderer.removeAllListeners(SUBTITLE_IPC_CHANNELS.STREAM_PROGRESS);
   },
 };
 

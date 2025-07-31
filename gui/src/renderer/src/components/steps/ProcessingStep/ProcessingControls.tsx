@@ -9,7 +9,7 @@ import {
   Memory as MemoryIcon,
   Speed as SpeedIcon,
 } from "@mui/icons-material";
-import { useAppStore } from "../../../store/app-store";
+import { useAppStore } from "../../../stores/app-store";
 import { ProcessingCard, TerminateButton } from "./styles";
 import { CancelConfirmationDialog } from "./CancelConfirmationDialog";
 import { formatTime } from "./utils";

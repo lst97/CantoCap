@@ -263,6 +263,12 @@ export interface ElectronAPI {
   getAppVersion: () => Promise<string>
   openExternalUrl: (url: string) => Promise<void>
   getPlatform: () => Promise<string>
+  
+  // DevTools Controls
+  openDevTools: () => Promise<void>
+  closeDevTools: () => Promise<void>
+  toggleDevTools: () => Promise<void>
+  
   openFileDialog: (options?: FileDialogOptions) => Promise<FileDialogResult>
   openFolderDialog: () => Promise<FileDialogResult>
   saveFileDialog: (options?: {
@@ -290,6 +296,52 @@ export interface ElectronAPI {
   onProcessError: (callback: (data: IPCProcessError) => void) => () => void
   onProcessMessage: (callback: (data: IPCProcessMessage) => void) => () => void
   removeAllListeners: () => void
+
+  // Workspace Management
+  listWorkspaces: () => Promise<Array<any>>
+  createWorkspace: (name: string) => Promise<{ success: boolean, workspaceId: string }>
+  deleteWorkspace: (workspaceId: string) => Promise<{ success: boolean }>
+  syncWorkspace: (workspaceId: string) => Promise<{ success: boolean }>
+
+  // Configuration Management
+  getWorkspaceConfig: (workspaceId: string) => Promise<AppConfig | null>
+  syncWorkspaceConfig: (workspaceId: string, config: AppConfig) => Promise<{ success: boolean }>
+
+  // Migration Operations
+  startWorkspaceMigration: () => Promise<{ success: boolean, backupPath: string }>
+  completeWorkspaceMigration: () => Promise<{ success: boolean }>
+  rollbackWorkspaceMigration: () => Promise<{ success: boolean }>
+  getWorkspaceMigrationStatus: () => Promise<any>
+
+  // Backup & Recovery
+  createWorkspaceBackup: (workspaceId: string) => Promise<{ success: boolean, backupPath: string }>
+  restoreWorkspaceBackup: (backupPath: string) => Promise<{ success: boolean }>
+
+  // Performance Monitoring
+  getWorkspacePerformanceMetrics: () => Promise<any[]>
+  clearWorkspacePerformanceMetrics: () => Promise<{ success: boolean }>
+
+  // Initialization
+  initializeWorkspaceSystem: () => Promise<{ success: boolean }>
+
+  // Workspace Event Listeners
+  onWorkspaceMigrationUpdate: (callback: (data: any) => void) => () => void
+  onWorkspaceMigrationProgress: (callback: (data: { phase: string, progress: number, message: string }) => void) => () => void
+  onWorkspaceMigrationRollback: (callback: (data: { success: boolean, message: string }) => void) => () => void
+
+  // Subtitle File Operations
+  createSubtitleFile: (params: any) => Promise<any>
+  loadSubtitleFile: (params: any) => Promise<any>
+  saveSubtitleFile: (params: any) => Promise<any>
+  deleteSubtitleFile: (params: any) => Promise<any>
+  getSubtitleMetadata: (params: any) => Promise<any>
+  cleanupSubtitleFiles: (params: any) => Promise<any>
+  batchSubtitleOperation: (params: any) => Promise<any>
+  getSubtitleCacheMetrics: () => Promise<any>
+  clearSubtitleCache: (workspaceId?: string) => Promise<{ success: boolean }>
+  getSubtitlePerformanceMetrics: () => Promise<any[]>
+  validateSubtitlePath: (workspaceId: string, path: string, operation: 'read' | 'write' | 'delete') => Promise<any>
+  onSubtitleStreamProgress: (callback: (data: any) => void) => () => void
 }
 
 // Global Window Interface Extension

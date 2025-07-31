@@ -9,7 +9,7 @@ import {
   Block as BlockIcon,
 } from "@mui/icons-material";
 import { Chip } from "@mui/material";
-import { useAppStore } from "../../store/app-store";
+import { useAppStore } from "../../stores/app-store";
 import { AppConfig } from "@/types";
 
 interface QuickOption {

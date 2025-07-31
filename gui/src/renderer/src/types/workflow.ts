@@ -27,4 +27,5 @@ export interface WorkflowState {
   resetStepsFromRange: (fromStepId: string, toStepId?: string) => void
   markStepAsError: (stepId: string, errorMessage?: string) => void
   clearStepError: (stepId: string) => void
+  initializeFromWorkspace: () => Promise<void>
 }

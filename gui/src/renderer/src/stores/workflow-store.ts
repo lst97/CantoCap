@@ -1,6 +1,47 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { WorkflowState, WorkflowStep } from '../types/workflow'
+import { useWorkspaceStore } from './workspace-store'
+
+// Helper function to save workflow state to workspace session
+const saveWorkflowToWorkspace = async (workflowState: Partial<WorkflowState>) => {
+  try {
+    const workspaceStore = useWorkspaceStore.getState()
+    if (workspaceStore.currentWorkspace) {
+      await workspaceStore.saveWorkspaceSession('workflow', {
+        workflowSteps: workflowState.steps,
+        currentStep: workflowState.currentStep,
+        stepHistory: [] // Could be enhanced to track step history
+      })
+    }
+  } catch (error) {
+    console.error('Failed to save workflow state to workspace:', error)
+    // Don't throw here to avoid breaking the workflow
+  }
+}
+
+// Helper function to load workflow state from workspace session
+const loadWorkflowFromWorkspace = async (): Promise<Partial<WorkflowState> | null> => {
+  try {
+    const workspaceStore = useWorkspaceStore.getState()
+    if (workspaceStore.currentWorkspace) {
+      const sessionData = await workspaceStore.loadWorkspaceSession(
+        workspaceStore.currentWorkspace.id, 
+        'workflow'
+      )
+      
+      if (sessionData) {
+        return {
+          steps: sessionData.workflowSteps || INITIAL_STEPS,
+          currentStep: sessionData.currentStep || 'input-file'
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load workflow state from workspace:', error)
+  }
+  return null
+}
 
 const INITIAL_STEPS: WorkflowStep[] = [
   {
@@ -48,6 +89,17 @@ export const useWorkflowStore = create<WorkflowState>()(
       currentStep: 'input-file',
       steps: INITIAL_STEPS,
 
+      // Initialize with workspace data if available
+      initializeFromWorkspace: async () => {
+        const workspaceData = await loadWorkflowFromWorkspace()
+        if (workspaceData) {
+          set({
+            currentStep: workspaceData.currentStep || 'input-file',
+            steps: workspaceData.steps || INITIAL_STEPS
+          })
+        }
+      },
+
       canProgress: (stepId: string) => {
         const state = get()
         const step = state.steps.find(s => s.id === stepId)
@@ -58,6 +110,8 @@ export const useWorkflowStore = create<WorkflowState>()(
         const state = get()
         if (state.canProgress(stepId)) {
           set({ currentStep: stepId })
+          // Save to workspace
+          saveWorkflowToWorkspace({ currentStep: stepId, steps: state.steps })
         }
       },
 
@@ -89,7 +143,11 @@ export const useWorkflowStore = create<WorkflowState>()(
             }
           }
 
-          return { steps: updatedSteps }
+          // Save workflow state to workspace session
+          const newState = { steps: updatedSteps }
+          saveWorkflowToWorkspace(newState)
+
+          return newState
         })
       },
 
@@ -153,7 +211,9 @@ export const useWorkflowStore = create<WorkflowState>()(
             return step
           })
 
-          return { steps: updatedSteps }
+          const newState = { steps: updatedSteps }
+          saveWorkflowToWorkspace(newState)
+          return newState
         })
       },
 
@@ -285,6 +345,31 @@ export const useWorkflowStore = create<WorkflowState>()(
           })
 
           return { steps: updatedSteps }
+        })
+      },
+
+      // Testing methods
+      updateStep: (stepId: string) => {
+        set((state) => ({ currentStep: stepId }))
+      },
+
+      updateStepData: (data: any) => {
+        // Mock method for testing - in real implementation would update step-specific data
+        console.log('Step data updated:', data)
+      },
+
+      restoreState: (stepId: string) => {
+        set((state) => ({ currentStep: stepId }))
+      },
+
+      getState: () => {
+        return get()
+      },
+
+      reset: () => {
+        set({
+          currentStep: 'input-file',
+          steps: INITIAL_STEPS
         })
       }
     }),

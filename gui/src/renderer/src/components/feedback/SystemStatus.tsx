@@ -24,7 +24,7 @@ import {
   Memory as MemoryIcon,
   Speed as SpeedIcon
 } from '@mui/icons-material'
-import { useAppStore } from '../../store/app-store'
+import { useAppStore } from '../../stores/app-store'
 
 interface DependencyStatus {
   status: string

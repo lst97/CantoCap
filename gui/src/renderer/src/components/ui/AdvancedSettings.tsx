@@ -27,7 +27,7 @@ import {
   Clear as ClearIcon,
   Warning as WarningIcon
 } from '@mui/icons-material'
-import { useAppStore } from '../../store/app-store'
+import { useAppStore } from '../../stores/app-store'
 
 interface OptionType {
   value: string

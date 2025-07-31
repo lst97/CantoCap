@@ -53,14 +53,14 @@ export const detectLanguageFromFormat = (format: string): string => {
   const lowerFormat = format.toLowerCase()
   
   if (lowerFormat.includes('srt') || lowerFormat.includes('vtt')) {
-    return 'text'
+    return 'plaintext'
   } else if (lowerFormat.includes('xml') || lowerFormat.includes('ttml')) {
     return 'xml'
   } else if (lowerFormat.includes('json')) {
     return 'javascript'
   }
   
-  return 'text'
+  return 'plaintext'
 }
 
 /**

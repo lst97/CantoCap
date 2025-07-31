@@ -8,7 +8,7 @@ import {
 } from "@mui/icons-material";
 
 import { useExportStore } from "../../../stores/export-store";
-import { useAppStore } from "../../../store/app-store";
+import { useAppStore } from "../../../stores/app-store";
 import type { ExportSettings } from "../../../stores/export-store";
 import {
   analyzeSubtitleEntries,

@@ -196,17 +196,17 @@ export class InitializationService {
       }
 
       // Try to run the setup script to install FFmpeg
-      const pythonCmd = platform === 'win32' ? 'python' : 'python3'
+      const pythonCmd = process.platform === 'win32' ? 'python' : 'python3'
       const installProcess = spawn(pythonCmd, [setupScript, '--ffmpeg-only'], {
         cwd: join(projectRoot, 'engine'),
         stdio: 'pipe'
       })
 
-      let output = ''
+      let _output = ''
       let errorOutput = ''
 
       installProcess.stdout.on('data', (data) => {
-        output += data.toString()
+        _output += data.toString()
       })
 
       installProcess.stderr.on('data', (data) => {

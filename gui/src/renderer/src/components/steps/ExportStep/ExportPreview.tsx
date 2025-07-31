@@ -26,11 +26,13 @@ import { detectLanguageFromFormat, addLineNumbers } from './utils'
 import hljs from 'highlight.js/lib/core'
 import javascript from 'highlight.js/lib/languages/javascript'
 import xml from 'highlight.js/lib/languages/xml'
+import plaintext from 'highlight.js/lib/languages/plaintext'
 import 'highlight.js/styles/vs2015.css'
 
 // Register languages we might need for subtitle formats
 hljs.registerLanguage('javascript', javascript)
 hljs.registerLanguage('xml', xml)
+hljs.registerLanguage('plaintext', plaintext)
 
 export const ExportPreview: React.FC = () => {
   const { preview, formatFileSize } = useExportStore()
@@ -53,12 +55,23 @@ export const ExportPreview: React.FC = () => {
     const language = detectLanguageFromFormat(format)
     
     try {
-      const highlighted = hljs.highlight(content, { language })
-      return highlighted.value
-    } catch {
-      // Fallback to plain text if highlighting fails
-      return content
+      // Check if language is registered before highlighting
+      if (hljs.getLanguage(language)) {
+        const highlighted = hljs.highlight(content, { language })
+        return highlighted.value
+      } else {
+        // If language not found, try plaintext fallback
+        if (hljs.getLanguage('plaintext')) {
+          const highlighted = hljs.highlight(content, { language: 'plaintext' })
+          return highlighted.value
+        }
+      }
+    } catch (error) {
+      console.warn('Highlight.js error:', error)
     }
+    
+    // Ultimate fallback to plain text without highlighting
+    return content
   }, [])
   
   const addLineNumbersToContent = useCallback((content: string) => {
