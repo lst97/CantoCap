@@ -3,20 +3,41 @@ import { Box, Typography } from '@mui/material'
 import { useWorkflowStore } from '../../stores/workflow-store'
 import { useWorkspaceRequirement } from '../../contexts/WorkspaceConfigContext'
 import { useWorkspacePanelIntegration } from '../workspace/hooks'
+import { useUIStore, selectSettingsUI } from '../../stores/ui-store'
+import { useWorkspaceStore } from '../../stores/workspace-store'
+import { useStepLoadingState } from '../../hooks/useStepLoadingState'
 import { InputFileStep } from '../steps/InputFileStep'
 import { ConfigStep } from '../steps/ConfigStep'
 import { ProcessingStep } from '../steps/ProcessingStep'
 import { ReviewStep } from '../steps/ReviewStep'
 import { ExportStep } from '../steps/ExportStep'
 import { EmptyWorkspaceState } from '../workspace/EmptyWorkspaceState'
+import { SettingsContentArea } from '../settings/SettingsContentArea'
+import { LoadingOverlay } from '../ui/LoadingOverlay'
+import { WorkspaceStepLoadingOverlay } from '../ui/StepLoadingOverlay'
 import { ErrorBoundary } from '../common/ErrorBoundary'
 
 export const MainContentArea: React.FC = () => {
   const { currentStep, steps } = useWorkflowStore()
   const { isEmpty, isReady } = useWorkspaceRequirement()
   const { onCreateWorkspace, isLoading } = useWorkspacePanelIntegration()
+  const settingsUI = useUIStore(selectSettingsUI)
+  const { exitSettingsMode } = useUIStore()
   
   const currentStepData = steps.find(step => step.id === currentStep)
+  
+  // Use the comprehensive step loading state hook
+  const stepLoadingState = useStepLoadingState(currentStep)
+
+  // Show settings content area if in settings mode
+  if (settingsUI.isSettingsMode) {
+    return (
+      <>
+        <SettingsContentArea onBack={exitSettingsMode} />
+        <LoadingOverlay />
+      </>
+    )
+  }
 
   // Show empty state if no workspaces exist
   if (isReady && isEmpty) {
@@ -26,6 +47,7 @@ export const MainContentArea: React.FC = () => {
           onCreateWorkspace={onCreateWorkspace}
           isLoading={isLoading}
         />
+        <LoadingOverlay />
       </Box>
     )
   }
@@ -43,6 +65,7 @@ export const MainContentArea: React.FC = () => {
         <Typography variant="body1" color="text.secondary">
           Initializing workspace system...
         </Typography>
+        <LoadingOverlay />
       </Box>
     )
   }
@@ -116,34 +139,45 @@ export const MainContentArea: React.FC = () => {
   }
 
   return (
-    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      {/* Content Header */}
-      <Box 
-        sx={{ 
-          height: 48,
-          px: 3,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1,
-          borderBottom: 1,
-          borderColor: 'divider',
-          backgroundColor: 'rgba(0, 0, 0, 0.05)'
-        }}
-      >
-        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-          {currentStepData?.title || currentStep}
-        </Typography>
-        {currentStepData?.description && (
-          <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>
-            {currentStepData.description}
+    <>
+      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {/* Content Header */}
+        <Box 
+          sx={{ 
+            height: 48,
+            px: 3,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            borderBottom: 1,
+            borderColor: 'divider',
+            backgroundColor: 'rgba(0, 0, 0, 0.05)'
+          }}
+        >
+          <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+            {currentStepData?.title || currentStep}
           </Typography>
-        )}
-      </Box>
+          {currentStepData?.description && (
+            <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>
+              {currentStepData.description}
+            </Typography>
+          )}
+        </Box>
 
-      {/* Content Area */}
-      <Box sx={{ flex: 1, overflow: 'hidden' }}>
-        {renderStepContent()}
+        {/* Content Area */}
+        <Box sx={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+          {renderStepContent()}
+          
+          {/* Step Content Loading Overlay - ONLY shows during workspace operations (not config changes) */}
+          <WorkspaceStepLoadingOverlay 
+            open={stepLoadingState.isLoading} 
+            workspaceName={stepLoadingState.workspaceName}
+          />
+        </Box>
       </Box>
-    </Box>
+      
+      {/* Global Loading Overlay */}
+      <LoadingOverlay />
+    </>
   )
 }

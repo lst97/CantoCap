@@ -45,7 +45,7 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
 
   // Get current subtitle based on current time for highlighting
   const getCurrentSubtitle = (): SubtitleEntry | null => {
-    if (!session) return null;
+    if (!session || !session.currentSubtitles || !Array.isArray(session.currentSubtitles)) return null;
 
     return (
       session.currentSubtitles.find(
@@ -201,7 +201,9 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
     // Auto-select the new subtitle for editing
     setTimeout(() => {
       setSelectedSubtitle(
-        session.currentSubtitles.find((s) => s.startTime === startTime)?.id ||
+        (session?.currentSubtitles && Array.isArray(session.currentSubtitles) 
+          ? session.currentSubtitles.find((s) => s.startTime === startTime)?.id 
+          : null) ||
           null
       );
     }, 100);
@@ -214,7 +216,7 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
 
   // Check if there's space at the end for adding new subtitle
   const hasSpaceAtEnd = (): boolean => {
-    if (!session) return false;
+    if (!session || !session.currentSubtitles || !Array.isArray(session.currentSubtitles)) return false;
 
     // If no subtitles yet, allow adding
     if (session.currentSubtitles.length === 0) return true;
@@ -233,7 +235,7 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
 
   // Handle adding new subtitle at the end
   const handleAddNew = () => {
-    if (!session || !hasSpaceAtEnd()) return;
+    if (!session || !session.currentSubtitles || !Array.isArray(session.currentSubtitles) || !hasSpaceAtEnd()) return;
 
     let startTime: number;
     let endTime: number;
@@ -267,7 +269,9 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
     // Auto-select the new subtitle for editing
     setTimeout(() => {
       setSelectedSubtitle(
-        session.currentSubtitles.find((s) => s.startTime === startTime)?.id ||
+        (session?.currentSubtitles && Array.isArray(session.currentSubtitles) 
+          ? session.currentSubtitles.find((s) => s.startTime === startTime)?.id 
+          : null) ||
           null
       );
     }, 100);
@@ -364,7 +368,7 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
       >
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <Typography variant="h6">Generated Subtitles</Typography>
-          <Chip label={session.currentSubtitles.length} size="small" />
+          <Chip label={session.currentSubtitles?.length || 0} size="small" />
           {session.isDirty && (
             <Chip label="Modified" size="small" color="warning" />
           )}
@@ -406,7 +410,7 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
         }}
       >
         <List dense>
-          {session.currentSubtitles.map((subtitle, index) => {
+          {(session.currentSubtitles || []).map((subtitle, index) => {
             const isSelected = session.selectedSubtitleId === subtitle.id;
             const isCurrentlyPlaying = currentSubtitle?.id === subtitle.id;
             const modificationType = getModificationType(subtitle);

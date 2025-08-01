@@ -50,7 +50,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
   const [editEndTime, setEditEndTime] = useState("");
   const [hasChanges, setHasChanges] = useState(false);
 
-  const editingSubtitle = session?.selectedSubtitleId
+  const editingSubtitle = session?.selectedSubtitleId && session.currentSubtitles && Array.isArray(session.currentSubtitles)
     ? session.currentSubtitles.find((s) => s.id === session.selectedSubtitleId)
     : null;
 
@@ -122,7 +122,13 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
   };
 
   const handleExport = () => {
+    // Complete the review step and enable export step
     completeStep('review');
+    
+    // Explicitly enable export step to ensure it's accessible
+    const workflowStore = useWorkflowStore.getState();
+    workflowStore.enableStep('export');
+    
     setCurrentStep('export');
   };
 
@@ -141,7 +147,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
   };
 
   const handleMergeNext = () => {
-    if (!editingSubtitle || !session) return;
+    if (!editingSubtitle || !session || !session.currentSubtitles || !Array.isArray(session.currentSubtitles)) return;
 
     const currentIndex = session.currentSubtitles.findIndex(
       (s) => s.id === editingSubtitle.id

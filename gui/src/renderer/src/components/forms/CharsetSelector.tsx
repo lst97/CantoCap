@@ -12,6 +12,7 @@ import {
   Language as LanguageIcon
 } from '@mui/icons-material'
 import { useAppStore } from '../../stores/app-store'
+import { useUnifiedConfig } from '../../contexts/EnhancedWorkspaceConfigContext'
 
 interface CharsetOption {
   value: string
@@ -21,11 +22,21 @@ interface CharsetOption {
 }
 
 export const CharsetSelector: React.FC = () => {
-  const { config, updateConfig } = useAppStore()
+  const { config } = useAppStore()
+  const { setValue, isReady } = useUnifiedConfig()
 
-  const handleCharsetChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    updateConfig('charset', event.target.value)
-  }, [updateConfig])
+  const handleCharsetChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!isReady) {
+      console.warn('Configuration manager not ready, skipping charset update')
+      return
+    }
+    
+    try {
+      await setValue('charset', event.target.value)
+    } catch (err) {
+      console.error('Failed to update charset configuration:', err)
+    }
+  }, [setValue, isReady])
 
   const charsets: CharsetOption[] = [
     {

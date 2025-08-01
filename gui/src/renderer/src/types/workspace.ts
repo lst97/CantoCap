@@ -2274,3 +2274,226 @@ export function decompressConfigData(compressedData: string): any {
     throw new Error('Failed to decompress configuration data')
   }
 }
+
+// ============================================================================
+// WORKSPACE GROUPING SYSTEM
+// ============================================================================
+
+/**
+ * Discord-like workspace group colors
+ */
+export type WorkspaceGroupColor = 
+  | 'default'
+  | 'blue'
+  | 'green' 
+  | 'yellow'
+  | 'orange'
+  | 'red'
+  | 'purple'
+  | 'pink'
+  | 'teal'
+  | 'cyan'
+
+/**
+ * Workspace group interface - Discord-like workspace organization
+ */
+export interface WorkspaceGroup {
+  /** Unique group identifier */
+  id: string
+  /** Group display name */
+  name: string
+  /** Group color theme */
+  color: WorkspaceGroupColor
+  /** Creation timestamp */
+  createdAt: number
+  /** Last modification timestamp */
+  updatedAt: number
+  /** Display order position */
+  position: number
+  /** Group expansion state */
+  isExpanded: boolean
+  /** Optional group description */
+  description?: string
+  /** Group metadata */
+  metadata?: {
+    /** Total workspaces in group */
+    workspaceCount: number
+    /** Last accessed timestamp */
+    lastAccessedAt?: number
+    /** Group statistics */
+    statistics?: {
+      totalProcessingTime: number
+      totalProcessedFiles: number
+      averageProcessingTime: number
+    }
+  }
+}
+
+/**
+ * Enhanced workspace interface with grouping support
+ */
+export interface WorkspaceWithGrouping extends Workspace {
+  /** Group membership - null if ungrouped */
+  groupId: string | null
+  /** Position within group or global position if ungrouped */
+  positionInGroup: number
+}
+
+/**
+ * Drag and drop operation types
+ */
+export type DragOperation = 
+  | 'reorder-workspace'      // Reordering workspace within same container
+  | 'move-to-group'         // Moving workspace to different group
+  | 'create-group'          // Creating new group from two workspaces
+  | 'reorder-group'         // Reordering groups
+  | 'ungroup-workspace'     // Removing workspace from group
+
+/**
+ * Drag and drop state for workspace operations
+ */
+export interface WorkspaceDragState {
+  /** Currently dragged item */
+  draggedItem: {
+    type: 'workspace' | 'group'
+    id: string
+    sourceGroupId?: string | null
+    sourcePosition: number
+  } | null
+  /** Current drop target */
+  dropTarget: {
+    type: 'workspace' | 'group' | 'empty-space'
+    id?: string
+    groupId?: string | null
+    position: number
+    operation: DragOperation
+  } | null
+  /** Visual feedback state */
+  isDragging: boolean
+  /** Drag preview data */
+  dragPreview?: {
+    name: string
+    color?: WorkspaceGroupColor
+    workspaceCount?: number
+  }
+}
+
+/**
+ * Group operation results
+ */
+export interface GroupOperationResult {
+  success: boolean
+  operation: DragOperation
+  affectedWorkspaces: string[]
+  affectedGroups: string[]
+  error?: string
+}
+
+/**
+ * Workspace grouping store state
+ */
+export interface WorkspaceGroupingState {
+  /** All workspace groups */
+  groups: WorkspaceGroup[]
+  /** Workspace-to-group mappings */
+  workspaceGroupMappings: Record<string, string | null>
+  /** Current drag state */
+  dragState: WorkspaceDragState
+  /** Group management loading state */
+  isGroupOperationLoading: boolean
+  /** Last group operation result */
+  lastGroupOperation?: GroupOperationResult
+}
+
+/**
+ * Workspace grouping store actions
+ */
+export interface WorkspaceGroupingActions {
+  // Group Management
+  createGroup: (name: string, color?: WorkspaceGroupColor, workspaceIds?: string[]) => Promise<WorkspaceGroup>
+  updateGroup: (groupId: string, updates: Partial<Omit<WorkspaceGroup, 'id' | 'createdAt'>>) => Promise<void>
+  deleteGroup: (groupId: string, redistributeWorkspaces?: boolean) => Promise<void>
+  reorderGroups: (groupIds: string[]) => Promise<void>
+  
+  // Workspace-Group Operations
+  addWorkspaceToGroup: (workspaceId: string, groupId: string, position?: number) => Promise<void>
+  removeWorkspaceFromGroup: (workspaceId: string) => Promise<void>
+  moveWorkspaceBetweenGroups: (workspaceId: string, fromGroupId: string | null, toGroupId: string | null, position?: number) => Promise<void>
+  reorderWorkspacesInGroup: (groupId: string | null, workspaceIds: string[]) => Promise<void>
+  
+  // Drag and Drop Operations
+  startDrag: (itemType: 'workspace' | 'group', itemId: string, sourceGroupId?: string | null, sourcePosition?: number) => void
+  updateDropTarget: (targetType: 'workspace' | 'group' | 'empty-space', targetId?: string, operation?: DragOperation) => void
+  endDrag: () => Promise<GroupOperationResult | null>
+  cancelDrag: () => void
+  
+  // Group Display
+  toggleGroupExpansion: (groupId: string) => Promise<void>
+  expandAllGroups: () => Promise<void>
+  collapseAllGroups: () => Promise<void>
+  
+  // Utility Functions
+  getWorkspacesByGroup: (groupId: string | null) => WorkspaceWithGrouping[]
+  getGroupById: (groupId: string) => WorkspaceGroup | null
+  getWorkspaceGroup: (workspaceId: string) => WorkspaceGroup | null
+  validateGroupOperation: (operation: DragOperation, sourceId: string, targetId?: string) => boolean
+}
+
+/**
+ * Combined enhanced workspace store with grouping support
+ */
+export interface EnhancedWorkspaceStoreWithGrouping extends EnhancedWorkspaceStore {
+  // Add grouping state
+  grouping: WorkspaceGroupingState
+  
+  // Extend existing actions with grouping support
+  createWorkspace: (name: string, config?: Partial<WorkspaceConfig>, groupId?: string | null) => Promise<Workspace>
+  
+  // Add grouping actions
+  grouping: WorkspaceGroupingActions
+}
+
+/**
+ * Workspace layout configuration for drag-and-drop
+ */
+export interface WorkspaceLayoutConfig {
+  /** Enable drag and drop functionality */
+  enableDragDrop: boolean
+  /** Animation duration for drag operations (ms) */
+  animationDuration: number
+  /** Visual feedback settings */
+  visualFeedback: {
+    showDropZones: boolean
+    highlightCompatibleTargets: boolean
+    showDragPreview: boolean
+    previewOpacity: number
+  }
+  /** Keyboard navigation support */
+  keyboardNavigation: {
+    enabled: boolean
+    shortcuts: Record<string, string>
+  }
+}
+
+/**
+ * Default workspace layout configuration
+ */
+export const DEFAULT_WORKSPACE_LAYOUT_CONFIG: WorkspaceLayoutConfig = {
+  enableDragDrop: true,
+  animationDuration: 200,
+  visualFeedback: {
+    showDropZones: true,
+    highlightCompatibleTargets: true,
+    showDragPreview: true,
+    previewOpacity: 0.8
+  },
+  keyboardNavigation: {
+    enabled: true,
+    shortcuts: {
+      'ctrl+g': 'create-group',
+      'delete': 'delete-group',
+      'enter': 'toggle-expansion',
+      'escape': 'cancel-drag'
+    }
+  }
+}

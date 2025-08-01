@@ -2,7 +2,8 @@
  * Jest configuration for Phase 4 Integration Testing
  * 
  * Comprehensive test coverage for workspace management system
- * including end-to-end workflows, migration validation, and performance testing.
+ * including end-to-end workflows, migration validation, performance testing,
+ * and workspace grouping system validation.
  */
 
 module.exports = {
@@ -35,12 +36,18 @@ module.exports = {
     '\\.(jpg|jpeg|png|gif|eot|otf|webp|svg|ttf|woff|woff2|mp4|webm|wav|mp3|m4a|aac|oga)$': 'jest-transform-stub'
   },
   
-  // Coverage settings - expanded for Phase 4
+  // Coverage settings - expanded for Phase 4 and Configuration Manager
   collectCoverageFrom: [
     // Core workspace system
     'src/renderer/src/stores/workspace-store.ts',
     'src/renderer/src/services/workspace-*.ts',
     'src/renderer/src/components/workspace/**/*.{ts,tsx}',
+    
+    // Configuration Manager System
+    'src/renderer/src/services/configuration-manager.ts',
+    'src/renderer/src/contexts/EnhancedWorkspaceConfigContext.tsx',
+    'src/renderer/src/hooks/useConfigurationMigration.ts',
+    'src/renderer/src/utils/config-error-handler.ts',
     
     // Integration layers
     'src/renderer/src/services/workspace-ipc-integration.ts',
@@ -62,7 +69,7 @@ module.exports = {
     '!src/renderer/src/**/*.spec.{ts,tsx}'
   ],
   
-  // Stricter coverage thresholds for Phase 4
+  // Stricter coverage thresholds for Phase 4 and Configuration Manager
   coverageThreshold: {
     global: {
       branches: 85,
@@ -82,6 +89,25 @@ module.exports = {
       functions: 90,
       lines: 90,
       statements: 90
+    },
+    // Configuration Manager System - Critical components require 95% coverage
+    'src/renderer/src/services/configuration-manager.ts': {
+      branches: 95,
+      functions: 95,
+      lines: 95,
+      statements: 95
+    },
+    'src/renderer/src/contexts/EnhancedWorkspaceConfigContext.tsx': {
+      branches: 90,
+      functions: 90,
+      lines: 90,
+      statements: 90
+    },
+    'src/renderer/src/utils/config-error-handler.ts': {
+      branches: 95,
+      functions: 95,
+      lines: 95,
+      statements: 95
     }
   },
   

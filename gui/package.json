@@ -30,7 +30,17 @@
     "test:performance": "jest --testPathPattern=performance-benchmarks",
     "test:integration": "jest --testPathPattern=integration-validation",
     "test:error-recovery": "jest --testPathPattern=error-recovery",
-    "test:phase4": "jest --testPathPattern=\"(migration-validation|performance-benchmarks|integration-validation|error-recovery)\""
+    "test:phase4": "jest --testPathPattern=\"(migration-validation|performance-benchmarks|integration-validation|error-recovery)\"",
+    "test:config-manager": "jest --testPathPattern=\"(configuration-manager|config-error-handler|useConfigurationMigration|useUnifiedConfig|EnhancedWorkspaceConfigContext)\"",
+    "test:config-manager:unit": "jest --testPathPattern=\"(services|contexts|hooks|utils).*__tests__.*configuration-manager|config-error-handler|useConfigurationMigration|useUnifiedConfig|EnhancedWorkspaceConfigContext\"",
+    "test:config-manager:integration": "jest --testPathPattern=\"integration.*(workspace-config-integration|config-manager-e2e)\"",
+    "test:config-manager:coverage": "jest --coverage --testPathPattern=\"(configuration-manager|config-error-handler|useConfigurationMigration|useUnifiedConfig|EnhancedWorkspaceConfigContext)\"",
+    "test:workspace-grouping": "node scripts/test-workspace-grouping.js",
+    "test:workspace-grouping:unit": "node scripts/test-workspace-grouping.js --unit",
+    "test:workspace-grouping:integration": "node scripts/test-workspace-grouping.js --integration",
+    "test:workspace-grouping:coverage": "node scripts/test-workspace-grouping.js --coverage",
+    "test:workspace-grouping:performance": "node scripts/test-workspace-grouping.js --performance",
+    "test:workspace-grouping:accessibility": "node scripts/test-workspace-grouping.js --accessibility"
   },
   "devDependencies": {
     "@jest/globals": "^30.0.5",
@@ -68,6 +78,9 @@
     "vite": "^7.0.6"
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@emotion/react": "^11.14.0",

@@ -10,12 +10,10 @@ import {
 import {
   ExpandMore as ExpandMoreIcon,
   SmartToy as ModelIcon,
-  Build as ConfigIcon,
-  Assessment as StatusIcon
+  Build as ConfigIcon
 } from '@mui/icons-material'
 import { ModelSettings } from './ModelSettings'
 import { AdvancedSettings } from './AdvancedSettings'
-import { SystemStatus } from '../feedback/SystemStatus'
 import { useAppStore } from '../../stores/app-store'
 
 interface AccordionSection {
@@ -29,7 +27,7 @@ interface AccordionSection {
 }
 
 export const AdvancedPanel: React.FC = () => {
-  const { dependencies, config } = useAppStore()
+  const { config } = useAppStore()
   
   // Track which accordion sections are expanded
   const [expanded, setExpanded] = useState<string[]>(['model-processing'])
@@ -44,18 +42,6 @@ export const AdvancedPanel: React.FC = () => {
         : prev.filter(p => p !== panel)
     )
   }, [])
-
-  // Get system status for badge display
-  const getSystemStatusBadge = () => {
-    const issues = []
-    if (!dependencies.python.available) issues.push('Python')
-    if (!dependencies.ffmpeg.available) issues.push('FFmpeg')
-    
-    if (issues.length === 0) return { count: 0, color: 'success' as const }
-    return { count: issues.length, color: 'error' as const }
-  }
-
-  const statusBadge = getSystemStatusBadge()
 
   const accordionSections: AccordionSection[] = [
     {
@@ -72,15 +58,6 @@ export const AdvancedPanel: React.FC = () => {
       badge: config.terminologyConfig || config.ffmpegPath ? '●' : undefined,
       badgeColor: 'warning',
       component: <AdvancedSettings />
-    },
-    {
-      id: 'system-status',
-      title: 'System & Dependencies',
-      icon: <StatusIcon sx={{ fontSize: 20 }} />,
-      badge: statusBadge.count > 0 ? statusBadge.count : undefined,
-      badgeColor: statusBadge.color,
-      defaultExpanded: statusBadge.count > 0,
-      component: <SystemStatus />
     }
   ]
 
@@ -208,14 +185,6 @@ export const AdvancedPanel: React.FC = () => {
                       color: '#96989D'
                     }}>
                       Advanced configuration and file paths
-                    </Box>
-                  )}
-                  {section.id === 'system-status' && (
-                    <Box sx={{ 
-                      fontSize: '0.8rem',
-                      color: '#96989D'
-                    }}>
-                      Dependencies and system requirements
                     </Box>
                   )}
                 </Box>

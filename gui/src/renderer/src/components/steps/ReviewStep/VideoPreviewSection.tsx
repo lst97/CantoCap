@@ -36,7 +36,7 @@ export const VideoPreviewSection: React.FC<VideoPreviewSectionProps> = () => {
     setCurrentTime(time);
 
     // Auto-pause when subtitle selection ends
-    if (shouldAutoPause && session?.selectedSubtitleId) {
+    if (shouldAutoPause && session?.selectedSubtitleId && session.currentSubtitles && Array.isArray(session.currentSubtitles)) {
       const selectedSubtitle = session.currentSubtitles.find(
         (s) => s.id === session.selectedSubtitleId
       );
@@ -76,7 +76,7 @@ export const VideoPreviewSection: React.FC<VideoPreviewSectionProps> = () => {
   };
 
   const getCurrentSubtitle = (): SubtitleEntry | null => {
-    if (!session) return null;
+    if (!session || !session.currentSubtitles || !Array.isArray(session.currentSubtitles)) return null;
 
     return (
       session.currentSubtitles.find(

@@ -19,7 +19,6 @@ import {
 import {
   Timer as TimerIcon,
   VideoSettings as VideoIcon,
-  Schedule as DurationIcon,
   Folder as FileIcon,
   Build as FFmpegIcon,
   ExpandMore as ExpandIcon,
@@ -230,33 +229,6 @@ export const AdvancedSettings: React.FC = () => {
             />
           </Grid>
         </Grid>
-      </SettingGroup>
-
-      <SettingGroup
-        icon={<DurationIcon color="primary" fontSize="small" />}
-        title="Duration Estimate"
-        description="Expected audio duration for hardware estimation and optimization."
-      >
-        <TextField
-          type="number"
-          value={config.duration}
-          onChange={(e) => handleNumericChange('duration', e.target.value)}
-          inputProps={{ min: 0.1, max: 1440, step: 0.5 }}
-          size="small"
-          fullWidth
-          InputProps={{
-            endAdornment: <InputAdornment position="end">minutes</InputAdornment>
-          }}
-          sx={{
-            '& .MuiOutlinedInput-root': {
-              backgroundColor: '#2F3136',
-              '& fieldset': { borderColor: '#40444B' },
-              '&:hover fieldset': { borderColor: '#5865F2' },
-              '&.Mui-focused fieldset': { borderColor: '#5865F2' },
-            },
-            '& .MuiInputBase-input': { color: '#DCDDDE' },
-          }}
-        />
       </SettingGroup>
 
       <SettingGroup

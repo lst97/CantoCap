@@ -192,6 +192,9 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
         // Simulate processing delay for video loading
         await new Promise((resolve) => setTimeout(resolve, 800));
 
+        console.log('📁 Saving video file and auto-saving to workspace');
+        
+        // Save the input file - this triggers auto-save via updateConfig
         updateConfig("inputFile", filePath);
 
         if (!config.outputFile) {
@@ -209,7 +212,8 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
           await generateVideoMetadata(filePath);
         }
 
-        showNotification("Input file selected successfully", "success");
+        showNotification("Video file selected and auto-saved successfully", "success");
+        console.log('✅ Video selection and auto-save completed');
 
         // Enable the Configuration step
         completeStep("input-file");
@@ -223,7 +227,12 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
   }, [updateConfig, config.outputFile, showNotification, completeStep, generateVideoMetadata]);
 
   const handleClearFile = useCallback(() => {
+    console.log('🗑️ Removing video file and auto-saving changes');
+    
+    // Clear the input file - this triggers auto-save via updateConfig
     updateConfig("inputFile", null);
+    
+    // Clear related output file if it's auto-generated
     if (config.outputFile && config.outputFile.endsWith(".srt")) {
       updateConfig("outputFile", null);
     }
@@ -239,13 +248,15 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
     setVideoMetadata(null);
     setIsGeneratingMetadata(false);
     
-    // Reset workflow to initial state when main file is removed
-    const workflowStore = useWorkflowStore.getState();
-    workflowStore.resetStepsFromRange('config', 'export');
+    // Note: Workflow state will be automatically updated via workflow validation store subscription
+    // This ensures proper coordination between config changes and workflow state
     
     // Notify parent component that file was removed
     onFileRemoved?.();
-  }, [updateConfig, config.outputFile, config.importedJsonFile, onFileRemoved]);
+    
+    showNotification("Video file removed and changes auto-saved", "info");
+    console.log('✅ Video removal and auto-save completed');
+  }, [updateConfig, config.outputFile, config.importedJsonFile, onFileRemoved, showNotification]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -296,6 +307,8 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
             // Simulate processing delay for video loading
             await new Promise((resolve) => setTimeout(resolve, 800));
 
+            console.log('📁 Drag & drop: Saving video file and auto-saving to workspace');
+
             // Get the file path from Electron's File object
             const filePath = (file as any).path;
             
@@ -303,6 +316,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
               throw new Error('Unable to access the file path. Please use the "Browse Files" button to select your video.');
             }
             
+            // Save the input file - this triggers auto-save via updateConfig
             updateConfig("inputFile", filePath);
 
             if (!config.outputFile) {
@@ -320,7 +334,8 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
               await generateVideoMetadata(filePath);
             }
 
-            showNotification("File selected successfully", "success");
+            showNotification("Video file dropped and auto-saved successfully", "success");
+            console.log('✅ Drag & drop auto-save completed');
 
             // Enable the Configuration step
             completeStep("input-file");
@@ -449,9 +464,18 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
         const convertedSubtitles = convertJsonToStep4Format(jsonContent);
         console.log('🔄 Converted subtitles:', convertedSubtitles.length, 'entries');
         
-        // Update config with converted data
+        // Store subtitle data as temp file for persistence across app restarts
+        const tempResult = await window.cantocapAPI.storeTempSubtitleData(convertedSubtitles);
+        if (!tempResult.success) {
+          console.error('❌ Failed to store temp subtitle data:', tempResult.error);
+        } else {
+          console.log('📄 Subtitle data stored in temp file:', tempResult.tempFilePath);
+        }
+        
+        // Update config with converted data and mark as imported from JSON
         updateConfig('subtitle', convertedSubtitles);
         updateConfig('importedJsonFile', filePath); // Store the imported JSON file path
+        updateConfig('isImportedFromJson', true); // Flag to indicate JSON import
         
         // Set metadata from JSON
         if (jsonContent.metadata?.statistics) {
@@ -465,17 +489,22 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
         console.log('✅ JSON import complete, navigating to review step...');
         
         // Skip Steps 2 (Config) and 3 (Processing) and navigate to Step 4 (Review)
-        // Use setTimeout to ensure this happens after the current render cycle
+        // Use setTimeout with longer delay to ensure React state stabilizes
         setTimeout(() => {
           try {
             const workflowStore = useWorkflowStore.getState();
+            // First, skip the processing steps and mark them appropriately
             workflowStore.skipStepsAndNavigate(['config', 'processing'], 'review');
-            console.log('✅ Navigation to review step completed');
+            // Explicitly ensure review step is enabled (defensive programming)
+            workflowStore.enableStep('review');
+            // Also enable export step since we have complete subtitle data
+            workflowStore.enableStep('export');
+            console.log('✅ Navigation to review step completed, steps enabled');
           } catch (navError) {
             console.error('❌ Navigation error:', navError);
             showNotification('Navigation failed. Please manually go to Review step.', 'warning');
           }
-        }, 100); // Slightly longer delay to ensure state updates complete
+        }, 300); // Allow time for React to complete all state updates and re-renders
       }
     } catch (error) {
       console.error('❌ JSON import error:', error);

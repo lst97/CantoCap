@@ -801,6 +801,86 @@ class CantoCap {
       }
     });
 
+    // ============================================================================
+    // TEMP FILE HANDLERS
+    // ============================================================================
+
+    // Store temp subtitle data
+    ipcMain.handle('store-temp-subtitle-data', async (_event, data: any) => {
+      try {
+        const path = require('path');
+        const fs = require('fs').promises;
+        const os = require('os');
+        
+        const tempDir = path.join(os.tmpdir(), 'cantocap');
+        const tempFilePath = path.join(tempDir, 'imported-subtitles.json');
+        
+        // Ensure temp directory exists
+        await fs.mkdir(tempDir, { recursive: true });
+        
+        // Store the data
+        await fs.writeFile(tempFilePath, JSON.stringify(data, null, 2), 'utf8');
+        
+        safeLog('✅ Temp subtitle data stored:', tempFilePath);
+        return { success: true, tempFilePath };
+      } catch (error) {
+        safeError('❌ Failed to store temp subtitle data:', error);
+        return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+      }
+    });
+
+    // Load temp subtitle data
+    ipcMain.handle('load-temp-subtitle-data', async () => {
+      try {
+        const path = require('path');
+        const fs = require('fs').promises;
+        const os = require('os');
+        
+        const tempFilePath = path.join(os.tmpdir(), 'cantocap', 'imported-subtitles.json');
+        
+        // Check if file exists
+        try {
+          await fs.access(tempFilePath);
+        } catch {
+          return { success: true, data: null }; // File doesn't exist, that's ok
+        }
+        
+        // Read and parse the data
+        const fileContent = await fs.readFile(tempFilePath, 'utf8');
+        const data = JSON.parse(fileContent);
+        
+        safeLog('✅ Temp subtitle data loaded:', tempFilePath);
+        return { success: true, data };
+      } catch (error) {
+        safeError('❌ Failed to load temp subtitle data:', error);
+        return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+      }
+    });
+
+    // Clear temp subtitle data
+    ipcMain.handle('clear-temp-subtitle-data', async () => {
+      try {
+        const path = require('path');
+        const fs = require('fs').promises;
+        const os = require('os');
+        
+        const tempFilePath = path.join(os.tmpdir(), 'cantocap', 'imported-subtitles.json');
+        
+        // Try to delete the file
+        try {
+          await fs.unlink(tempFilePath);
+          safeLog('✅ Temp subtitle data cleared:', tempFilePath);
+        } catch {
+          // File doesn't exist, that's ok
+        }
+        
+        return { success: true };
+      } catch (error) {
+        safeError('❌ Failed to clear temp subtitle data:', error);
+        return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+      }
+    });
+
     safeLog('✅ Subtitle file IPC handlers registered');
   }
 

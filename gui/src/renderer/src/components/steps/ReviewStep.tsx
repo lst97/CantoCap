@@ -4,11 +4,13 @@ import { CheckCircle, Save, Error as ErrorIcon } from '@mui/icons-material'
 import { useAppStore } from "../../stores/app-store";
 import { useSubtitleEditStore } from "../../stores/subtitle-edit-store";
 import { useReviewStepConfig, useWorkspaceConfig } from '../../contexts/WorkspaceConfigContext';
+import { useSubtitleTempStorage } from '../../hooks/useSubtitleTempStorage';
 import { VideoPreviewSection } from "./ReviewStep/VideoPreviewSection";
 import { SubtitleEditor } from "./ReviewStep/SubtitleEditor";
 import { SubtitleListPanel } from "./ReviewStep/SubtitleListPanel";
 import { ProcessingErrorBoundary } from "../common/ProcessingErrorBoundary";
 import { SubtitleAutoSaveIndicator } from "../common/SubtitleAutoSaveIndicator";
+import { SessionRecoveryDialog } from "../dialogs/SessionRecoveryDialog";
 import { pulseKeyframes } from "./ReviewStep/styles";
 import { PerformanceMonitor, debounce } from "../../utils/performance-utils";
 import { transformSubtitleData } from "../../utils/subtitle-transformation";
@@ -17,7 +19,18 @@ import type { SubtitleEntry } from "../../types/subtitle";
 
 export const ReviewStep: React.FC = () => {
   const { config } = useAppStore();
-  const { initializeSession, clearSession, session, isLoading } = useSubtitleEditStore();
+  const { 
+    initializeSession, 
+    clearSession, 
+    session, 
+    isLoading,
+    enablePersistence,
+    checkForRecoverableSession,
+    recoverSession,
+    sessionRecovery,
+    saveSessionToTempStorage,
+    restorePersistedSession
+  } = useSubtitleEditStore();
   const reviewStepResult = useReviewStepConfig()
   const { 
     config: reviewConfig, 
@@ -36,12 +49,35 @@ export const ReviewStep: React.FC = () => {
     fileError,
     clearFileError
   } = reviewStepResult
-  const { autoSaveStatus, isAutoSaving, lastError, clearError } = useWorkspaceConfig()
-  const [showAutoSaveNotification, setShowAutoSaveNotification] = useState(false)
+  const { autoSaveStatus, isAutoSaving, lastError, clearError, currentWorkspaceId } = useWorkspaceConfig()
+  
+  // Enhanced temp storage integration
+  const tempStorage = useSubtitleTempStorage({
+    autoSaveEnabled: true,
+    autoSaveInterval: 30000, // 30 seconds
+    enableSessionRecovery: true,
+    onError: (error) => {
+      console.error('Temp storage error:', error)
+      setShowErrorNotification(true)
+    },
+    onAutoSave: (metadata) => {
+      console.log('Auto-saved subtitle session:', metadata)
+    },
+    onSessionRecovered: (session) => {
+      console.log('Session recovered:', session)
+    }
+  })
   const [showErrorNotification, setShowErrorNotification] = useState(false)
   const [subtitleFiles, setSubtitleFiles] = useState<Record<string, SubtitleFileContent>>({})
   const [originalFileId, setOriginalFileId] = useState<string | null>(null)
   const [modifiedFileId, setModifiedFileId] = useState<string | null>(null)
+  const [showSessionRecovery, setShowSessionRecovery] = useState(false)
+  const [sessionRecoveryInfo, setSessionRecoveryInfo] = useState<{
+    lastModified: number
+    subtitleCount: number
+    editCount: number
+    workspaceId: string
+  } | null>(null)
 
   // Inject CSS animation
   useEffect(() => {
@@ -271,9 +307,65 @@ export const ReviewStep: React.FC = () => {
     return config.subtitle;
   }, [config.inputFile, config.subtitle]);
 
+  // Check for recoverable sessions when workspace is ready
+  useEffect(() => {
+    if (!isReady || !currentWorkspaceId) return
+    
+    const checkRecovery = async () => {
+      try {
+        // Enable persistence for this workspace
+        enablePersistence(currentWorkspaceId)
+        
+        // First try to restore any persisted session from localStorage
+        const hasPersistedSession = await restorePersistedSession()
+        
+        if (hasPersistedSession) {
+          // Use session data for recovery dialog if available
+          const persistedState: any = JSON.parse(localStorage.getItem('subtitle-edit-store') || '{}')
+          const sessionInfo = persistedState.state?.session
+          
+          if (sessionInfo) {
+            setSessionRecoveryInfo({
+              lastModified: new Date(sessionInfo.lastModified).getTime(),
+              subtitleCount: sessionInfo.subtitleCount || 0,
+              editCount: sessionInfo.editCount || 0,
+              workspaceId: currentWorkspaceId
+            })
+          } else {
+            setSessionRecoveryInfo({
+              lastModified: Date.now() - 300000,
+              subtitleCount: 0,
+              editCount: 0,
+              workspaceId: currentWorkspaceId
+            })
+          }
+          setShowSessionRecovery(true)
+        } else {
+          // Check IndexedDB for recoverable session
+          const hasRecoverable = await checkForRecoverableSession(currentWorkspaceId)
+          
+          if (hasRecoverable && sessionRecovery.recoverableSessionId) {
+            // Get session info for the recovery dialog
+            setSessionRecoveryInfo({
+              lastModified: Date.now() - 300000, // Placeholder - would come from session data
+              subtitleCount: 0, // Placeholder - would come from session data
+              editCount: 0, // Placeholder - would come from session data
+              workspaceId: currentWorkspaceId
+            })
+            setShowSessionRecovery(true)
+          }
+        }
+      } catch (error) {
+        console.error('Failed to check for recoverable session:', error)
+      }
+    }
+    
+    checkRecovery()
+  }, [isReady, currentWorkspaceId, enablePersistence, checkForRecoverableSession, sessionRecovery.recoverableSessionId, restorePersistedSession])
+
   // Initialize session when component mounts and data is available
   useEffect(() => {
-    if (isLoading) return; // Don't initialize while loading
+    if (isLoading || showSessionRecovery) return; // Don't initialize while loading or showing recovery dialog
 
     const currentData = {
       inputFile: config.inputFile,
@@ -322,12 +414,6 @@ export const ReviewStep: React.FC = () => {
     }
   }, [isReady, loadSubtitleFiles]);
 
-  // Handle auto-save status changes
-  useEffect(() => {
-    if (autoSaveStatus.lastSaveTime && !isAutoSaving) {
-      setShowAutoSaveNotification(true)
-    }
-  }, [autoSaveStatus.lastSaveTime, isAutoSaving])
 
   // Handle errors (including file errors)
   useEffect(() => {
@@ -336,16 +422,54 @@ export const ReviewStep: React.FC = () => {
     }
   }, [lastError, error, fileError])
 
-  // Save subtitle session state to workspace when it changes (debounced)
+  // Enhanced auto-save integration - coordinate both systems
   useEffect(() => {
-    if (isReady && session && session.isDirty) {
-      const timeoutId = setTimeout(() => {
-        saveSubtitleSession();
+    if (isReady && session && session.isDirty && currentWorkspaceId) {
+      const timeoutId = setTimeout(async () => {
+        try {
+          // Prioritize the enhanced temp storage system with fallback to legacy
+          let savedToEnhanced = false
+          
+          // Try enhanced system first
+          if (tempStorage.currentContent && tempStorage.updateContent) {
+            // Convert session to temp storage format and save
+            const subtitleData = session.currentSubtitles.map(subtitle => ({
+              id: parseInt(subtitle.id) || 0,
+              startTime: subtitle.startTime,
+              endTime: subtitle.endTime,
+              text: subtitle.text || '',
+              originalText: subtitle.originalText,
+              confidence: subtitle.confidence,
+              speaker: subtitle.speaker
+            }))
+            
+            tempStorage.updateContent(subtitleData, {
+              currentTime: session.currentTime,
+              selectedSubtitleId: session.selectedSubtitleId,
+              isVideoPlaying: session.isVideoPlaying,
+              videoDuration: session.videoDuration,
+              videoPath: session.videoPath
+            })
+            
+            const saveResult = await tempStorage.forceSave()
+            savedToEnhanced = saveResult.success
+          }
+          
+          // If enhanced system failed or unavailable, use legacy systems
+          if (!savedToEnhanced) {
+            await Promise.all([
+              saveSubtitleSession().catch(error => console.warn('Legacy save failed:', error)),
+              saveSessionToTempStorage().catch(error => console.warn('Store temp save failed:', error))
+            ])
+          }
+        } catch (error) {
+          console.error('Failed to save session:', error)
+        }
       }, 2000); // Debounce saves by 2 seconds
       
       return () => clearTimeout(timeoutId);
     }
-  }, [session?.isDirty, session?.lastModified, isReady, saveSubtitleSession]);
+  }, [session?.isDirty, session?.lastModified, isReady, saveSubtitleSession, saveSessionToTempStorage, currentWorkspaceId, tempStorage]);
 
   // Show loading state while workspace is initializing
   if (!isReady || isLoadingFiles) {
@@ -383,7 +507,7 @@ export const ReviewStep: React.FC = () => {
           position: "relative",
         }}
       >
-        {/* Enhanced Auto-save Status Indicator with Subtitle Persistence */}
+        {/* Enhanced Auto-save Status Indicator with Temp Storage Integration */}
         <SubtitleAutoSaveIndicator
           persistenceData={persistenceData}
           position="top-right"
@@ -391,6 +515,28 @@ export const ReviewStep: React.FC = () => {
           showPerformance={false}
           compact={false}
         />
+        
+        {/* Enhanced Temp Storage Status */}
+        {tempStorage.isAutoSaving && (
+          <Box sx={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            zIndex: 10,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1
+          }}>
+            <Chip
+              icon={<Save />}
+              label="Enhanced Auto-saving..."
+              size="small"
+              color="primary"
+              variant="filled"
+              sx={{ backgroundColor: 'rgba(25, 118, 210, 0.9)' }}
+            />
+          </Box>
+        )}
         
         {/* Legacy Status Indicators (fallback) */}
         <Box sx={{ 
@@ -525,21 +671,80 @@ export const ReviewStep: React.FC = () => {
       </Box>
     </ProcessingErrorBoundary>
 
-    {/* Auto-save Success Notification */}
-    <Snackbar
-      open={showAutoSaveNotification}
-      autoHideDuration={3000}
-      onClose={() => setShowAutoSaveNotification(false)}
-      anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-    >
-      <Alert 
-        onClose={() => setShowAutoSaveNotification(false)} 
-        severity="success"
-        variant="filled"
-      >
-        Subtitle session saved automatically
-      </Alert>
-    </Snackbar>
+    {/* Session Recovery Dialog */}
+    <SessionRecoveryDialog
+      open={showSessionRecovery}
+      sessionId={sessionRecovery.recoverableSessionId}
+      sessionInfo={sessionRecoveryInfo}
+      onRecover={async (sessionId) => {
+        try {
+          // Try IndexedDB recovery first
+          let success = await recoverSession(sessionId)
+          
+          if (!success) {
+            // If IndexedDB recovery fails, try to restore from localStorage persistence
+            const persistedState: any = JSON.parse(localStorage.getItem('subtitle-edit-store') || '{}')
+            
+            if (persistedState.state?.session && persistedState.state.session.sessionId === sessionId) {
+              // Create a new session based on persisted data
+              const sessionInfo = persistedState.state.session
+              
+              // Initialize a new session with the recovered video and subtitle paths
+              if (sessionInfo.videoPath && sessionInfo.originalPath) {
+                await stableInitializeSession(sessionInfo.originalPath, sessionInfo.videoPath)
+                
+                // Restore session state
+                if (session) {
+                  session.currentTime = sessionInfo.currentTime || 0
+                  session.selectedSubtitleId = sessionInfo.selectedSubtitleId
+                  session.videoDuration = sessionInfo.videoDuration || 0
+                  session.isDirty = sessionInfo.isDirty
+                }
+                
+                success = true
+                console.log('✅ Session recovered from localStorage persistence')
+              }
+            }
+          }
+          
+          if (success) {
+            setShowSessionRecovery(false)
+            
+            // Clear the recovery flag to prevent re-triggering
+            // Note: This will be handled by the store's internal logic
+            
+            return true
+          }
+          
+          return false
+        } catch (error) {
+          console.error('Failed to recover session:', error)
+          return false
+        }
+      }}
+      onDiscard={() => {
+        setShowSessionRecovery(false)
+        
+        // Clear persisted session data to prevent re-triggering
+        try {
+          const persistedState: any = JSON.parse(localStorage.getItem('subtitle-edit-store') || '{}')
+          if (persistedState.state) {
+            persistedState.state.session = null
+            persistedState.state.sessionRecovery = {
+              hasRecoverableSession: false,
+              recoverableSessionId: null,
+              lastSessionWorkspaceId: null
+            }
+            localStorage.setItem('subtitle-edit-store', JSON.stringify(persistedState))
+          }
+        } catch (error) {
+          console.warn('Failed to clear persisted session:', error)
+        }
+        
+        // Continue with normal initialization
+      }}
+      onClose={() => setShowSessionRecovery(false)}
+    />
 
     {/* Error Notification */}
     <Snackbar

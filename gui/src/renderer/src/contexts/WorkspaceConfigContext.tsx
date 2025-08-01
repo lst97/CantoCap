@@ -3,7 +3,7 @@
  * Provides type-safe step configuration access with auto-save functionality
  */
 
-import React, { createContext, useContext, useCallback, useEffect, useState } from 'react'
+import React, { createContext, useContext, useCallback, useEffect, useState, useMemo } from 'react'
 import { useWorkspaceStore } from '../stores/workspace-store'
 import { useSubtitlePersistence } from '../hooks/useSubtitlePersistence'
 import type { 
@@ -133,8 +133,8 @@ export const WorkspaceConfigProvider: React.FC<WorkspaceConfigProviderProps> = (
     store.clearError()
   }, [store.clearError])
 
-  // Derive workspace requirement state
-  const hasWorkspaces = store.availableWorkspaces.length > 0
+  // Derive workspace requirement state - safely handle undefined during initialization
+  const hasWorkspaces = store.availableWorkspaces?.length > 0 || false
   const isEmpty = !hasWorkspaces
 
   const contextValue: WorkspaceConfigContextValue = {
@@ -192,6 +192,7 @@ export const useStepConfig = <T extends StepConfigMap[K], K extends WorkflowStep
   useEffect(() => {
     if (!isWorkspaceReady) {
       setIsLoading(false)
+      setConfig(null)
       return
     }
 
@@ -199,22 +200,35 @@ export const useStepConfig = <T extends StepConfigMap[K], K extends WorkflowStep
     setIsLoading(true)
     setError(null)
 
+    // Add timeout to prevent hanging during JSON loading
+    const timeoutId = setTimeout(() => {
+      if (isMounted) {
+        console.warn(`Step config loading timeout for ${stepId}`)
+        setIsLoading(false)
+        setError(new Error(`Loading timeout for step ${stepId}`))
+      }
+    }, 10000) // 10 second timeout
+
     getStepConfig<T, K>(stepId)
       .then((loadedConfig) => {
         if (isMounted) {
+          clearTimeout(timeoutId)
           setConfig(loadedConfig)
           setIsLoading(false)
         }
       })
       .catch((err) => {
         if (isMounted) {
+          clearTimeout(timeoutId)
           setError(err)
           setIsLoading(false)
+          setConfig(null)
         }
       })
 
     return () => {
       isMounted = false
+      clearTimeout(timeoutId)
     }
   }, [stepId, getStepConfig, isWorkspaceReady])
 
@@ -265,10 +279,10 @@ export const useStepConfig = <T extends StepConfigMap[K], K extends WorkflowStep
     config,
     updateConfig,
     {
-      isLoading,
-      error,
+      isLoading: Boolean(isLoading),
+      error: error || null,
       resetConfig,
-      isReady: isWorkspaceReady
+      isReady: Boolean(isWorkspaceReady && !error)
     }
   ] as const
 }
@@ -300,55 +314,64 @@ export const useProcessingStepConfig = () => {
 
 export const useReviewStepConfig = () => {
   const [config, updateConfig, hookResult] = useStepConfig('review')
-  const { currentWorkspaceId } = useWorkspaceConfig()
+  const { currentWorkspaceId, isWorkspaceReady } = useWorkspaceConfig()
   
-  // Use subtitle persistence hook
+  // Remove useMemo to prevent dependency array issues during rapid config updates
+  const persistenceOptions = {
+    autoFileOperations: config?.editingPreferences?.autoSave !== false,
+    fileAutoSaveInterval: config?.editingPreferences?.autoSaveConfig?.interval || 30000,
+    validateOnLoad: config?.qualityValidation?.validateFileIntegrity !== false,
+    enableFileCache: config?.cacheConfig?.enabled !== false,
+    autoValidate: config?.qualityValidation?.autoValidateOnSave !== false,
+    enablePerformanceMonitoring: config?.performance?.trackOperations !== false
+  }
+  
+  // Always call useSubtitlePersistence with stable parameters to prevent hook rule violations
+  // Only pass workspaceId when workspace is ready to prevent race conditions
   const persistenceResult = useSubtitlePersistence(
-    currentWorkspaceId || undefined,
-    {
-      autoFileOperations: config?.editingPreferences?.autoSave !== false,
-      fileAutoSaveInterval: config?.editingPreferences?.autoSaveConfig?.interval || 30000,
-      validateOnLoad: config?.qualityValidation?.validateFileIntegrity !== false,
-      enableFileCache: config?.cacheConfig?.enabled !== false,
-      autoValidate: config?.qualityValidation?.autoValidateOnSave !== false,
-      enablePerformanceMonitoring: config?.performance?.trackOperations !== false
-    }
+    isWorkspaceReady && currentWorkspaceId ? currentWorkspaceId : undefined,
+    persistenceOptions
   )
   
   // Enhanced hook result that includes subtitle persistence
+  // Add comprehensive validation to prevent undefined values during JSON loading
   const enhancedResult = {
-    // Original hook result
-    ...hookResult,
+    // Original hook result - ensure these are always defined
+    // Include workspace readiness in loading state
+    isLoading: Boolean(hookResult?.isLoading || persistenceResult?.isLoadingFiles || !isWorkspaceReady),
+    isReady: Boolean(isWorkspaceReady && hookResult?.isReady !== false && !persistenceResult?.error),
+    error: hookResult?.error || persistenceResult?.error || null,
+    resetConfig: hookResult?.resetConfig,
     config,
     updateConfig,
     
-    // Subtitle persistence integration
-    subtitleFiles: persistenceResult.subtitleFiles,
-    subtitleFileStatus: persistenceResult.fileStatus,
-    currentSession: persistenceResult.currentSession,
-    fileValidation: persistenceResult.validationResults,
+    // Subtitle persistence integration - safely handle undefined/null values
+    subtitleFiles: persistenceResult?.subtitleFiles || null,
+    subtitleFileStatus: persistenceResult?.fileStatus || null,
+    currentSession: persistenceResult?.currentSession || null,
+    fileValidation: persistenceResult?.validationResults || {},
     
-    // Enhanced subtitle-specific actions
-    loadSubtitleFile: persistenceResult.loadFile,
-    saveSubtitleFile: persistenceResult.saveFile,
-    createSubtitleFile: persistenceResult.createFile,
-    deleteSubtitleFile: persistenceResult.deleteFile,
-    validateSubtitleFile: persistenceResult.validateFile,
-    createBackup: persistenceResult.createBackup,
-    restoreBackup: persistenceResult.restoreBackup,
-    updateSession: persistenceResult.updateSession,
-    clearSubtitleCache: persistenceResult.clearCache,
-    getPerformanceMetrics: persistenceResult.getPerformanceMetrics,
+    // Enhanced subtitle-specific actions - with null checks
+    loadSubtitleFile: persistenceResult?.loadFile || (() => Promise.resolve(null)),
+    saveSubtitleFile: persistenceResult?.saveFile || (() => Promise.resolve()),
+    createSubtitleFile: persistenceResult?.createFile || (() => Promise.resolve('')),
+    deleteSubtitleFile: persistenceResult?.deleteFile || (() => Promise.resolve()),
+    validateSubtitleFile: persistenceResult?.validateFile || (() => Promise.resolve({ isValid: false, errors: [] })),
+    createBackup: persistenceResult?.createBackup || (() => Promise.resolve('')),
+    restoreBackup: persistenceResult?.restoreBackup || (() => Promise.resolve()),
+    updateSession: persistenceResult?.updateSession || (() => Promise.resolve()),
+    clearSubtitleCache: persistenceResult?.clearCache || (() => Promise.resolve()),
+    getPerformanceMetrics: persistenceResult?.getPerformanceMetrics || (() => Promise.resolve([])),
     
-    // File operation states
-    isLoadingFiles: persistenceResult.isLoadingFiles,
-    isSavingFiles: persistenceResult.isSavingFiles,
-    hasUnsavedFileChanges: persistenceResult.hasUnsavedChanges,
-    fileError: persistenceResult.error,
-    clearFileError: persistenceResult.clearError,
+    // File operation states - ensure always boolean
+    isLoadingFiles: Boolean(persistenceResult?.isLoadingFiles),
+    isSavingFiles: Boolean(persistenceResult?.isSavingFiles),
+    hasUnsavedFileChanges: Boolean(persistenceResult?.hasUnsavedChanges),
+    fileError: persistenceResult?.error || null,
+    clearFileError: persistenceResult?.clearError || (() => {}),
     
-    // Additional persistence data
-    persistenceData: persistenceResult
+    // Additional persistence data - safely wrapped
+    persistenceData: persistenceResult || null
   }
   
   return enhancedResult

@@ -20,7 +20,7 @@ import type {
   MigrationStatus,
   WorkspacePerformanceMetrics
 } from "../renderer/src/types/workspace";
-import type {
+import {
   SUBTITLE_IPC_CHANNELS,
   CreateSubtitleFileParams,
   LoadSubtitleFileParams,
@@ -305,6 +305,22 @@ const api: ElectronAPI = {
     ipcRenderer.on(SUBTITLE_IPC_CHANNELS.STREAM_PROGRESS, wrappedCallback);
     return () => ipcRenderer.removeListener(SUBTITLE_IPC_CHANNELS.STREAM_PROGRESS, wrappedCallback);
   },
+
+  // ============================================================================
+  // TEMP FILE STORAGE
+  // ============================================================================
+  
+  // Store imported JSON caption as temp file
+  storeTempSubtitleData: (data: any): Promise<{ success: boolean, tempFilePath?: string, error?: string }> =>
+    ipcRenderer.invoke('store-temp-subtitle-data', data),
+
+  // Load temp subtitle data
+  loadTempSubtitleData: (): Promise<{ success: boolean, data?: any, error?: string }> =>
+    ipcRenderer.invoke('load-temp-subtitle-data'),
+
+  // Clear temp subtitle data
+  clearTempSubtitleData: (): Promise<{ success: boolean, error?: string }> =>
+    ipcRenderer.invoke('clear-temp-subtitle-data'),
 
   // Utility Functions
   removeAllListeners: (): void => {

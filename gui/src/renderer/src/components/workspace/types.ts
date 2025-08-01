@@ -51,6 +51,10 @@ export interface WorkspaceAvatarProps {
   isActive?: boolean
   onClick?: () => void
   onContextMenu?: (event: React.MouseEvent<HTMLElement>) => void
+  // Drag and drop support
+  enableDragDrop?: boolean
+  data?: any // Additional data for drag context
+  sx?: any // Additional styling
 }
 
 // Phase 1 Constraints

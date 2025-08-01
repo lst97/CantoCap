@@ -22,15 +22,8 @@ interface InputFileConfig {
 export const InputFileStep: React.FC = () => {
   const [config, updateConfig, { isLoading, error, isReady }] = useInputFileConfig()
   const { autoSaveStatus, isAutoSaving, lastError, clearError } = useWorkspaceConfig()
-  const [showAutoSaveNotification, setShowAutoSaveNotification] = useState(false)
   const [showErrorNotification, setShowErrorNotification] = useState(false)
 
-  // Handle auto-save status changes
-  useEffect(() => {
-    if (autoSaveStatus.lastSaveTime && !isAutoSaving) {
-      setShowAutoSaveNotification(true)
-    }
-  }, [autoSaveStatus.lastSaveTime, isAutoSaving])
 
   // Handle errors
   useEffect(() => {
@@ -103,43 +96,6 @@ export const InputFileStep: React.FC = () => {
         flexDirection: 'column',
         overflow: 'hidden'
       }}>
-        {/* Auto-save Status Indicator */}
-        <Box sx={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: 1, 
-          mb: 2,
-          minHeight: 32
-        }}>
-          {isAutoSaving && (
-            <Chip
-              icon={<Save />}
-              label="Auto-saving..."
-              size="small"
-              color="primary"
-              variant="outlined"
-            />
-          )}
-          {autoSaveStatus.lastSaveTime && !isAutoSaving && (
-            <Chip
-              icon={<CheckCircle />}
-              label="Saved"
-              size="small"
-              color="success"
-              variant="outlined"
-            />
-          )}
-          {(lastError || error) && (
-            <Chip
-              icon={<ErrorIcon />}
-              label="Save error"
-              size="small"
-              color="error"
-              variant="outlined"
-            />
-          )}
-        </Box>
-
         {/* Configuration Loading State */}
         {isLoading && (
           <Alert severity="info" sx={{ mb: 2 }}>
@@ -174,21 +130,6 @@ export const InputFileStep: React.FC = () => {
         </ErrorBoundary>
       </Box>
 
-      {/* Auto-save Success Notification */}
-      <Snackbar
-        open={showAutoSaveNotification}
-        autoHideDuration={3000}
-        onClose={() => setShowAutoSaveNotification(false)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-      >
-        <Alert 
-          onClose={() => setShowAutoSaveNotification(false)} 
-          severity="success"
-          variant="filled"
-        >
-          Configuration saved automatically
-        </Alert>
-      </Snackbar>
 
       {/* Error Notification */}
       <Snackbar

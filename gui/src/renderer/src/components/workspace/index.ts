@@ -11,6 +11,7 @@ export {
 export { WorkspaceAvatar } from "./WorkspaceAvatar";
 export { WorkspaceContextMenu } from "./WorkspaceContextMenu";
 export { WorkspaceCreationDialog } from "./WorkspaceCreationDialog";
+export { WorkspaceDeleteDialog } from "./WorkspaceDeleteDialog";
 export { MigrationProgressDialog } from "./MigrationProgressDialog";
 
 // Status and Monitoring Components

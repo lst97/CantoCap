@@ -40,7 +40,17 @@ import type {
   CacheConfig,
   CacheMetrics,
   EnhancedWorkspacePerformanceMetrics,
-  MigrationResult
+  MigrationResult,
+  // Workspace grouping types
+  WorkspaceGroup,
+  WorkspaceWithGrouping,
+  WorkspaceGroupColor,
+  WorkspaceGroupingState,
+  WorkspaceGroupingActions,
+  GroupOperationResult,
+  DragOperation,
+  WorkspaceDragState,
+  EnhancedWorkspaceStoreWithGrouping
 } from '../types/workspace'
 import { 
   WORKSPACE_CONSTANTS,
@@ -91,6 +101,109 @@ function validateWorkspace(workspace: Workspace): WorkspaceValidationResult {
     isValid: errors.length === 0,
     errors,
     warnings
+  }
+}
+
+// Grouping validation functions
+function validateGroupName(name: string): boolean {
+  return name.length > 0 && 
+         name.length <= WORKSPACE_CONSTANTS.MAX_NAME_LENGTH && 
+         !/[<>:"/\\|?*]/.test(name)
+}
+
+function validateWorkspaceGroup(group: WorkspaceGroup): { isValid: boolean; errors: string[] } {
+  const errors: string[] = []
+
+  if (!validateGroupName(group.name)) {
+    errors.push('Invalid group name. Must be 1-100 characters and not contain special characters.')
+  }
+
+  if (!group.id || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(group.id)) {
+    errors.push('Invalid group ID. Must be a valid UUID v4.')
+  }
+
+  if (group.position < 0) {
+    errors.push('Group position must be non-negative.')
+  }
+
+  const validColors: WorkspaceGroupColor[] = [
+    'blue', 'green', 'red', 'yellow', 'purple', 'pink', 'orange', 'teal', 'gray', 'cyan'
+  ]
+  if (!validColors.includes(group.color)) {
+    errors.push(`Invalid group color. Must be one of: ${validColors.join(', ')}.`)
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors
+  }
+}
+
+function validateDragOperation(
+  operation: DragOperation,
+  draggedItem: { type: 'workspace' | 'group'; id: string; sourceGroupId?: string | null },
+  dropTarget: { type: 'workspace' | 'group' | 'empty-space'; id?: string; groupId?: string | null },
+  currentState: { groups: WorkspaceGroup[]; workspaceGroupMappings: Record<string, string | null> }
+): { isValid: boolean; errors: string[] } {
+  const errors: string[] = []
+
+  switch (operation) {
+    case 'move-to-group':
+      if (draggedItem.type !== 'workspace') {
+        errors.push('Only workspaces can be moved to groups.')
+      }
+      if (dropTarget.type !== 'group') {
+        errors.push('Target must be a group for move-to-group operation.')
+      }
+      if (draggedItem.sourceGroupId === dropTarget.id) {
+        errors.push('Cannot move workspace to the same group.')
+      }
+      if (!currentState.groups.find(g => g.id === dropTarget.id)) {
+        errors.push('Target group does not exist.')
+      }
+      break
+
+    case 'ungroup-workspace':
+      if (draggedItem.type !== 'workspace') {
+        errors.push('Only workspaces can be ungrouped.')
+      }
+      if (!draggedItem.sourceGroupId) {
+        errors.push('Workspace is not in a group.')
+      }
+      break
+
+    case 'reorder-workspace':
+      if (draggedItem.type !== 'workspace') {
+        errors.push('Only workspaces can be reordered.')
+      }
+      if (draggedItem.id === dropTarget.id) {
+        errors.push('Cannot reorder workspace to its current position.')
+      }
+      break
+
+    case 'reorder-group':
+      if (draggedItem.type !== 'group') {
+        errors.push('Only groups can be reordered.')
+      }
+      if (draggedItem.id === dropTarget.id) {
+        errors.push('Cannot reorder group to its current position.')
+      }
+      break
+
+    case 'create-group':
+      // This operation has specific UI validation requirements
+      if (draggedItem.type !== 'workspace') {
+        errors.push('Only workspaces can be used to create groups.')
+      }
+      break
+
+    default:
+      errors.push(`Unknown drag operation: ${operation}`)
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors
   }
 }
 
@@ -494,14 +607,14 @@ class AutoSaveManager {
   }
 }
 
-// Create the enhanced store
-export const useWorkspaceStore = create<EnhancedWorkspaceStore>()(
+// Create the enhanced store with grouping support
+export const useWorkspaceStore = create<EnhancedWorkspaceStoreWithGrouping>()(
   subscribeWithSelector((set, get) => {
     // Initialize enhanced managers with performance optimization
     const stepConfigCacheManager = new StepConfigCacheManager()
     const performanceOptimizedAutoSaveManager = new PerformanceOptimizedAutoSaveManager(stepConfigCacheManager)
     
-    const state: EnhancedWorkspaceStoreState = {
+    const state: EnhancedWorkspaceStoreState & { grouping: WorkspaceGroupingState } = {
       // Core state (backward compatibility)
       currentWorkspace: null,
       availableWorkspaces: [],
@@ -525,7 +638,19 @@ export const useWorkspaceStore = create<EnhancedWorkspaceStore>()(
       },
       hasAnyWorkspace: false,
       workspaceCount: 0,
-      enhancedMetrics: []
+      enhancedMetrics: [],
+      
+      // Workspace grouping state
+      grouping: {
+        groups: [],
+        workspaceGroupMappings: {},
+        dragState: {
+          draggedItem: null,
+          dropTarget: null,
+          isDragging: false
+        },
+        isGroupOperationLoading: false
+      }
     }
 
     const actions: EnhancedWorkspaceStoreActions = {
@@ -539,8 +664,17 @@ export const useWorkspaceStore = create<EnhancedWorkspaceStore>()(
           // Wait for database to be ready
           await workspaceDatabase.healthCheck()
           
-          // Load all workspaces
-          const workspaces = await workspaceDatabase.getAllWorkspaces()
+          // Migrate existing workspaces to support grouping
+          await workspaceDatabase.migrateWorkspacesToGrouping()
+          
+          // Load all workspaces with grouping data
+          const workspaces = await workspaceDatabase.getAllWorkspacesWithGrouping()
+          
+          // Load workspace groups and mappings
+          const [groups, mappings] = await Promise.all([
+            workspaceDatabase.getAllWorkspaceGroups(),
+            workspaceDatabase.getWorkspaceGroupMappings()
+          ])
           
           // Find the active workspace or set first as active
           let currentWorkspace = workspaces.find(w => w.isActive) || null
@@ -561,7 +695,17 @@ export const useWorkspaceStore = create<EnhancedWorkspaceStore>()(
             workspaceCount: workspaces.length,
             performanceMetrics: workspaceDatabase.getPerformanceMetrics(),
             enhancedMetrics: workspaceDatabase.getEnhancedPerformanceMetrics(),
-            cacheMetrics: stepConfigCacheManager.getMetrics()
+            cacheMetrics: stepConfigCacheManager.getMetrics(),
+            grouping: {
+              groups,
+              workspaceGroupMappings: mappings,
+              dragState: {
+                draggedItem: null,
+                dropTarget: null,
+                isDragging: false
+              },
+              isGroupOperationLoading: false
+            }
           })
 
         } catch (error) {
@@ -573,8 +717,8 @@ export const useWorkspaceStore = create<EnhancedWorkspaceStore>()(
         }
       },
 
-      // Core Workspace Operations
-      createWorkspace: async (name: string, config?: Partial<WorkspaceConfig>) => {
+      // Core Workspace Operations (with grouping support)
+      createWorkspace: async (name: string, config?: Partial<WorkspaceConfig>, groupId?: string | null) => {
         if (!validateWorkspaceName(name)) {
           throw new Error('Invalid workspace name')
         }
@@ -635,9 +779,30 @@ export const useWorkspaceStore = create<EnhancedWorkspaceStore>()(
         try {
           await workspaceDatabase.createWorkspace(workspace)
           
+          // Add workspace to group if specified
+          if (groupId !== undefined) {
+            const state = get()
+            const position = state.grouping.groups.find(g => g.id === groupId)?.metadata?.workspaceCount || 0
+            await workspaceDatabase.addWorkspaceToGroup(workspace.id, groupId, position)
+          }
+          
+          // Create enhanced workspace with grouping info
+          const workspaceWithGrouping: WorkspaceWithGrouping = {
+            ...workspace,
+            groupId: groupId || null,
+            positionInGroup: 0
+          }
+          
           set(state => ({
-            availableWorkspaces: [...state.availableWorkspaces, workspace],
-            performanceMetrics: workspaceDatabase.getPerformanceMetrics()
+            availableWorkspaces: [...state.availableWorkspaces, workspaceWithGrouping],
+            performanceMetrics: workspaceDatabase.getPerformanceMetrics(),
+            grouping: {
+              ...state.grouping,
+              workspaceGroupMappings: {
+                ...state.grouping.workspaceGroupMappings,
+                [workspace.id]: groupId || null
+              }
+            }
           }))
 
           return workspace
@@ -1561,7 +1726,773 @@ export const useWorkspaceStore = create<EnhancedWorkspaceStore>()(
       }
     }
 
-    return { ...state, ...actions }
+    // Workspace Grouping Actions
+    const groupingActions: WorkspaceGroupingActions = {
+      // Group Management
+      createGroup: async (name: string, color?: WorkspaceGroupColor, workspaceIds?: string[]) => {
+        const groupId = generateUUID()
+        const now = Date.now()
+        const position = get().grouping.groups.length
+
+        const group: WorkspaceGroup = {
+          id: groupId,
+          name,
+          color: color || 'blue',
+          createdAt: now,
+          updatedAt: now,
+          position,
+          isExpanded: true,
+          metadata: {
+            workspaceCount: workspaceIds?.length || 0
+          }
+        }
+
+        // Validate group
+        const validation = validateWorkspaceGroup(group)
+        if (!validation.isValid) {
+          throw new Error(`Group validation failed: ${validation.errors.join(', ')}`)
+        }
+
+        // Check for duplicate names
+        const state = get()
+        if (state.grouping.groups.some(g => g.name === name)) {
+          throw new Error(`A group with the name '${name}' already exists`)
+        }
+
+        try {
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              isGroupOperationLoading: true
+            }
+          }))
+
+          await workspaceDatabase.createWorkspaceGroup(group)
+
+          // Add workspaces to group if specified
+          if (workspaceIds && workspaceIds.length > 0) {
+            for (let i = 0; i < workspaceIds.length; i++) {
+              await workspaceDatabase.addWorkspaceToGroup(workspaceIds[i], groupId, i)
+            }
+          }
+
+          // Update state
+          const mappings = await workspaceDatabase.getWorkspaceGroupMappings()
+          
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              groups: [...state.grouping.groups, group],
+              workspaceGroupMappings: mappings,
+              isGroupOperationLoading: false,
+              lastGroupOperation: {
+                success: true,
+                operation: 'create-group',
+                affectedWorkspaces: workspaceIds || [],
+                affectedGroups: [groupId]
+              }
+            }
+          }))
+
+          return group
+        } catch (error) {
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              isGroupOperationLoading: false,
+              lastGroupOperation: {
+                success: false,
+                operation: 'create-group',
+                affectedWorkspaces: workspaceIds || [],
+                affectedGroups: [groupId],
+                error: error instanceof Error ? error.message : 'Unknown error'
+              }
+            },
+            lastError: error as WorkspaceError
+          }))
+          throw error
+        }
+      },
+
+      updateGroup: async (groupId: string, updates: Partial<Omit<WorkspaceGroup, 'id' | 'createdAt'>>) => {
+        const state = get()
+        const existingGroup = state.grouping.groups.find(g => g.id === groupId)
+        
+        if (!existingGroup) {
+          throw new Error(`Group with id '${groupId}' not found`)
+        }
+
+        const updatedGroup: WorkspaceGroup = {
+          ...existingGroup,
+          ...updates,
+          updatedAt: Date.now()
+        }
+
+        try {
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              isGroupOperationLoading: true
+            }
+          }))
+
+          await workspaceDatabase.updateWorkspaceGroup(updatedGroup)
+
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              groups: state.grouping.groups.map(g => g.id === groupId ? updatedGroup : g),
+              isGroupOperationLoading: false,
+              lastGroupOperation: {
+                success: true,
+                operation: 'reorder-group',
+                affectedWorkspaces: [],
+                affectedGroups: [groupId]
+              }
+            }
+          }))
+        } catch (error) {
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              isGroupOperationLoading: false,
+              lastGroupOperation: {
+                success: false,
+                operation: 'reorder-group',
+                affectedWorkspaces: [],
+                affectedGroups: [groupId],
+                error: error instanceof Error ? error.message : 'Unknown error'
+              }
+            },
+            lastError: error as WorkspaceError
+          }))
+          throw error
+        }
+      },
+
+      deleteGroup: async (groupId: string, redistributeWorkspaces = false) => {
+        const state = get()
+        const group = state.grouping.groups.find(g => g.id === groupId)
+        
+        if (!group) {
+          throw new Error(`Group with id '${groupId}' not found`)
+        }
+
+        // Find workspaces in this group
+        const workspacesInGroup = Object.entries(state.grouping.workspaceGroupMappings)
+          .filter(([, gId]) => gId === groupId)
+          .map(([workspaceId]) => workspaceId)
+
+        try {
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              isGroupOperationLoading: true
+            }
+          }))
+
+          // Handle workspace redistribution
+          if (redistributeWorkspaces && workspacesInGroup.length > 0) {
+            // Move workspaces to ungrouped
+            for (const workspaceId of workspacesInGroup) {
+              await workspaceDatabase.removeWorkspaceFromGroup(workspaceId)
+            }
+          }
+
+          await workspaceDatabase.deleteWorkspaceGroup(groupId)
+
+          // Update state
+          const mappings = await workspaceDatabase.getWorkspaceGroupMappings()
+          
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              groups: state.grouping.groups.filter(g => g.id !== groupId),
+              workspaceGroupMappings: mappings,
+              isGroupOperationLoading: false,
+              lastGroupOperation: {
+                success: true,
+                operation: 'reorder-group',
+                affectedWorkspaces: workspacesInGroup,
+                affectedGroups: [groupId]
+              }
+            }
+          }))
+        } catch (error) {
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              isGroupOperationLoading: false,
+              lastGroupOperation: {
+                success: false,
+                operation: 'reorder-group',
+                affectedWorkspaces: workspacesInGroup,
+                affectedGroups: [groupId],
+                error: error instanceof Error ? error.message : 'Unknown error'
+              }
+            },
+            lastError: error as WorkspaceError
+          }))
+          throw error
+        }
+      },
+
+      reorderGroups: async (groupIds: string[]) => {
+        try {
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              isGroupOperationLoading: true
+            }
+          }))
+
+          const state = get()
+          const updatedGroups = groupIds.map((id, index) => {
+            const group = state.grouping.groups.find(g => g.id === id)
+            if (!group) throw new Error(`Group with id '${id}' not found`)
+            return { ...group, position: index, updatedAt: Date.now() }
+          })
+
+          // Update all groups in database
+          for (const group of updatedGroups) {
+            await workspaceDatabase.updateWorkspaceGroup(group)
+          }
+
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              groups: updatedGroups.sort((a, b) => a.position - b.position),
+              isGroupOperationLoading: false,
+              lastGroupOperation: {
+                success: true,
+                operation: 'reorder-group',
+                affectedWorkspaces: [],
+                affectedGroups: groupIds
+              }
+            }
+          }))
+        } catch (error) {
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              isGroupOperationLoading: false,
+              lastGroupOperation: {
+                success: false,
+                operation: 'reorder-group',
+                affectedWorkspaces: [],
+                affectedGroups: groupIds,
+                error: error instanceof Error ? error.message : 'Unknown error'
+              }
+            },
+            lastError: error as WorkspaceError
+          }))
+          throw error
+        }
+      },
+
+      // Workspace-Group Operations
+      addWorkspaceToGroup: async (workspaceId: string, groupId: string, position = 0) => {
+        try {
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              isGroupOperationLoading: true
+            }
+          }))
+
+          await workspaceDatabase.addWorkspaceToGroup(workspaceId, groupId, position)
+          const mappings = await workspaceDatabase.getWorkspaceGroupMappings()
+
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              workspaceGroupMappings: mappings,
+              isGroupOperationLoading: false,
+              lastGroupOperation: {
+                success: true,
+                operation: 'move-to-group',
+                affectedWorkspaces: [workspaceId],
+                affectedGroups: [groupId]
+              }
+            }
+          }))
+        } catch (error) {
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              isGroupOperationLoading: false,
+              lastGroupOperation: {
+                success: false,
+                operation: 'move-to-group',
+                affectedWorkspaces: [workspaceId],
+                affectedGroups: [groupId],
+                error: error instanceof Error ? error.message : 'Unknown error'
+              }
+            },
+            lastError: error as WorkspaceError
+          }))
+          throw error
+        }
+      },
+
+      removeWorkspaceFromGroup: async (workspaceId: string) => {
+        try {
+          const currentGroupId = get().grouping.workspaceGroupMappings[workspaceId]
+          
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              isGroupOperationLoading: true
+            }
+          }))
+
+          await workspaceDatabase.removeWorkspaceFromGroup(workspaceId)
+          const mappings = await workspaceDatabase.getWorkspaceGroupMappings()
+
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              workspaceGroupMappings: mappings,
+              isGroupOperationLoading: false,
+              lastGroupOperation: {
+                success: true,
+                operation: 'ungroup-workspace',
+                affectedWorkspaces: [workspaceId],
+                affectedGroups: currentGroupId ? [currentGroupId] : []
+              }
+            }
+          }))
+        } catch (error) {
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              isGroupOperationLoading: false,
+              lastGroupOperation: {
+                success: false,
+                operation: 'ungroup-workspace',
+                affectedWorkspaces: [workspaceId],
+                affectedGroups: [],
+                error: error instanceof Error ? error.message : 'Unknown error'
+              }
+            },
+            lastError: error as WorkspaceError
+          }))
+          throw error
+        }
+      },
+
+      moveWorkspaceBetweenGroups: async (workspaceId: string, fromGroupId: string | null, toGroupId: string | null, position = 0) => {
+        try {
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              isGroupOperationLoading: true
+            }
+          }))
+
+          await workspaceDatabase.addWorkspaceToGroup(workspaceId, toGroupId, position)
+          const mappings = await workspaceDatabase.getWorkspaceGroupMappings()
+
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              workspaceGroupMappings: mappings,
+              isGroupOperationLoading: false,
+              lastGroupOperation: {
+                success: true,
+                operation: 'move-to-group',
+                affectedWorkspaces: [workspaceId],
+                affectedGroups: [fromGroupId, toGroupId].filter(Boolean) as string[]
+              }
+            }
+          }))
+        } catch (error) {
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              isGroupOperationLoading: false,
+              lastGroupOperation: {
+                success: false,
+                operation: 'move-to-group',
+                affectedWorkspaces: [workspaceId],
+                affectedGroups: [fromGroupId, toGroupId].filter(Boolean) as string[],
+                error: error instanceof Error ? error.message : 'Unknown error'
+              }
+            },
+            lastError: error as WorkspaceError
+          }))
+          throw error
+        }
+      },
+
+      reorderWorkspacesInGroup: async (groupId: string | null, workspaceIds: string[]) => {
+        try {
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              isGroupOperationLoading: true
+            }
+          }))
+
+          await workspaceDatabase.reorderWorkspacesInGroup(groupId, workspaceIds)
+          const mappings = await workspaceDatabase.getWorkspaceGroupMappings()
+
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              workspaceGroupMappings: mappings,
+              isGroupOperationLoading: false,
+              lastGroupOperation: {
+                success: true,
+                operation: 'reorder-workspace',
+                affectedWorkspaces: workspaceIds,
+                affectedGroups: groupId ? [groupId] : []
+              }
+            }
+          }))
+        } catch (error) {
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              isGroupOperationLoading: false,
+              lastGroupOperation: {
+                success: false,
+                operation: 'reorder-workspace',
+                affectedWorkspaces: workspaceIds,
+                affectedGroups: groupId ? [groupId] : [],
+                error: error instanceof Error ? error.message : 'Unknown error'
+              }
+            },
+            lastError: error as WorkspaceError
+          }))
+          throw error
+        }
+      },
+
+      // Drag and Drop Operations
+      startDrag: (itemType: 'workspace' | 'group', itemId: string, sourceGroupId?: string | null, sourcePosition = 0) => {
+        const state = get()
+        const draggedItem = state.grouping.dragState.draggedItem
+        
+        if (draggedItem) {
+          // Cancel previous drag if any
+          groupingActions.cancelDrag()
+        }
+
+        const workspace = state.availableWorkspaces.find(w => w.id === itemId)
+        const group = state.grouping.groups.find(g => g.id === itemId)
+
+        set(state => ({
+          grouping: {
+            ...state.grouping,
+            dragState: {
+              draggedItem: {
+                type: itemType,
+                id: itemId,
+                sourceGroupId,
+                sourcePosition
+              },
+              dropTarget: null,
+              isDragging: true,
+              dragPreview: {
+                name: itemType === 'workspace' ? workspace?.name || 'Unknown' : group?.name || 'Unknown',
+                color: itemType === 'group' ? group?.color : undefined,
+                workspaceCount: itemType === 'group' ? group?.metadata?.workspaceCount : undefined
+              }
+            }
+          }
+        }))
+      },
+
+      updateDropTarget: (targetType: 'workspace' | 'group' | 'empty-space', targetId?: string, operation?: DragOperation) => {
+        const state = get()
+        if (!state.grouping.dragState.isDragging) return
+
+        const draggedItem = state.grouping.dragState.draggedItem
+        if (!draggedItem) return
+
+        // Determine operation based on drag context
+        let detectedOperation: DragOperation = operation || 'reorder-workspace'
+        
+        if (!operation) {
+          if (draggedItem.type === 'group') {
+            detectedOperation = 'reorder-group'
+          } else if (targetType === 'group' && draggedItem.sourceGroupId !== targetId) {
+            detectedOperation = 'move-to-group'
+          } else if (targetType === 'empty-space') {
+            detectedOperation = 'ungroup-workspace'
+          }
+        }
+
+        set(state => ({
+          grouping: {
+            ...state.grouping,
+            dragState: {
+              ...state.grouping.dragState,
+              dropTarget: {
+                type: targetType,
+                id: targetId,
+                groupId: targetType === 'group' ? targetId : state.grouping.workspaceGroupMappings[targetId || ''],
+                position: 0, // Will be calculated based on drop position
+                operation: detectedOperation
+              }
+            }
+          }
+        }))
+      },
+
+      endDrag: async (): Promise<GroupOperationResult | null> => {
+        const state = get()
+        const { draggedItem, dropTarget } = state.grouping.dragState
+
+        if (!draggedItem || !dropTarget) {
+          groupingActions.cancelDrag()
+          return null
+        }
+
+        // Validate drag operation
+        const validation = validateDragOperation(
+          dropTarget.operation,
+          draggedItem,
+          dropTarget,
+          { groups: state.grouping.groups, workspaceGroupMappings: state.grouping.workspaceGroupMappings }
+        )
+
+        if (!validation.isValid) {
+          const errorResult: GroupOperationResult = {
+            success: false,
+            operation: dropTarget.operation,
+            affectedWorkspaces: [draggedItem.id],
+            affectedGroups: [],
+            error: `Validation failed: ${validation.errors.join(', ')}`
+          }
+
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              dragState: {
+                draggedItem: null,
+                dropTarget: null,
+                isDragging: false
+              },
+              lastGroupOperation: errorResult
+            }
+          }))
+
+          return errorResult
+        }
+
+        try {
+          let result: GroupOperationResult | null = null
+
+          // Execute the appropriate operation
+          switch (dropTarget.operation) {
+            case 'move-to-group':
+              if (draggedItem.type === 'workspace' && dropTarget.type === 'group') {
+                await groupingActions.moveWorkspaceBetweenGroups(
+                  draggedItem.id,
+                  draggedItem.sourceGroupId || null,
+                  dropTarget.id || null,
+                  dropTarget.position
+                )
+                result = {
+                  success: true,
+                  operation: 'move-to-group',
+                  affectedWorkspaces: [draggedItem.id],
+                  affectedGroups: [draggedItem.sourceGroupId, dropTarget.id].filter(Boolean) as string[]
+                }
+              }
+              break
+
+            case 'ungroup-workspace':
+              if (draggedItem.type === 'workspace') {
+                await groupingActions.removeWorkspaceFromGroup(draggedItem.id)
+                result = {
+                  success: true,
+                  operation: 'ungroup-workspace',
+                  affectedWorkspaces: [draggedItem.id],
+                  affectedGroups: draggedItem.sourceGroupId ? [draggedItem.sourceGroupId] : []
+                }
+              }
+              break
+
+            case 'reorder-workspace':
+              if (draggedItem.type === 'workspace' && dropTarget.groupId) {
+                // Get current workspace order in group
+                const workspacesInGroup = state.availableWorkspaces
+                  .filter(w => state.grouping.workspaceGroupMappings[w.id] === dropTarget.groupId)
+                  .sort((a, b) => a.positionInGroup - b.positionInGroup)
+                  .map(w => w.id)
+
+                // Reorder the array
+                const draggedIndex = workspacesInGroup.indexOf(draggedItem.id)
+                if (draggedIndex !== -1) {
+                  workspacesInGroup.splice(draggedIndex, 1)
+                  workspacesInGroup.splice(dropTarget.position, 0, draggedItem.id)
+                }
+
+                await groupingActions.reorderWorkspacesInGroup(dropTarget.groupId, workspacesInGroup)
+                result = {
+                  success: true,
+                  operation: 'reorder-workspace',
+                  affectedWorkspaces: workspacesInGroup,
+                  affectedGroups: dropTarget.groupId ? [dropTarget.groupId] : []
+                }
+              }
+              break
+
+            case 'create-group':
+              // This would be handled by specific UI logic
+              break
+
+            case 'reorder-group':
+              if (draggedItem.type === 'group') {
+                const currentGroups = [...state.grouping.groups].sort((a, b) => a.position - b.position)
+                const draggedIndex = currentGroups.findIndex(g => g.id === draggedItem.id)
+                
+                if (draggedIndex !== -1) {
+                  const [draggedGroup] = currentGroups.splice(draggedIndex, 1)
+                  currentGroups.splice(dropTarget.position, 0, draggedGroup)
+                  
+                  const reorderedIds = currentGroups.map(g => g.id)
+                  await groupingActions.reorderGroups(reorderedIds)
+                  
+                  result = {
+                    success: true,
+                    operation: 'reorder-group',
+                    affectedWorkspaces: [],
+                    affectedGroups: reorderedIds
+                  }
+                }
+              }
+              break
+          }
+
+          // Clear drag state
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              dragState: {
+                draggedItem: null,
+                dropTarget: null,
+                isDragging: false
+              },
+              lastGroupOperation: result || state.grouping.lastGroupOperation
+            }
+          }))
+
+          return result
+        } catch (error) {
+          const errorResult: GroupOperationResult = {
+            success: false,
+            operation: dropTarget.operation,
+            affectedWorkspaces: [draggedItem.id],
+            affectedGroups: [],
+            error: error instanceof Error ? error.message : 'Unknown error'
+          }
+
+          set(state => ({
+            grouping: {
+              ...state.grouping,
+              dragState: {
+                draggedItem: null,
+                dropTarget: null,
+                isDragging: false
+              },
+              lastGroupOperation: errorResult
+            },
+            lastError: error as WorkspaceError
+          }))
+
+          return errorResult
+        }
+      },
+
+      cancelDrag: () => {
+        set(state => ({
+          grouping: {
+            ...state.grouping,
+            dragState: {
+              draggedItem: null,
+              dropTarget: null,
+              isDragging: false
+            }
+          }
+        }))
+      },
+
+      // Group Display
+      toggleGroupExpansion: async (groupId: string) => {
+        const state = get()
+        const group = state.grouping.groups.find(g => g.id === groupId)
+        
+        if (group) {
+          await groupingActions.updateGroup(groupId, { isExpanded: !group.isExpanded })
+        }
+      },
+
+      expandAllGroups: async () => {
+        const state = get()
+        for (const group of state.grouping.groups) {
+          if (!group.isExpanded) {
+            await groupingActions.updateGroup(group.id, { isExpanded: true })
+          }
+        }
+      },
+
+      collapseAllGroups: async () => {
+        const state = get()
+        for (const group of state.grouping.groups) {
+          if (group.isExpanded) {
+            await groupingActions.updateGroup(group.id, { isExpanded: false })
+          }
+        }
+      },
+
+      // Utility Functions
+      getWorkspacesByGroup: (groupId: string | null): WorkspaceWithGrouping[] => {
+        const state = get()
+        return state.availableWorkspaces.filter(workspace => {
+          const workspaceGroupId = state.grouping.workspaceGroupMappings[workspace.id]
+          return workspaceGroupId === groupId
+        }).sort((a, b) => a.positionInGroup - b.positionInGroup)
+      },
+
+      getGroupById: (groupId: string): WorkspaceGroup | null => {
+        const state = get()
+        return state.grouping.groups.find(g => g.id === groupId) || null
+      },
+
+      getWorkspaceGroup: (workspaceId: string): WorkspaceGroup | null => {
+        const state = get()
+        const groupId = state.grouping.workspaceGroupMappings[workspaceId]
+        return groupId ? groupingActions.getGroupById(groupId) : null
+      },
+
+      validateGroupOperation: (operation: DragOperation, sourceId: string, targetId?: string): boolean => {
+        const state = get()
+        
+        switch (operation) {
+          case 'move-to-group':
+            return sourceId !== targetId && !!state.grouping.groups.find(g => g.id === targetId)
+          
+          case 'ungroup-workspace':
+            return !!state.grouping.workspaceGroupMappings[sourceId]
+          
+          case 'reorder-workspace':
+          case 'reorder-group':
+            return sourceId !== targetId
+          
+          case 'create-group':
+            return true
+          
+          default:
+            return false
+        }
+      }
+    }
+
+    return { ...state, ...actions, grouping: groupingActions }
   })
 )
 
@@ -1576,4 +2507,41 @@ useWorkspaceStore.subscribe(
     }
   },
   { equalityFn: (a, b) => a?.id === b?.id && a?.updatedAt === b?.updatedAt }
+)
+
+// Auto-save subscription for grouping changes
+useWorkspaceStore.subscribe(
+  (state) => ({
+    groups: state.grouping.groups,
+    mappings: state.grouping.workspaceGroupMappings
+  }),
+  (current, previous) => {
+    // Check if groups or mappings changed
+    const groupsChanged = JSON.stringify(current.groups) !== JSON.stringify(previous?.groups)
+    const mappingsChanged = JSON.stringify(current.mappings) !== JSON.stringify(previous?.mappings)
+    
+    if (groupsChanged || mappingsChanged) {
+      const store = useWorkspaceStore.getState()
+      
+      // Auto-save current workspace if it exists (metadata might have changed)
+      if (store.currentWorkspace) {
+        store.autoSaveCurrentWorkspace()
+      }
+      
+      // Log grouping changes for debugging
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Workspace grouping changed:', {
+          groupsChanged,
+          mappingsChanged,
+          groupCount: current.groups.length,
+          mappingCount: Object.keys(current.mappings).length
+        })
+      }
+    }
+  },
+  { 
+    equalityFn: (a, b) => 
+      JSON.stringify(a?.groups) === JSON.stringify(b?.groups) &&
+      JSON.stringify(a?.mappings) === JSON.stringify(b?.mappings)
+  }
 )

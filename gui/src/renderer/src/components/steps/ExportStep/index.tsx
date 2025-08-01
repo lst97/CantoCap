@@ -16,7 +16,6 @@ export const ExportStep: React.FC = () => {
   const [config, updateConfig, { isLoading, error, isReady }] = useExportStepConfig()
   const { autoSaveStatus, isAutoSaving, lastError, clearError } = useWorkspaceConfig()
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null)
-  const [showAutoSaveNotification, setShowAutoSaveNotification] = useState(false)
   const [showErrorNotification, setShowErrorNotification] = useState(false)
   const isMenuOpen = Boolean(menuAnchorEl)
   const exportActionsRef = useRef<ExportActionsRef>(null)
@@ -24,12 +23,6 @@ export const ExportStep: React.FC = () => {
   const subtitles = getSubtitleData()
   const canExport = subtitles.length > 0 && !progress.isExporting
   
-  // Handle auto-save status changes
-  useEffect(() => {
-    if (autoSaveStatus.lastSaveTime && !isAutoSaving) {
-      setShowAutoSaveNotification(true)
-    }
-  }, [autoSaveStatus.lastSaveTime, isAutoSaving])
 
   // Handle errors
   useEffect(() => {
@@ -107,43 +100,6 @@ export const ExportStep: React.FC = () => {
           p: 3,
           pr: 2
         }}>
-          {/* Auto-save Status Indicator */}
-          <Box sx={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: 1, 
-            mb: 2,
-            minHeight: 32
-          }}>
-            {isAutoSaving && (
-              <Chip
-                icon={<Save />}
-                label="Auto-saving..."
-                size="small"
-                color="primary"
-                variant="outlined"
-              />
-            )}
-            {autoSaveStatus.lastSaveTime && !isAutoSaving && (
-              <Chip
-                icon={<CheckCircle />}
-                label="Saved"
-                size="small"
-                color="success"
-                variant="outlined"
-              />
-            )}
-            {(lastError || error) && (
-              <Chip
-                icon={<ErrorIcon />}
-                label="Save error"
-                size="small"
-                color="error"
-                variant="outlined"
-              />
-            )}
-          </Box>
-
           {/* Configuration Loading State */}
           {isLoading && (
             <Alert severity="info" sx={{ mb: 2 }}>
@@ -261,21 +217,6 @@ export const ExportStep: React.FC = () => {
       </Menu>
     </Box>
 
-    {/* Auto-save Success Notification */}
-    <Snackbar
-      open={showAutoSaveNotification}
-      autoHideDuration={3000}
-      onClose={() => setShowAutoSaveNotification(false)}
-      anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-    >
-      <Alert 
-        onClose={() => setShowAutoSaveNotification(false)} 
-        severity="success"
-        variant="filled"
-      >
-        Export configuration saved automatically
-      </Alert>
-    </Snackbar>
 
     {/* Error Notification */}
     <Snackbar

@@ -10,18 +10,16 @@ import {
   DialogContent,
   DialogActions,
   TextField,
-  Button,
-  Typography,
-  Box
+  Button
 } from '@mui/material'
 import {
   Edit as EditIcon,
   ContentCopy as DuplicateIcon,
   Delete as DeleteIcon,
-  RadioButtonChecked as ActiveIcon,
-  Warning as WarningIcon
+  RadioButtonChecked as ActiveIcon
 } from '@mui/icons-material'
 import { WorkspaceContextMenuProps } from './types'
+import { WorkspaceDeleteDialog } from './WorkspaceDeleteDialog'
 
 /**
  * WorkspaceContextMenu - Context menu for workspace management actions
@@ -111,16 +109,24 @@ export const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
         anchorEl={anchorEl}
         open={Boolean(anchorEl)}
         onClose={handleClose}
+        disableRestoreFocus
         PaperProps={{
           sx: {
-            width: 220,
+            width: 240,
             backgroundColor: 'background.paper',
             border: '1px solid',
             borderColor: 'divider',
+            borderRadius: 2,
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12)',
             '& .MuiMenuItem-root': {
               borderRadius: 1,
               mx: 0.5,
               my: 0.25,
+              py: 1,
+              fontSize: '0.875rem',
+              '&:hover': {
+                backgroundColor: 'action.hover'
+              }
             }
           }
         }}
@@ -133,7 +139,14 @@ export const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
               <ListItemIcon>
                 <ActiveIcon fontSize="small" color="primary" />
               </ListItemIcon>
-              <ListItemText primary="Set Active" />
+              <ListItemText 
+                primary="Switch to Workspace" 
+                secondary="Make this the active workspace"
+                secondaryTypographyProps={{
+                  variant: 'caption',
+                  sx: { fontSize: '0.7rem', color: 'text.secondary' }
+                }}
+              />
             </MenuItem>
             <Divider sx={{ my: 0.5 }} />
           </>
@@ -143,14 +156,28 @@ export const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
           <ListItemIcon>
             <EditIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText primary="Rename" />
+          <ListItemText 
+            primary="Rename Workspace" 
+            secondary="Change workspace name"
+            secondaryTypographyProps={{
+              variant: 'caption',
+              sx: { fontSize: '0.7rem', color: 'text.secondary' }
+            }}
+          />
         </MenuItem>
 
         <MenuItem onClick={handleDuplicate} disabled={loading}>
           <ListItemIcon>
             <DuplicateIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText primary="Duplicate" />
+          <ListItemText 
+            primary="Duplicate Workspace" 
+            secondary="Create a copy with same settings"
+            secondaryTypographyProps={{
+              variant: 'caption',
+              sx: { fontSize: '0.7rem', color: 'text.secondary' }
+            }}
+          />
         </MenuItem>
 
         <Divider sx={{ my: 0.5 }} />
@@ -168,7 +195,14 @@ export const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
           <ListItemIcon>
             <DeleteIcon fontSize="small" color={workspace.isActive ? 'disabled' : 'error'} />
           </ListItemIcon>
-          <ListItemText primary="Delete" />
+          <ListItemText 
+            primary="Delete Workspace" 
+            secondary={workspace.isActive ? 'Cannot delete active workspace' : 'Permanently remove workspace'}
+            secondaryTypographyProps={{
+              variant: 'caption',
+              sx: { fontSize: '0.7rem' }
+            }}
+          />
         </MenuItem>
       </Menu>
 
@@ -211,42 +245,14 @@ export const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
         </DialogActions>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog 
-        open={deleteDialog} 
+      {/* Enhanced Delete Confirmation Dialog */}
+      <WorkspaceDeleteDialog
+        open={deleteDialog}
+        workspace={workspace}
+        loading={loading}
         onClose={handleClose}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <WarningIcon color="warning" />
-          Delete Workspace
-        </DialogTitle>
-        <DialogContent>
-          <Box sx={{ mb: 2 }}>
-            <Typography variant="body1" sx={{ mb: 2 }}>
-              Are you sure you want to delete the workspace "{workspace.name}"?
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              This action cannot be undone. All workspace data including session state 
-              and configuration will be permanently removed.
-            </Typography>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleClose} disabled={loading}>
-            Cancel
-          </Button>
-          <Button 
-            onClick={handleDelete} 
-            disabled={loading}
-            variant="contained"
-            color="error"
-          >
-            {loading ? 'Deleting...' : 'Delete Workspace'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+        onConfirm={handleDelete}
+      />
     </>
   )
 }

@@ -71,7 +71,7 @@ export const PerformanceMonitor: React.FC<PerformanceMonitorProps> = ({
   compact = false,
   thresholds = DEFAULT_THRESHOLDS
 }) => {
-  const { getPerformanceMetrics, cacheMetrics } = useSubtitlePersistence()
+  const { getPerformanceMetrics, cacheMetrics } = useSubtitlePersistence(undefined, {})
   const [metrics, setMetrics] = useState<PerformanceMetrics>({
     latency: 0,
     throughput: 0,

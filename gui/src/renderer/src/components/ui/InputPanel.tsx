@@ -17,31 +17,42 @@ import {
 import { FileSelector } from '../forms/FileSelector'
 import { VideoPlayer } from './VideoPlayer'
 import { useAppStore } from '../../stores/app-store'
+import { useUnifiedConfig } from '../../contexts/EnhancedWorkspaceConfigContext'
 
 export const InputPanel = () => {
-  const { config, updateConfig } = useAppStore()
+  const { config } = useAppStore()
+  const { setValue, isReady, error, clearError } = useUnifiedConfig()
   const [timeRange, setTimeRange] = useState(null)
   const [isRangeValid, setIsRangeValid] = useState(false)
   const [videoDuration, setVideoDuration] = useState(0)
   const [windowSize, setWindowSize] = useState({ width: window.innerWidth, height: window.innerHeight })
 
-  const handleTimeRangeChange = useCallback((range) => {
+  const handleTimeRangeChange = useCallback(async (range) => {
     setTimeRange(range)
     setIsRangeValid(range && range.end > range.start && (range.end - range.start) >= 1)
     
-    // Save time range to app store for processing
-    if (range) {
-      updateConfig('startTime', range.start)
-      updateConfig('endTime', range.end)
-      updateConfig('duration', range.end - range.start)
-    } else {
-      updateConfig('startTime', null)
-      updateConfig('endTime', null)
-      updateConfig('duration', 10.0) // Reset to default
+    if (!isReady) {
+      console.warn('Configuration manager not ready, skipping time range update')
+      return
     }
     
-    console.log('Time range selected:', range)
-  }, [updateConfig])
+    try {
+      // Save time range using centralized config manager
+      if (range) {
+        await setValue('startTime', range.start)
+        await setValue('endTime', range.end)
+        await setValue('duration', range.end - range.start)
+      } else {
+        await setValue('startTime', null)
+        await setValue('endTime', null)
+        await setValue('duration', 10.0) // Reset to default
+      }
+      
+      console.log('Time range updated via centralized config:', range)
+    } catch (err) {
+      console.error('Failed to update time range configuration:', err)
+    }
+  }, [setValue, isReady])
 
   const handleVideoDurationChange = useCallback((duration) => {
     setVideoDuration(duration)
@@ -63,15 +74,25 @@ export const InputPanel = () => {
     }
   }, [config.startTime, config.endTime])
 
-  const handleFileRemoved = useCallback(() => {
+  const handleFileRemoved = useCallback(async () => {
     // Reset video-related state when file is removed
     setTimeRange(null)
     setIsRangeValid(false)
     setVideoDuration(0)
-    updateConfig('startTime', null)
-    updateConfig('endTime', null)
-    updateConfig('duration', 10.0)
-  }, [updateConfig])
+    
+    if (!isReady) {
+      console.warn('Configuration manager not ready, skipping file removal config update')
+      return
+    }
+    
+    try {
+      await setValue('startTime', null)
+      await setValue('endTime', null)
+      await setValue('duration', 10.0)
+    } catch (err) {
+      console.error('Failed to reset time range configuration:', err)
+    }
+  }, [setValue, isReady])
 
   // Helper function to determine if the range represents the full video (i.e., no real selection)
   const isFullRangeSelected = useCallback((range) => {

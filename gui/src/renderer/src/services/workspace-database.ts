@@ -14,8 +14,21 @@ import type {
   StepConfigUpdate,
   EnhancedWorkspacePerformanceMetrics,
   CachedStepConfig,
-  StepConfigError
+  StepConfigError,
+  // Grouping Types
+  WorkspaceGroup,
+  WorkspaceWithGrouping,
+  WorkspaceGroupColor,
+  GroupOperationResult,
+  DragOperation
 } from '../types/workspace'
+import type {
+  // Subtitle Temporary Storage Types
+  SubtitleTempStorageRecord,
+  SubtitleTempSessionRecord,
+  SubtitleTempMetadata,
+  SubtitleTempError
+} from '../types/subtitle-temp-storage'
 import { 
   WORKSPACE_CONSTANTS,
   isValidWorkspaceId,
@@ -29,14 +42,20 @@ import {
 
 // Database Configuration
 const DB_NAME = 'CantoCap_Workspaces'
-const DB_VERSION = 2 // Upgraded for step configuration support
+const DB_VERSION = 4 // Upgraded for subtitle temp storage support
 const STORES = {
   WORKSPACES: 'workspaces',
   SESSIONS: 'workspace_sessions',
   MIGRATION_LOG: 'migration_log',
   STEP_CONFIGURATIONS: 'step_configurations',
   STEP_CONFIG_CACHE: 'step_config_cache',
-  PERFORMANCE_METRICS: 'performance_metrics'
+  PERFORMANCE_METRICS: 'performance_metrics',
+  WORKSPACE_GROUPS: 'workspace_groups',
+  WORKSPACE_GROUP_MAPPINGS: 'workspace_group_mappings',
+  // Subtitle Temporary Storage Stores
+  SUBTITLE_TEMP_STORAGE: 'subtitle_temp_storage',
+  SUBTITLE_TEMP_SESSIONS: 'subtitle_temp_sessions',
+  SUBTITLE_TEMP_METADATA: 'subtitle_temp_metadata'
 } as const
 
 // Enhanced Performance monitoring with step configuration support
@@ -173,6 +192,8 @@ export class WorkspaceDatabase {
           workspaceStore.createIndex('createdAt', 'createdAt', { unique: false })
           workspaceStore.createIndex('lastAccessedAt', 'lastAccessedAt', { unique: false })
           workspaceStore.createIndex('isActive', 'isActive', { unique: false })
+          workspaceStore.createIndex('groupId', 'groupId', { unique: false })
+          workspaceStore.createIndex('positionInGroup', 'positionInGroup', { unique: false })
         }
 
         // Create sessions store
@@ -222,6 +243,59 @@ export class WorkspaceDatabase {
           metricsStore.createIndex('workspaceId', 'workspaceId', { unique: false })
           metricsStore.createIndex('category', 'category', { unique: false })
           metricsStore.createIndex('stepId', 'stepId', { unique: false })
+        }
+
+        // Create workspace groups store
+        if (!db.objectStoreNames.contains(STORES.WORKSPACE_GROUPS)) {
+          const groupsStore = db.createObjectStore(STORES.WORKSPACE_GROUPS, { keyPath: 'id' })
+          groupsStore.createIndex('name', 'name', { unique: false })
+          groupsStore.createIndex('position', 'position', { unique: false })
+          groupsStore.createIndex('createdAt', 'createdAt', { unique: false })
+          groupsStore.createIndex('color', 'color', { unique: false })
+        }
+
+        // Create workspace group mappings store
+        if (!db.objectStoreNames.contains(STORES.WORKSPACE_GROUP_MAPPINGS)) {
+          const mappingsStore = db.createObjectStore(STORES.WORKSPACE_GROUP_MAPPINGS, { keyPath: 'workspaceId' })
+          mappingsStore.createIndex('groupId', 'groupId', { unique: false })
+          mappingsStore.createIndex('positionInGroup', 'positionInGroup', { unique: false })
+        }
+
+        // Create subtitle temporary storage store
+        if (!db.objectStoreNames.contains(STORES.SUBTITLE_TEMP_STORAGE)) {
+          const tempStorageStore = db.createObjectStore(STORES.SUBTITLE_TEMP_STORAGE, { keyPath: 'id' })
+          tempStorageStore.createIndex('workspaceId', 'workspaceId', { unique: false })
+          tempStorageStore.createIndex('sessionId', 'sessionId', { unique: false })
+          tempStorageStore.createIndex('storageType', 'storageType', { unique: false })
+          tempStorageStore.createIndex('createdAt', 'createdAt', { unique: false })
+          tempStorageStore.createIndex('lastModified', 'lastModified', { unique: false })
+          tempStorageStore.createIndex('contentHash', 'contentHash', { unique: false })
+          tempStorageStore.createIndex('isLatest', 'isLatest', { unique: false })
+          tempStorageStore.createIndex('parentId', 'parentId', { unique: false })
+          tempStorageStore.createIndex('generationLevel', 'generationLevel', { unique: false })
+        }
+
+        // Create subtitle temporary sessions store
+        if (!db.objectStoreNames.contains(STORES.SUBTITLE_TEMP_SESSIONS)) {
+          const tempSessionsStore = db.createObjectStore(STORES.SUBTITLE_TEMP_SESSIONS, { keyPath: 'sessionId' })
+          tempSessionsStore.createIndex('workspaceId', 'workspaceId', { unique: false })
+          tempSessionsStore.createIndex('sessionType', 'sessionType', { unique: false })
+          tempSessionsStore.createIndex('status', 'status', { unique: false })
+          tempSessionsStore.createIndex('createdAt', 'createdAt', { unique: false })
+          tempSessionsStore.createIndex('lastActivity', 'lastActivity', { unique: false })
+          tempSessionsStore.createIndex('stateHash', 'stateHash', { unique: false })
+        }
+
+        // Create subtitle temporary metadata store
+        if (!db.objectStoreNames.contains(STORES.SUBTITLE_TEMP_METADATA)) {
+          const tempMetadataStore = db.createObjectStore(STORES.SUBTITLE_TEMP_METADATA, { keyPath: 'id' })
+          tempMetadataStore.createIndex('workspaceId', 'workspaceId', { unique: false })
+          tempMetadataStore.createIndex('sessionId', 'sessionId', { unique: false })
+          tempMetadataStore.createIndex('storageType', 'storageType', { unique: false })
+          tempMetadataStore.createIndex('createdAt', 'createdAt', { unique: false })
+          tempMetadataStore.createIndex('lastModified', 'lastModified', { unique: false })
+          tempMetadataStore.createIndex('contentHash', 'contentHash', { unique: false })
+          tempMetadataStore.createIndex('metadataHash', 'metadataHash', { unique: false })
         }
       }
     })
@@ -534,6 +608,581 @@ export class WorkspaceDatabase {
     
     const result = await this.promisifyRequest(index.getAll())
     return result.reverse() // Most recent first
+  }
+
+  // ============================================================================
+  // WORKSPACE GROUPING OPERATIONS
+  // ============================================================================
+
+  /**
+   * Create a new workspace group
+   */
+  async createWorkspaceGroup(group: WorkspaceGroup): Promise<void> {
+    const startTime = Date.now()
+    try {
+      const transaction = await this.getTransaction([STORES.WORKSPACE_GROUPS], 'readwrite')
+      const store = transaction.objectStore(STORES.WORKSPACE_GROUPS)
+      
+      await this.promisifyRequest(store.add(group))
+      
+      this.performanceMonitor.recordOperation(
+        'create', 
+        startTime, 
+        true, 
+        undefined, 
+        JSON.stringify(group).length,
+        undefined,
+        'workspace_group',
+        undefined,
+        undefined,
+        JSON.stringify(group).length,
+        1
+      )
+    } catch (error) {
+      this.performanceMonitor.recordOperation(
+        'create', 
+        startTime, 
+        false, 
+        undefined, 
+        undefined, 
+        error instanceof Error ? error.message : 'Unknown error',
+        'workspace_group'
+      )
+      
+      if (error instanceof DOMException && error.name === 'ConstraintError') {
+        throw this.createError('VALIDATION_ERROR', `Workspace group with id '${group.id}' already exists`)
+      }
+      throw error
+    }
+  }
+
+  /**
+   * Get a workspace group by ID
+   */
+  async getWorkspaceGroup(groupId: string): Promise<WorkspaceGroup | null> {
+    const startTime = Date.now()
+    try {
+      const transaction = await this.getTransaction([STORES.WORKSPACE_GROUPS])
+      const store = transaction.objectStore(STORES.WORKSPACE_GROUPS)
+      
+      const result = await this.promisifyRequest(store.get(groupId))
+      
+      this.performanceMonitor.recordOperation(
+        'switch', 
+        startTime, 
+        true, 
+        undefined, 
+        result ? JSON.stringify(result).length : 0,
+        undefined,
+        'workspace_group'
+      )
+      
+      return result || null
+    } catch (error) {
+      this.performanceMonitor.recordOperation(
+        'switch', 
+        startTime, 
+        false, 
+        undefined, 
+        undefined, 
+        error instanceof Error ? error.message : 'Unknown error',
+        'workspace_group'
+      )
+      throw error
+    }
+  }
+
+  /**
+   * Get all workspace groups
+   */
+  async getAllWorkspaceGroups(): Promise<WorkspaceGroup[]> {
+    const startTime = Date.now()
+    try {
+      const transaction = await this.getTransaction([STORES.WORKSPACE_GROUPS])
+      const store = transaction.objectStore(STORES.WORKSPACE_GROUPS)
+      const index = store.index('position')
+      
+      const result = await this.promisifyRequest(index.getAll())
+      
+      this.performanceMonitor.recordOperation(
+        'switch', 
+        startTime, 
+        true, 
+        undefined, 
+        JSON.stringify(result).length,
+        undefined,
+        'workspace_group',
+        undefined,
+        undefined,
+        JSON.stringify(result).length,
+        result.length
+      )
+      
+      return result
+    } catch (error) {
+      this.performanceMonitor.recordOperation(
+        'switch', 
+        startTime, 
+        false, 
+        undefined, 
+        undefined, 
+        error instanceof Error ? error.message : 'Unknown error',
+        'workspace_group'
+      )
+      throw error
+    }
+  }
+
+  /**
+   * Update a workspace group
+   */
+  async updateWorkspaceGroup(group: WorkspaceGroup): Promise<void> {
+    const startTime = Date.now()
+    try {
+      const transaction = await this.getTransaction([STORES.WORKSPACE_GROUPS], 'readwrite')
+      const store = transaction.objectStore(STORES.WORKSPACE_GROUPS)
+      
+      // Ensure group exists before updating
+      const existing = await this.promisifyRequest(store.get(group.id))
+      if (!existing) {
+        throw this.createError('VALIDATION_ERROR', `Workspace group with id '${group.id}' not found`)
+      }
+      
+      group.updatedAt = Date.now()
+      await this.promisifyRequest(store.put(group))
+      
+      this.performanceMonitor.recordOperation(
+        'update', 
+        startTime, 
+        true, 
+        undefined, 
+        JSON.stringify(group).length,
+        undefined,
+        'workspace_group'
+      )
+    } catch (error) {
+      this.performanceMonitor.recordOperation(
+        'update', 
+        startTime, 
+        false, 
+        undefined, 
+        undefined, 
+        error instanceof Error ? error.message : 'Unknown error',
+        'workspace_group'
+      )
+      throw error
+    }
+  }
+
+  /**
+   * Delete a workspace group
+   */
+  async deleteWorkspaceGroup(groupId: string): Promise<void> {
+    const startTime = Date.now()
+    try {
+      const transaction = await this.getTransaction([STORES.WORKSPACE_GROUPS, STORES.WORKSPACE_GROUP_MAPPINGS], 'readwrite')
+      const groupsStore = transaction.objectStore(STORES.WORKSPACE_GROUPS)
+      const mappingsStore = transaction.objectStore(STORES.WORKSPACE_GROUP_MAPPINGS)
+      
+      // Verify group exists
+      const existing = await this.promisifyRequest(groupsStore.get(groupId))
+      if (!existing) {
+        throw this.createError('VALIDATION_ERROR', `Workspace group with id '${groupId}' not found`)
+      }
+      
+      // Delete all mappings for this group
+      const mappingIndex = mappingsStore.index('groupId')
+      const mappingCursor = mappingIndex.openCursor(IDBKeyRange.only(groupId))
+      
+      await new Promise<void>((resolve, reject) => {
+        mappingCursor.onsuccess = (event) => {
+          const cursor = (event.target as IDBRequest<IDBCursorWithValue | null>).result
+          if (cursor) {
+            cursor.delete()
+            cursor.continue()
+          } else {
+            resolve()
+          }
+        }
+        mappingCursor.onerror = () => reject(mappingCursor.error)
+      })
+      
+      // Delete the group
+      await this.promisifyRequest(groupsStore.delete(groupId))
+      
+      this.performanceMonitor.recordOperation('delete', startTime, true, undefined, undefined, undefined, 'workspace_group')
+    } catch (error) {
+      this.performanceMonitor.recordOperation(
+        'delete', 
+        startTime, 
+        false, 
+        undefined, 
+        undefined, 
+        error instanceof Error ? error.message : 'Unknown error',
+        'workspace_group'
+      )
+      throw error
+    }
+  }
+
+  /**
+   * Add workspace to group with atomic transaction
+   */
+  async addWorkspaceToGroup(workspaceId: string, groupId: string | null, position: number): Promise<void> {
+    const startTime = Date.now()
+    try {
+      const transaction = await this.getTransaction([STORES.WORKSPACE_GROUP_MAPPINGS, STORES.WORKSPACE_GROUPS], 'readwrite')
+      const mappingsStore = transaction.objectStore(STORES.WORKSPACE_GROUP_MAPPINGS)
+      const groupsStore = transaction.objectStore(STORES.WORKSPACE_GROUPS)
+      
+      // Verify group exists if groupId is provided
+      if (groupId) {
+        const group = await this.promisifyRequest(groupsStore.get(groupId))
+        if (!group) {
+          throw this.createError('VALIDATION_ERROR', `Workspace group with id '${groupId}' not found`)
+        }
+      }
+      
+      // Create/update the mapping
+      const mapping = {
+        workspaceId,
+        groupId,
+        positionInGroup: position,
+        updatedAt: Date.now()
+      }
+      
+      await this.promisifyRequest(mappingsStore.put(mapping))
+      
+      this.performanceMonitor.recordOperation(
+        'update', 
+        startTime, 
+        true, 
+        workspaceId, 
+        JSON.stringify(mapping).length,
+        undefined,
+        'workspace_mapping'
+      )
+    } catch (error) {
+      this.performanceMonitor.recordOperation(
+        'update', 
+        startTime, 
+        false, 
+        workspaceId, 
+        undefined, 
+        error instanceof Error ? error.message : 'Unknown error',
+        'workspace_mapping'
+      )
+      throw error
+    }
+  }
+
+  /**
+   * Remove workspace from group
+   */
+  async removeWorkspaceFromGroup(workspaceId: string): Promise<void> {
+    const startTime = Date.now()
+    try {
+      const transaction = await this.getTransaction([STORES.WORKSPACE_GROUP_MAPPINGS], 'readwrite')
+      const store = transaction.objectStore(STORES.WORKSPACE_GROUP_MAPPINGS)
+      
+      await this.promisifyRequest(store.delete(workspaceId))
+      
+      this.performanceMonitor.recordOperation('delete', startTime, true, workspaceId, undefined, undefined, 'workspace_mapping')
+    } catch (error) {
+      this.performanceMonitor.recordOperation(
+        'delete', 
+        startTime, 
+        false, 
+        workspaceId, 
+        undefined, 
+        error instanceof Error ? error.message : 'Unknown error',
+        'workspace_mapping'
+      )
+      throw error
+    }
+  }
+
+  /**
+   * Get workspace group mappings
+   */
+  async getWorkspaceGroupMappings(): Promise<Record<string, string | null>> {
+    const startTime = Date.now()
+    try {
+      const transaction = await this.getTransaction([STORES.WORKSPACE_GROUP_MAPPINGS])
+      const store = transaction.objectStore(STORES.WORKSPACE_GROUP_MAPPINGS)
+      
+      const mappings = await this.promisifyRequest(store.getAll())
+      const result: Record<string, string | null> = {}
+      
+      mappings.forEach(mapping => {
+        result[mapping.workspaceId] = mapping.groupId
+      })
+      
+      this.performanceMonitor.recordOperation(
+        'switch', 
+        startTime, 
+        true, 
+        undefined, 
+        JSON.stringify(result).length,
+        undefined,
+        'workspace_mapping',
+        undefined,
+        undefined,
+        JSON.stringify(result).length,
+        mappings.length
+      )
+      
+      return result
+    } catch (error) {
+      this.performanceMonitor.recordOperation(
+        'switch', 
+        startTime, 
+        false, 
+        undefined, 
+        undefined, 
+        error instanceof Error ? error.message : 'Unknown error',
+        'workspace_mapping'
+      )
+      throw error
+    }
+  }
+
+  /**
+   * Get workspaces by group ID
+   */
+  async getWorkspacesByGroup(groupId: string | null): Promise<WorkspaceWithGrouping[]> {
+    const startTime = Date.now()
+    try {
+      const transaction = await this.getTransaction([STORES.WORKSPACES, STORES.WORKSPACE_GROUP_MAPPINGS])
+      const workspaceStore = transaction.objectStore(STORES.WORKSPACES)
+      const mappingStore = transaction.objectStore(STORES.WORKSPACE_GROUP_MAPPINGS)
+      
+      // Get all workspaces
+      const allWorkspaces = await this.promisifyRequest(workspaceStore.getAll()) as Workspace[]
+      
+      // Get all mappings
+      const allMappings = await this.promisifyRequest(mappingStore.getAll())
+      const mappingMap = new Map(allMappings.map(m => [m.workspaceId, m]))
+      
+      // Filter and enhance workspaces with grouping data
+      const result: WorkspaceWithGrouping[] = []
+      
+      for (const workspace of allWorkspaces) {
+        const mapping = mappingMap.get(workspace.id)
+        const workspaceGroupId = mapping?.groupId || null
+        
+        if (workspaceGroupId === groupId) {
+          result.push({
+            ...workspace,
+            groupId: workspaceGroupId,
+            positionInGroup: mapping?.positionInGroup || 0
+          })
+        }
+      }
+      
+      // Sort by position within group
+      result.sort((a, b) => a.positionInGroup - b.positionInGroup)
+      
+      this.performanceMonitor.recordOperation(
+        'switch', 
+        startTime, 
+        true, 
+        undefined, 
+        JSON.stringify(result).length,
+        undefined,
+        'workspace_group_query',
+        undefined,
+        undefined,
+        JSON.stringify(result).length,
+        result.length
+      )
+      
+      return result
+    } catch (error) {
+      this.performanceMonitor.recordOperation(
+        'switch', 
+        startTime, 
+        false, 
+        undefined, 
+        undefined, 
+        error instanceof Error ? error.message : 'Unknown error',
+        'workspace_group_query'
+      )
+      throw error
+    }
+  }
+
+  /**
+   * Batch reorder workspaces within a group
+   */
+  async reorderWorkspacesInGroup(groupId: string | null, workspaceIds: string[]): Promise<void> {
+    const startTime = Date.now()
+    try {
+      const transaction = await this.getTransaction([STORES.WORKSPACE_GROUP_MAPPINGS], 'readwrite')
+      const store = transaction.objectStore(STORES.WORKSPACE_GROUP_MAPPINGS)
+      
+      // Update positions for each workspace
+      for (let i = 0; i < workspaceIds.length; i++) {
+        const workspaceId = workspaceIds[i]
+        const mapping = {
+          workspaceId,
+          groupId,
+          positionInGroup: i,
+          updatedAt: Date.now()
+        }
+        
+        await this.promisifyRequest(store.put(mapping))
+      }
+      
+      this.performanceMonitor.recordOperation(
+        'update', 
+        startTime, 
+        true, 
+        undefined, 
+        workspaceIds.length * 50, // Estimate
+        undefined,
+        'workspace_reorder',
+        undefined,
+        undefined,
+        workspaceIds.length * 50,
+        workspaceIds.length
+      )
+    } catch (error) {
+      this.performanceMonitor.recordOperation(
+        'update', 
+        startTime, 
+        false, 
+        undefined, 
+        undefined, 
+        error instanceof Error ? error.message : 'Unknown error',
+        'workspace_reorder'
+      )
+      throw error
+    }
+  }
+
+  /**
+   * Migrate existing workspaces to support grouping
+   * This method ensures backward compatibility by creating default mappings
+   */
+  async migrateWorkspacesToGrouping(): Promise<void> {
+    const startTime = Date.now()
+    try {
+      const transaction = await this.getTransaction([STORES.WORKSPACES, STORES.WORKSPACE_GROUP_MAPPINGS], 'readwrite')
+      const workspaceStore = transaction.objectStore(STORES.WORKSPACES)
+      const mappingStore = transaction.objectStore(STORES.WORKSPACE_GROUP_MAPPINGS)
+      
+      // Get all workspaces
+      const workspaces = await this.promisifyRequest(workspaceStore.getAll()) as Workspace[]
+      
+      // Get existing mappings to avoid duplicates
+      const existingMappings = await this.promisifyRequest(mappingStore.getAll())
+      const existingWorkspaceIds = new Set(existingMappings.map(m => m.workspaceId))
+      
+      let migratedCount = 0
+      
+      // Create default mappings for workspaces without grouping data
+      for (let i = 0; i < workspaces.length; i++) {
+        const workspace = workspaces[i]
+        
+        if (!existingWorkspaceIds.has(workspace.id)) {
+          const mapping = {
+            workspaceId: workspace.id,
+            groupId: null, // Ungrouped by default
+            positionInGroup: i,
+            updatedAt: Date.now()
+          }
+          
+          await this.promisifyRequest(mappingStore.put(mapping))
+          migratedCount++
+        }
+      }
+      
+      this.performanceMonitor.recordOperation(
+        'update', 
+        startTime, 
+        true, 
+        undefined, 
+        migratedCount * 50, // Estimate
+        undefined,
+        'workspace_migration',
+        undefined,
+        undefined,
+        migratedCount * 50,
+        migratedCount
+      )
+      
+      console.log(`Migrated ${migratedCount} workspaces to grouping system`)
+    } catch (error) {
+      this.performanceMonitor.recordOperation(
+        'update', 
+        startTime, 
+        false, 
+        undefined, 
+        undefined, 
+        error instanceof Error ? error.message : 'Unknown error',
+        'workspace_migration'
+      )
+      throw error
+    }
+  }
+
+  /**
+   * Get all workspaces with grouping information
+   */
+  async getAllWorkspacesWithGrouping(): Promise<WorkspaceWithGrouping[]> {
+    const startTime = Date.now()
+    try {
+      const transaction = await this.getTransaction([STORES.WORKSPACES, STORES.WORKSPACE_GROUP_MAPPINGS])
+      const workspaceStore = transaction.objectStore(STORES.WORKSPACES)
+      const mappingStore = transaction.objectStore(STORES.WORKSPACE_GROUP_MAPPINGS)
+      
+      // Get all workspaces and mappings
+      const [workspaces, mappings] = await Promise.all([
+        this.promisifyRequest(workspaceStore.getAll()) as Promise<Workspace[]>,
+        this.promisifyRequest(mappingStore.getAll())
+      ])
+      
+      // Create mapping lookup
+      const mappingMap = new Map(mappings.map(m => [m.workspaceId, m]))
+      
+      // Enhance workspaces with grouping data
+      const result: WorkspaceWithGrouping[] = workspaces.map(workspace => {
+        const mapping = mappingMap.get(workspace.id)
+        return {
+          ...workspace,
+          groupId: mapping?.groupId || null,
+          positionInGroup: mapping?.positionInGroup || 0
+        }
+      })
+      
+      this.performanceMonitor.recordOperation(
+        'switch', 
+        startTime, 
+        true, 
+        undefined, 
+        JSON.stringify(result).length,
+        undefined,
+        'workspace_with_grouping',
+        undefined,
+        undefined,
+        JSON.stringify(result).length,
+        result.length
+      )
+      
+      return result
+    } catch (error) {
+      this.performanceMonitor.recordOperation(
+        'switch', 
+        startTime, 
+        false, 
+        undefined, 
+        undefined, 
+        error instanceof Error ? error.message : 'Unknown error',
+        'workspace_with_grouping'
+      )
+      throw error
+    }
   }
 
   // ============================================================================
@@ -1218,7 +1867,12 @@ export class WorkspaceDatabase {
         STORES.MIGRATION_LOG,
         STORES.STEP_CONFIGURATIONS,
         STORES.STEP_CONFIG_CACHE,
-        STORES.PERFORMANCE_METRICS
+        STORES.PERFORMANCE_METRICS,
+        STORES.WORKSPACE_GROUPS,
+        STORES.WORKSPACE_GROUP_MAPPINGS,
+        STORES.SUBTITLE_TEMP_STORAGE,
+        STORES.SUBTITLE_TEMP_SESSIONS,
+        STORES.SUBTITLE_TEMP_METADATA
       ], 'readwrite')
       
       await Promise.all([
@@ -1227,7 +1881,12 @@ export class WorkspaceDatabase {
         this.promisifyRequest(transaction.objectStore(STORES.MIGRATION_LOG).clear()),
         this.promisifyRequest(transaction.objectStore(STORES.STEP_CONFIGURATIONS).clear()),
         this.promisifyRequest(transaction.objectStore(STORES.STEP_CONFIG_CACHE).clear()),
-        this.promisifyRequest(transaction.objectStore(STORES.PERFORMANCE_METRICS).clear())
+        this.promisifyRequest(transaction.objectStore(STORES.PERFORMANCE_METRICS).clear()),
+        this.promisifyRequest(transaction.objectStore(STORES.WORKSPACE_GROUPS).clear()),
+        this.promisifyRequest(transaction.objectStore(STORES.WORKSPACE_GROUP_MAPPINGS).clear()),
+        this.promisifyRequest(transaction.objectStore(STORES.SUBTITLE_TEMP_STORAGE).clear()),
+        this.promisifyRequest(transaction.objectStore(STORES.SUBTITLE_TEMP_SESSIONS).clear()),
+        this.promisifyRequest(transaction.objectStore(STORES.SUBTITLE_TEMP_METADATA).clear())
       ])
       
       this.performanceMonitor.recordLegacyOperation('delete', startTime, true)
@@ -1337,7 +1996,12 @@ export class WorkspaceDatabase {
       const transaction = await this.getTransaction([
         STORES.WORKSPACES, 
         STORES.STEP_CONFIGURATIONS,
-        STORES.STEP_CONFIG_CACHE
+        STORES.STEP_CONFIG_CACHE,
+        STORES.WORKSPACE_GROUPS,
+        STORES.WORKSPACE_GROUP_MAPPINGS,
+        STORES.SUBTITLE_TEMP_STORAGE,
+        STORES.SUBTITLE_TEMP_SESSIONS,
+        STORES.SUBTITLE_TEMP_METADATA
       ])
       
       // Test workspace operations
@@ -1351,6 +2015,26 @@ export class WorkspaceDatabase {
       // Test cache operations
       const cacheStore = transaction.objectStore(STORES.STEP_CONFIG_CACHE)
       await this.promisifyRequest(cacheStore.count())
+      
+      // Test workspace group operations
+      const groupsStore = transaction.objectStore(STORES.WORKSPACE_GROUPS)
+      await this.promisifyRequest(groupsStore.count())
+      
+      // Test workspace group mappings operations
+      const mappingsStore = transaction.objectStore(STORES.WORKSPACE_GROUP_MAPPINGS)
+      await this.promisifyRequest(mappingsStore.count())
+      
+      // Test subtitle temp storage operations
+      const tempStorageStore = transaction.objectStore(STORES.SUBTITLE_TEMP_STORAGE)
+      await this.promisifyRequest(tempStorageStore.count())
+      
+      // Test subtitle temp sessions operations
+      const tempSessionsStore = transaction.objectStore(STORES.SUBTITLE_TEMP_SESSIONS)
+      await this.promisifyRequest(tempSessionsStore.count())
+      
+      // Test subtitle temp metadata operations
+      const tempMetadataStore = transaction.objectStore(STORES.SUBTITLE_TEMP_METADATA)
+      await this.promisifyRequest(tempMetadataStore.count())
       
     } catch (error) {
       issues.push(`Database connection failed: ${error instanceof Error ? error.message : 'Unknown error'}`)

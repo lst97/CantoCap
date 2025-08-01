@@ -139,15 +139,8 @@ const ConfigSection: React.FC<{ title: string; icon: React.ReactNode; children: 
 export const ConfigStep: React.FC = () => {
   const [config, updateConfig, { isLoading, error, isReady }] = useConfigStepConfig()
   const { autoSaveStatus, isAutoSaving, lastError, clearError } = useWorkspaceConfig()
-  const [showAutoSaveNotification, setShowAutoSaveNotification] = useState(false)
   const [showErrorNotification, setShowErrorNotification] = useState(false)
 
-  // Handle auto-save status changes
-  useEffect(() => {
-    if (autoSaveStatus.lastSaveTime && !isAutoSaving) {
-      setShowAutoSaveNotification(true)
-    }
-  }, [autoSaveStatus.lastSaveTime, isAutoSaving])
 
   // Handle errors
   useEffect(() => {
@@ -156,27 +149,8 @@ export const ConfigStep: React.FC = () => {
     }
   }, [lastError, error])
 
-  // Show loading state while workspace is initializing
-  if (!isReady) {
-    return (
-      <Box sx={{ 
-        p: 3,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '100%'
-      }}>
-        <LinearProgress sx={{ width: '100%', maxWidth: 400, mb: 2 }} />
-        <Typography variant="body2" color="text.secondary">
-          Loading configuration settings...
-        </Typography>
-      </Box>
-    )
-  }
-
   return (
-    <>
+    isReady && <>
       <Box sx={{ 
         display: 'flex',
         height: '100%',
@@ -189,50 +163,6 @@ export const ConfigStep: React.FC = () => {
           p: 3,
           pr: 2
         }}>
-          {/* Auto-save Status Indicator */}
-          <Box sx={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: 1, 
-            mb: 2,
-            minHeight: 32
-          }}>
-            {isAutoSaving && (
-              <Chip
-                icon={<Save />}
-                label="Auto-saving..."
-                size="small"
-                color="primary"
-                variant="outlined"
-              />
-            )}
-            {autoSaveStatus.lastSaveTime && !isAutoSaving && (
-              <Chip
-                icon={<CheckIcon />}
-                label="Saved"
-                size="small"
-                color="success"
-                variant="outlined"
-              />
-            )}
-            {(lastError || error) && (
-              <Chip
-                icon={<ErrorIcon />}
-                label="Save error"
-                size="small"
-                color="error"
-                variant="outlined"
-              />
-            )}
-          </Box>
-
-          {/* Configuration Loading State */}
-          {isLoading && (
-            <Alert severity="info" sx={{ mb: 2 }}>
-              Loading configuration settings...
-            </Alert>
-          )}
-
           {/* Configuration Error State */}
           {error && (
             <Alert 
@@ -321,21 +251,6 @@ export const ConfigStep: React.FC = () => {
       </Box>
     </Box>
 
-    {/* Auto-save Success Notification */}
-    <Snackbar
-      open={showAutoSaveNotification}
-      autoHideDuration={3000}
-      onClose={() => setShowAutoSaveNotification(false)}
-      anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-    >
-      <Alert 
-        onClose={() => setShowAutoSaveNotification(false)} 
-        severity="success"
-        variant="filled"
-      >
-        Configuration saved automatically
-      </Alert>
-    </Snackbar>
 
     {/* Error Notification */}
     <Snackbar

@@ -133,7 +133,8 @@ export const useAppStore = create<AppStore>()(
       verbose: false,
       startTime: null,
       endTime: null,
-      importedJsonFile: null
+      importedJsonFile: null,
+      autoSaveApiKeys: true
     },
     
     // UI State
@@ -328,27 +329,82 @@ export const useAppStore = create<AppStore>()(
     },
     
     updateConfig: <K extends keyof AppConfig>(key: K, value: AppConfig[K]) => {
+      // Update app store state immediately for UI responsiveness
       set((state: AppStore) => ({
         config: { ...state.config, [key]: value }
       }))
       
-      // Save config to workspace if available, otherwise fall back to localStorage
+      // Get updated config for persistence
+      const currentConfig = get().config
+      const updatedConfig = { ...currentConfig, [key]: value }
+      
+      // Define which config keys are workspace-specific vs global/system-wide
+      const workspaceSpecificKeys: (keyof AppConfig)[] = [
+        'inputFile', 'outputFile', 'language', 'model', 'priority', 
+        'speakers', 'written', 'music', 'charset', 'noGeminiRefinement',
+        'maxChunkDuration', 'videoQuality', 'terminologyConfig', 
+        'subtitle', 'duration', 'verbose', 'startTime', 'endTime', 'importedJsonFile'
+      ]
+      
+      const globalKeys: (keyof AppConfig)[] = [
+        'geminiKey', 'hfToken', 'ffmpegPath', 'autoSaveApiKeys'
+      ]
+      
+      const isWorkspaceSpecific = workspaceSpecificKeys.includes(key)
+      const isGlobal = globalKeys.includes(key)
+      
+      // Save config to workspace if it's workspace-specific and we have an active workspace
       const workspaceStore = useWorkspaceStore.getState()
-      if (workspaceStore.currentWorkspace) {
-        // Update workspace config
-        workspaceStore.updateWorkspaceConfig(workspaceStore.currentWorkspace.id, { [key]: value })
-          .catch(error => {
-            console.error('Failed to update workspace config:', error)
-            // Fallback to localStorage if workspace update fails
-            const currentConfig = get().config
-            const updatedConfig = { ...currentConfig, [key]: value }
+      if (isWorkspaceSpecific && workspaceStore.currentWorkspace) {
+        // For critical config changes like inputFile/outputFile, ensure immediate workspace sync
+        if (key === 'inputFile' || key === 'outputFile') {
+          console.log(`🔄 Critical config change: ${key} = ${value}, forcing immediate workspace sync`)
+          
+          // Update workspace config immediately to prevent race conditions during workspace switching
+          try {
+            // Force immediate update to workspace store state
+            const currentWorkspace = workspaceStore.currentWorkspace
+            if (currentWorkspace) {
+              // Update the workspace config in memory immediately
+              currentWorkspace.config = {
+                ...currentWorkspace.config,
+                [key]: value
+              }
+              
+              // Also persist to database asynchronously
+              workspaceStore.updateWorkspaceConfig(currentWorkspace.id, { [key]: value })
+                .then(() => {
+                  console.log(`✅ Workspace-specific config '${key}' saved to workspace:`, currentWorkspace.name)
+                })
+                .catch(error => {
+                  console.error('❌ Failed to persist workspace config:', error)
+                  // Fallback to localStorage if workspace update fails
+                  localStorage.setItem('cantocap-config', JSON.stringify(updatedConfig))
+                  console.log('💾 Config saved to localStorage as fallback')
+                })
+            }
+          } catch (syncError) {
+            console.error('❌ Failed to sync workspace config immediately:', syncError)
             localStorage.setItem('cantocap-config', JSON.stringify(updatedConfig))
-          })
-      } else {
-        // Fallback to localStorage for persistence
-        const currentConfig = get().config
-        const updatedConfig = { ...currentConfig, [key]: value }
+            console.log('💾 Config saved to localStorage as fallback')
+          }
+        } else {
+          // For non-critical changes, use async update as before
+          workspaceStore.updateWorkspaceConfig(workspaceStore.currentWorkspace.id, { [key]: value })
+            .then(() => {
+              console.log(`✅ Workspace-specific config '${key}' saved to workspace:`, workspaceStore.currentWorkspace?.name)
+            })
+            .catch(error => {
+              console.error('❌ Failed to update workspace config:', error)
+              // Fallback to localStorage if workspace update fails
+              localStorage.setItem('cantocap-config', JSON.stringify(updatedConfig))
+              console.log('💾 Config saved to localStorage as fallback')
+            })
+        }
+      } else if (isGlobal || !workspaceStore.currentWorkspace) {
+        // Save global settings or fallback to localStorage for persistence
         localStorage.setItem('cantocap-config', JSON.stringify(updatedConfig))
+        console.log(`💾 Global config '${key}' saved to localStorage`)
       }
       
       // Also persist certain settings to main process config manager
@@ -463,11 +519,31 @@ export const useAppStore = create<AppStore>()(
         const localStorageConfig = localStorage.getItem('cantocap-config')
         const localConfig = localStorageConfig ? JSON.parse(localStorageConfig) : null
         
+        // Map main process config structure to renderer structure
+        let mappedMainConfig = null
+        if (mainConfig) {
+          mappedMainConfig = {
+            ...mainConfig,
+            // Map nested API keys to flat structure
+            geminiKey: mainConfig.apiKeys?.gemini || '',
+            hfToken: mainConfig.apiKeys?.huggingface || '',
+            // Map other nested structures as needed
+            ffmpegPath: mainConfig.dependencies?.ffmpegPath || null,
+            // Remove nested structures to avoid conflicts
+            apiKeys: undefined,
+            dependencies: undefined,
+            modelSettings: undefined,
+            advancedSettings: undefined,
+            ui: undefined,
+            window: undefined
+          }
+        }
+        
         // Merge configs with main process taking priority for certain settings
         const mergedConfig = {
           ...get().config, // Start with defaults
           ...localConfig,  // Apply localStorage config
-          ...mainConfig    // Main process overrides
+          ...mappedMainConfig    // Main process overrides (properly mapped)
         }
         
         set((state: AppStore) => ({
@@ -484,6 +560,23 @@ export const useAppStore = create<AppStore>()(
           set((state: AppStore) => ({
             config: { ...state.config, outputFile: mainConfig.lastOutputPath }
           }))
+        }
+
+        // Load temp subtitle data if it exists (for JSON imports)
+        try {
+          const tempResult = await window.cantocapAPI.loadTempSubtitleData();
+          if (tempResult.success && tempResult.data) {
+            console.log('📄 Restored temp subtitle data from temp file');
+            set((state: AppStore) => ({
+              config: { 
+                ...state.config, 
+                subtitle: tempResult.data,
+                isImportedFromJson: true 
+              }
+            }));
+          }
+        } catch (error) {
+          console.error('Failed to load temp subtitle data:', error);
         }
         
       } catch (error) {
@@ -786,4 +879,104 @@ useAppStore.subscribe(
     localStorage.setItem('cantocap-config', JSON.stringify(config))
   },
   { equalityFn: (a, b) => JSON.stringify(a) === JSON.stringify(b) }
+)
+
+// Listen for workspace changes and reload configuration
+useWorkspaceStore.subscribe(
+  (state) => state.currentWorkspace,
+  (currentWorkspace, previousWorkspace) => {
+    if (currentWorkspace && currentWorkspace.id !== previousWorkspace?.id) {
+      console.log('🔄 Workspace changed, reloading configuration...', {
+        from: previousWorkspace?.name || 'none',
+        to: currentWorkspace.name,
+        workspaceId: currentWorkspace.id
+      })
+      
+      // Ensure any pending config changes are saved to the previous workspace before switching
+      if (previousWorkspace) {
+        try {
+          const currentConfig = appStore.config
+          const workspaceStore = useWorkspaceStore.getState()
+          
+          // Force save current config to previous workspace to prevent data loss
+          console.log('💾 Saving current config to previous workspace before switch:', previousWorkspace.name)
+          workspaceStore.updateWorkspaceConfig(previousWorkspace.id, currentConfig).catch(error => {
+            console.warn('⚠️ Failed to save config to previous workspace:', error)
+          })
+        } catch (error) {
+          console.warn('⚠️ Error saving config to previous workspace:', error)
+        }
+      }
+      
+      // Get the app store instance
+      const appStore = useAppStore.getState()
+      
+      // Create a clean base config with only system-wide settings
+      const systemConfig = {
+        geminiKey: appStore.config.geminiKey, // Keep API keys
+        hfToken: appStore.config.hfToken, // Keep API keys
+        ffmpegPath: appStore.config.ffmpegPath, // Keep system paths
+      }
+      
+      // Use workspace config as the primary source, only fallback to base defaults for missing values
+      const workspaceConfig = currentWorkspace.config || {}
+      
+      // Create the final config with workspace-specific values taking priority
+      const finalConfig = {
+        // Base defaults
+        inputFile: null,
+        outputFile: null,
+        language: 'zh',
+        model: null,
+        priority: 'balanced',
+        speakers: false,
+        written: true,
+        music: false,
+        charset: 'traditional',
+        noGeminiRefinement: false,
+        maxChunkDuration: 15,
+        videoQuality: '360p',
+        terminologyConfig: null,
+        subtitle: null,
+        duration: 10.0,
+        verbose: false,
+        startTime: null,
+        endTime: null,
+        importedJsonFile: null,
+        // Override with system-wide settings
+        ...systemConfig,
+        // Override with workspace-specific config (this should be the primary source)
+        ...workspaceConfig
+      }
+      
+      console.log('🔧 Config isolation details:', {
+        systemConfigKeys: Object.keys(systemConfig),
+        workspaceConfigKeys: Object.keys(workspaceConfig),
+        finalConfigKeys: Object.keys(finalConfig),
+        inputFile: { 
+          workspace: workspaceConfig.inputFile,
+          final: finalConfig.inputFile 
+        }
+      })
+      
+      // Update app store config atomically - completely replace, don't merge
+      useAppStore.setState((state) => ({
+        config: finalConfig
+      }))
+      
+      // Also trigger workflow store to reload from the new workspace
+      const workflowStore = useWorkflowStore.getState()
+      if (workflowStore.initializeFromWorkspace) {
+        workflowStore.initializeFromWorkspace().catch(error => {
+          console.error('Failed to reload workflow from new workspace:', error)
+        })
+      }
+      
+      console.log('✅ Configuration isolated for workspace:', currentWorkspace.name, finalConfig)
+    }
+  },
+  { 
+    equalityFn: (a, b) => a?.id === b?.id,
+    fireImmediately: false
+  }
 )

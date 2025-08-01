@@ -195,6 +195,24 @@ export const useWorkflowStore = create<WorkflowState>()(
         })
       },
 
+      enableStep: (stepId: string) => {
+        set((state) => {
+          const updatedSteps = state.steps.map((step) => {
+            if (step.id === stepId) {
+              return { 
+                ...step, 
+                isAccessible: true
+              }
+            }
+            return step
+          })
+
+          const newState = { steps: updatedSteps }
+          saveWorkflowToWorkspace(newState)
+          return newState
+        })
+      },
+
       resetWorkflowFromStep: (fromStepId: string) => {
         set((state) => {
           const fromIndex = state.steps.findIndex(s => s.id === fromStepId)
@@ -365,6 +383,7 @@ export const useWorkflowStore = create<WorkflowState>()(
       getState: () => {
         return get()
       },
+
 
       reset: () => {
         set({

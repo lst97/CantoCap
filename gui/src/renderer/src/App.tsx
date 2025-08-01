@@ -3,8 +3,11 @@ import { ThemeProvider } from '@mui/material/styles';
 import { CssBaseline, Box, Typography, CircularProgress } from '@mui/material';
 import { useAppStore } from './stores/app-store';
 import { useWorkflowStore } from './stores/workflow-store';
+import { useUIStore } from './stores/ui-store';
+import { useWorkflowIntegration } from './hooks/useWorkflowIntegration';
 import { navigateToReview } from './utils/workflow-navigation';
 import { WorkspaceConfigProvider } from './contexts/WorkspaceConfigContext';
+import { EnhancedWorkspaceConfigProvider } from './contexts/EnhancedWorkspaceConfigContext';
 import { CustomTitleBar } from './components/layout/CustomTitleBar';
 import { WorkspacePanel } from './components/layout/WorkspacePanel';
 import { StepNavigation } from './components/layout/StepNavigation';
@@ -16,6 +19,7 @@ import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { ErrorTestButton } from './components/debug/ErrorTestButton';
 import { DevToolsButton } from './components/common/DevToolsButton';
 import { DebugMenu } from './components/common/DebugMenu';
+import { GlobalSettingsDialog } from './components/dialogs/GlobalSettingsDialog';
 import theme from './theme/theme';
 import './styles/globals.css';
 import { JSX } from 'react/jsx-runtime';
@@ -24,6 +28,8 @@ function App(): JSX.Element {
   console.log("🔄 App component rendering...");
   
   const [isInitializing, setIsInitializing] = useState(true);
+  const [isWorkspaceReady, setIsWorkspaceReady] = useState(false);
+  const [globalSettingsOpen, setGlobalSettingsOpen] = useState(false);
   
   const {
     initializeApp,
@@ -36,6 +42,9 @@ function App(): JSX.Element {
     restoreUIState,
     addDebugMessage,
   } = useAppStore();
+  
+  // Initialize workflow integration system
+  const workflowIntegration = useWorkflowIntegration();
   
   console.log("✅ App store hooks initialized");
 
@@ -57,9 +66,23 @@ function App(): JSX.Element {
         console.log("✅ UI state restoration completed");
         
         console.log("✅ All initialization completed successfully");
+        
+        // Wait for workspace system to be ready
+        console.log("🔄 Checking workspace readiness...");
+        // Add a small delay to ensure workspace store is properly initialized
+        setTimeout(() => {
+          setIsWorkspaceReady(true);
+          console.log("✅ Workspace system ready");
+        }, 100);
+        
       } catch (error) {
         console.error("❌ Error during initialization (continuing with limited functionality):", error);
         showNotification(`Some features may be limited due to initialization error: ${error instanceof Error ? error.message : String(error)}`, 'warning', 8000);
+        // Even on error, allow workspace to be ready to prevent permanent loading
+        setTimeout(() => {
+          setIsWorkspaceReady(true);
+          console.log("✅ Workspace system ready (fallback)");
+        }, 100);
       } finally {
         setIsInitializing(false);
         console.log("✅ Initialization phase completed, app is ready");
@@ -208,14 +231,9 @@ function App(): JSX.Element {
         workflowStore.completeStep('processing');
 
         // Load subtitle data with translations if available
-        const currentConfig = useAppStore.getState().config;
-        if (
-          data.outputFile &&
-          currentConfig.subtitle &&
-          typeof currentConfig.subtitle === 'string'
-        ) {
+        if (data.outputFile) {
           try {
-            // Try to load JSON subtitle data (contains translations)
+            // Always try to load JSON subtitle data when processing completes
             const jsonPath = data.outputFile.replace(/\.[^/.]+$/, '.json');
             console.log('Loading subtitle translations from:', jsonPath);
 
@@ -224,11 +242,15 @@ function App(): JSX.Element {
               // Update config with subtitle data containing translations
               const { updateConfig } = useAppStore.getState();
               updateConfig('subtitle', subtitleData);
-              console.log(`Loaded ${subtitleData.length} subtitles with translation data`);
+              console.log(`✅ Loaded ${subtitleData.length} subtitles with translation data for Step 4`);
+            } else {
+              console.warn('⚠️ Subtitle data is not an array or is empty:', subtitleData);
             }
           } catch (error) {
-            console.warn('Could not load subtitle translation data:', error);
-            // Continue without translations - not a critical error
+            console.error('❌ Failed to load subtitle translation data:', error);
+            // This is now a more serious issue - we need subtitle data for Step 4
+            const { showNotification } = useAppStore.getState();
+            showNotification('Warning: Could not load subtitle data for editing', 'warning');
           }
         }
 
@@ -320,10 +342,20 @@ function App(): JSX.Element {
     restoreUIState
   ]);
 
-  console.log("🔄 App component render, isInitializing:", isInitializing);
+  // Handle opening global settings
+  const handleOpenGlobalSettings = () => {
+    // Use the new settings system instead
+    workflowIntegration.enterSettingsMode('system')
+  };
 
-  // Show loading screen during initialization
-  if (isInitializing) {
+  const handleCloseGlobalSettings = () => {
+    setGlobalSettingsOpen(false);
+  };
+
+  console.log("🔄 App component render, isInitializing:", isInitializing, "isWorkspaceReady:", isWorkspaceReady);
+
+  // Show loading screen during initialization or workspace setup
+  if (isInitializing || !isWorkspaceReady) {
     return (
       <ThemeProvider theme={theme}>
         <CssBaseline />
@@ -341,7 +373,7 @@ function App(): JSX.Element {
         >
           <CircularProgress size={60} />
           <Typography variant="h6" color="text.secondary">
-            Initializing CantoCap...
+            {isInitializing ? 'Initializing CantoCap...' : 'Setting up workspace...'}
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Loading workspace and dependencies
@@ -359,6 +391,7 @@ function App(): JSX.Element {
       <ThemeProvider theme={theme}>
         <CssBaseline />
         <WorkspaceConfigProvider>
+          <EnhancedWorkspaceConfigProvider>
           <Box
             sx={{
               height: '100vh',
@@ -378,7 +411,7 @@ function App(): JSX.Element {
             >
               <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
                 {/* Workspace Panel */}
-                <WorkspacePanel />
+                <WorkspacePanel onSettings={handleOpenGlobalSettings} />
 
                 {/* Step Navigation */}
                 <StepNavigation />
@@ -400,7 +433,14 @@ function App(): JSX.Element {
             <ErrorTestButton position='bottom-right' />
             <DevToolsButton showLabel />
             <DebugMenu />
+            
+            {/* Global Settings Dialog */}
+            <GlobalSettingsDialog
+              open={globalSettingsOpen}
+              onClose={handleCloseGlobalSettings}
+            />
           </Box>
+          </EnhancedWorkspaceConfigProvider>
         </WorkspaceConfigProvider>
       </ThemeProvider>
     </ErrorBoundary>

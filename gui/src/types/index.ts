@@ -83,6 +83,7 @@ export interface AppConfig {
   startTime: number | null
   endTime: number | null
   importedJsonFile: string | null
+  autoSaveApiKeys: boolean
 }
 
 export interface UIState {
@@ -356,5 +357,213 @@ declare global {
     }
   }
 }
+
+// ============================================================================
+// CONFIGURATION MANAGER TYPES
+// ============================================================================
+
+// Re-export configuration manager types for easy access
+export type {
+  // Core interfaces
+  ConfigurationManager,
+  ConfigUpdateOptions,
+  ConfigValidationResult,
+  ConfigOperationResult,
+  ConfigError,
+  ConfigErrorType,
+  
+  // Context and hooks
+  UnifiedConfigContext,
+  UnifiedConfigHook,
+  ConfigHookState,
+  ConfigHookActions,
+  
+  // Workspace integration
+  WorkspaceConfigTarget,
+  WorkspaceTransitionState,
+  ConfigSyncStatus,
+  
+  // Utility types
+  WorkspaceSpecificKeys,
+  GlobalConfigKeys,
+  ConfigKeyCategory,
+  TypeSafeConfigOperation
+} from './config-manager'
+
+export {
+  // Error classes
+  ConfigError as ConfigurationError,
+  ConfigValidationError,
+  ConfigStorageError,
+  ConfigSyncError,
+  
+  // Utility functions
+  isWorkspaceSpecificKey,
+  isGlobalKey,
+  categorizeConfigKey,
+  determineConfigTarget,
+  
+  // Constants
+  DEFAULT_RETRY_POLICY,
+  DEFAULT_CONFIG_UPDATE_OPTIONS,
+  CONFIG_KEY_CATEGORIES
+} from './config-manager'
+
+// ============================================================================
+// SUBTITLE TEMPORARY STORAGE SYSTEM EXPORTS
+// ============================================================================
+
+// Re-export all subtitle temporary storage types for easy access
+export type {
+  // Core temporary storage types
+  SubtitleTempMetadata,
+  SubtitleTempContent,
+  SubtitleTempSession,
+  SubtitleTempError,
+  SubtitleTempOperationRequest,
+  SubtitleTempOperationResponse,
+  SubtitleTempBatchOperation,
+  SubtitleTempBatchResponse,
+  SubtitleTempStorageConfig,
+  SubtitleTempCleanupResult,
+  SubtitleAutoSaveConfig,
+  
+  // Statistics and validation types
+  SubtitleTempStatistics,
+  SubtitleValidationWarning,
+  SubtitleValidationError,
+  SubtitleTempSessionState,
+  SubtitleTempSessionStats,
+  
+  // Database and storage types
+  SubtitleTempStorageRecord,
+  SubtitleTempSessionRecord,
+  
+  // Advanced utility types
+  ValidationResult,
+  ValidationSeverity,
+  PerformanceMetric,
+  DeepPartial,
+  ContentFilter,
+  ContentComparator,
+  ContentTransformer,
+  SearchParams,
+  SearchResult
+} from './renderer/src/types/subtitle-temp-storage'
+
+export type {
+  // Branded types for enhanced type safety
+  WorkspaceId,
+  SessionId,
+  StorageId,
+  OperationId,
+  BatchId,
+  
+  // Generic operation types
+  TypedOperationResult,
+  TypedSessionManager,
+  TypedStorageInterface,
+  
+  // Configuration and validation
+  ConfigSchema,
+  ConfigBuilder,
+  MigrationStrategy,
+  ValidationRule,
+  CompositeValidator,
+  EnhancedValidationResult,
+  
+  // Caching and performance
+  TypedCache,
+  TypedCacheConfig,
+  PerformanceTracker,
+  AggregatedMetrics,
+  
+  // Event system
+  TypedEventEmitter,
+  StorageEventPayloads,
+  ReactiveStream
+} from './renderer/src/types/subtitle-temp-storage-utils'
+
+export type {
+  // Integration bridge types
+  SubtitleStorageBridge,
+  SynchronizationResult,
+  WorkspaceSubtitleTempIntegration,
+  IntegratedSessionInfo,
+  CleanupResult,
+  
+  // React hook integration
+  UseSubtitleTempStorageOptions,
+  UseSubtitleTempStorageResult,
+  UseWorkspaceWithTempStorageResult,
+  SynchronizationOptions,
+  StorageMetrics,
+  
+  // Middleware and plugins
+  TempStorageMiddleware,
+  TempStoragePlugin,
+  PluginContext,
+  
+  // Testing utilities
+  MockTempStorageProvider,
+  TempStorageTestUtils,
+  
+  // Export/import types
+  TempStorageExport,
+  TempStorageImportOptions,
+  TempStorageImportResult
+} from './renderer/src/types/subtitle-temp-storage-integration'
+
+// Export utility functions and type guards
+export {
+  // Type guards
+  isSubtitleTempError,
+  isSubtitleTempContent,
+  isSubtitleTempSession,
+  isSubtitleTempMetadata,
+  isSubtitleTempOperationRequest,
+  isSubtitleTempStorageConfig,
+  isSubtitleTempBatchOperation,
+  isValidationResult,
+  
+  // Utility functions
+  generateTempStorageId,
+  calculateContentHash,
+  estimateStorageSize,
+  shouldCleanup,
+  deepMerge,
+  validateWorkspaceId,
+  validateSessionId,
+  createConfigValidator,
+  createPerformanceMonitor,
+  
+  // Constants
+  SUBTITLE_TEMP_STORAGE_CONSTANTS,
+  DEFAULT_SUBTITLE_TEMP_CONFIG
+} from './renderer/src/types/subtitle-temp-storage'
+
+export {
+  // Enhanced type guards
+  createValidatingTypeGuard,
+  isWorkspaceId,
+  isSessionId,
+  isStorageId,
+  isOperationId,
+  isBatchId,
+  isValidSubtitleContent,
+  validateStorageConfig,
+  
+  // Branded identifier creators
+  createWorkspaceId,
+  createSessionId,
+  createOperationId,
+  
+  // Utility functions
+  deepClone,
+  safeJsonParse,
+  debounce,
+  throttle,
+  createRetryFunction
+} from './renderer/src/types/subtitle-temp-storage-utils'
 
 export {};

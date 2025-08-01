@@ -19,6 +19,7 @@ import {
   OpenInNew as OpenInNewIcon
 } from '@mui/icons-material'
 import { useAppStore } from '../../stores/app-store'
+import { useUnifiedConfig } from '../../contexts/EnhancedWorkspaceConfigContext'
 
 interface KeyValidation {
   valid: boolean
@@ -26,58 +27,91 @@ interface KeyValidation {
 }
 
 export const APIKeyInput: React.FC = () => {
-  const { config, updateConfig } = useAppStore()
+  const { config } = useAppStore()
+  const { setValue, isReady, error, clearError } = useUnifiedConfig()
   const [showGeminiKey, setShowGeminiKey] = useState(false)
   const [showHfToken, setShowHfToken] = useState(false)
   const [geminiKeyValidation, setGeminiKeyValidation] = useState<KeyValidation | null>(null)
   const [hfTokenValidation, setHfTokenValidation] = useState<KeyValidation | null>(null)
 
-  const handleGeminiKeyChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleGeminiKeyChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value
-    updateConfig('geminiKey', value)
     
-    if (value) {
-      if (value.length < 20) {
-        setGeminiKeyValidation({ valid: false, message: 'API key seems too short' })
-      } else if (!value.startsWith('AI')) {
-        setGeminiKeyValidation({ valid: false, message: 'Gemini API keys typically start with "AI"' })
-      } else {
-        setGeminiKeyValidation({ valid: true, message: 'API key format looks valid' })
-      }
-    } else {
-      setGeminiKeyValidation(null)
+    if (!isReady) {
+      console.warn('Configuration manager not ready, skipping Gemini key update')
+      return
     }
-  }, [updateConfig])
+    
+    try {
+      await setValue('geminiKey', value)
+      
+      if (value) {
+        if (value.length < 20) {
+          setGeminiKeyValidation({ valid: false, message: 'API key seems too short' })
+        } else if (!value.startsWith('AI')) {
+          setGeminiKeyValidation({ valid: false, message: 'Gemini API keys typically start with "AI"' })
+        } else {
+          setGeminiKeyValidation({ valid: true, message: 'API key format looks valid' })
+        }
+      } else {
+        setGeminiKeyValidation(null)
+      }
+    } catch (err) {
+      console.error('Failed to update Gemini API key:', err)
+      setGeminiKeyValidation({ valid: false, message: 'Failed to save API key' })
+    }
+  }, [setValue, isReady])
 
-  const handleHfTokenChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleHfTokenChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value
-    updateConfig('hfToken', value)
     
-    if (value) {
-      if (value.length < 30) {
-        setHfTokenValidation({ valid: false, message: 'HuggingFace token seems too short' })
-      } else if (!value.startsWith('hf_')) {
-        setHfTokenValidation({ valid: false, message: 'HuggingFace tokens typically start with "hf_"' })
-      } else {
-        setHfTokenValidation({ valid: true, message: 'Token format looks valid' })
-      }
-    } else {
-      setHfTokenValidation({ valid: false, message: 'HuggingFace token is required for Whisper model downloads' })
+    if (!isReady) {
+      console.warn('Configuration manager not ready, skipping HuggingFace token update')
+      return
     }
-  }, [updateConfig])
+    
+    try {
+      await setValue('hfToken', value)
+      
+      if (value) {
+        if (value.length < 30) {
+          setHfTokenValidation({ valid: false, message: 'HuggingFace token seems too short' })
+        } else if (!value.startsWith('hf_')) {
+          setHfTokenValidation({ valid: false, message: 'HuggingFace tokens typically start with "hf_"' })
+        } else {
+          setHfTokenValidation({ valid: true, message: 'Token format looks valid' })
+        }
+      } else {
+        setHfTokenValidation({ valid: false, message: 'HuggingFace token is required for Whisper model downloads' })
+      }
+    } catch (err) {
+      console.error('Failed to update HuggingFace token:', err)
+      setHfTokenValidation({ valid: false, message: 'Failed to save token' })
+    }
+  }, [setValue, isReady])
 
-  const handleToggleRefinement = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleToggleRefinement = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const enabled = event.target.checked
-    updateConfig('noGeminiRefinement', !enabled)
     
-    // If disabling Gemini refinement, also disable AI-dependent features
-    if (!enabled) {
-      // Reset subtitle translation since it depends on Gemini
-      if (config.subtitle && typeof config.subtitle === 'string') {
-        updateConfig('subtitle', null)
-      }
+    if (!isReady) {
+      console.warn('Configuration manager not ready, skipping refinement toggle')
+      return
     }
-  }, [config.noGeminiRefinement, config.subtitle, updateConfig])
+    
+    try {
+      await setValue('noGeminiRefinement', !enabled)
+      
+      // If disabling Gemini refinement, also disable AI-dependent features
+      if (!enabled) {
+        // Reset subtitle translation since it depends on Gemini
+        if (config.subtitle && typeof config.subtitle === 'string') {
+          await setValue('subtitle', null)
+        }
+      }
+    } catch (err) {
+      console.error('Failed to update Gemini refinement setting:', err)
+    }
+  }, [config.subtitle, setValue, isReady])
 
   const toggleShowGeminiKey = useCallback(() => {
     setShowGeminiKey(!showGeminiKey)
@@ -87,15 +121,33 @@ export const APIKeyInput: React.FC = () => {
     setShowHfToken(!showHfToken)
   }, [showHfToken])
 
-  const clearGeminiKey = useCallback(() => {
-    updateConfig('geminiKey', '')
-    setGeminiKeyValidation(null)
-  }, [updateConfig])
+  const clearGeminiKey = useCallback(async () => {
+    if (!isReady) {
+      console.warn('Configuration manager not ready, skipping Gemini key clear')
+      return
+    }
+    
+    try {
+      await setValue('geminiKey', '')
+      setGeminiKeyValidation(null)
+    } catch (err) {
+      console.error('Failed to clear Gemini API key:', err)
+    }
+  }, [setValue, isReady])
 
-  const clearHfToken = useCallback(() => {
-    updateConfig('hfToken', '')
-    setHfTokenValidation({ valid: false, message: 'HuggingFace token is required for Whisper model downloads' })
-  }, [updateConfig])
+  const clearHfToken = useCallback(async () => {
+    if (!isReady) {
+      console.warn('Configuration manager not ready, skipping HuggingFace token clear')
+      return
+    }
+    
+    try {
+      await setValue('hfToken', '')
+      setHfTokenValidation({ valid: false, message: 'HuggingFace token is required for Whisper model downloads' })
+    } catch (err) {
+      console.error('Failed to clear HuggingFace token:', err)
+    }
+  }, [setValue, isReady])
 
   const openGeminiDocs = useCallback(async () => {
     await window.cantocapAPI.openExternalUrl('https://makersuite.google.com/app/apikey')
@@ -104,6 +156,21 @@ export const APIKeyInput: React.FC = () => {
   const openHuggingFaceDocs = useCallback(async () => {
     await window.cantocapAPI.openExternalUrl('https://huggingface.co/settings/tokens')
   }, [])
+
+  const handleAutoSaveToggle = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const enabled = event.target.checked
+    
+    if (!isReady) {
+      console.warn('Configuration manager not ready, skipping auto-save toggle')
+      return
+    }
+    
+    try {
+      await setValue('autoSaveApiKeys', enabled)
+    } catch (err) {
+      console.error('Failed to update auto-save setting:', err)
+    }
+  }, [setValue, isReady])
 
   return (
     <Stack spacing={4}>
