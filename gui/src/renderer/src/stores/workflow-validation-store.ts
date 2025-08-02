@@ -130,21 +130,48 @@ const createStepValidationRules = (stepId: string): StepValidationRule[] => {
     case 'review':
       // Step 4 requires processing to be completed OR skipped (for JSON import flow)
       // OR if export step is accessible (user has progressed beyond review)
+      // OR if we have JSON import context
       rules.push({
-        id: 'processing-completed-or-skipped',
-        name: 'Processing Completed or Skipped',
+        id: 'processing-completed-or-skipped-or-json-import',
+        name: 'Processing Completed or Skipped or JSON Import',
         validate: async () => {
           const workflowStore = useWorkflowStore.getState()
+          const appStore = useAppStore.getState()
           const processingStep = workflowStore.steps.find(s => s.id === 'processing')
           const exportStep = workflowStore.steps.find(s => s.id === 'export')
+          const configStep = workflowStore.steps.find(s => s.id === 'config')
+          
+          // ENHANCED: Check for JSON import context with multiple indicators
+          const isJsonImport = appStore.config.importedJsonFile || 
+                              appStore.config.isImportedFromJson ||
+                              (configStep?.isSkipped && processingStep?.isSkipped) // Enhanced: Both config and processing skipped = JSON import
+          const hasSubtitleData = Array.isArray(appStore.config.subtitle) && appStore.config.subtitle.length > 0
+          
+          console.log('🔍 Review step validation check:', {
+            processingCompleted: processingStep?.isCompleted,
+            processingSkipped: processingStep?.isSkipped,
+            configSkipped: configStep?.isSkipped,
+            exportAccessible: exportStep?.isAccessible,
+            isJsonImport,
+            hasSubtitleData,
+            importedJsonFile: appStore.config.importedJsonFile,
+            isImportedFromJson: appStore.config.isImportedFromJson
+          });
           
           // Allow access if:
           // 1. Processing is completed OR skipped (JSON import flow)
           // 2. OR export step is accessible (user has progressed beyond review)
-          return processingStep?.isCompleted || 
-                 processingStep?.isSkipped || 
-                 exportStep?.isAccessible || 
-                 false
+          // 3. OR we have a JSON import with subtitle data (immediate access)
+          // 4. ENHANCED: Both config and processing are skipped (definitive JSON import flow)
+          const canAccess = processingStep?.isCompleted || 
+                           processingStep?.isSkipped || 
+                           exportStep?.isAccessible || 
+                           (isJsonImport && hasSubtitleData) ||
+                           (configStep?.isSkipped && processingStep?.isSkipped) || // Enhanced condition
+                           false;
+                           
+          console.log('🔍 Review step validation result:', canAccess);
+          return canAccess;
         },
         errorMessage: 'Complete processing first',
         isRequired: true

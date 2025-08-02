@@ -8,16 +8,25 @@ import { create } from 'zustand'
 import { persist, subscribeWithSelector } from 'zustand/middleware'
 import { TempSubtitleSession, SubtitleEntry, SubtitleModification } from '../types/subtitle'
 import type { SubtitleData } from '../../../types'
-import { generateTempStorageId } from '../types/subtitle-temp-storage'
+import { 
+  saveOriginalSubtitles, 
+  saveModifiedSubtitles, 
+  loadSessionSubtitles, 
+  hasSessionData,
+  deleteSessionData,
+  listWorkspaceSessions,
+  cleanupWorkspaceSession,
+  cleanupOldSessions,
+  cleanupOrphanedSessions,
+  getStorageStats
+} from '../utils/subtitle-indexeddb'
 
-// Simplified temp storage interface for session data
+// Simplified temp storage interface for session data (legacy compatibility)
 interface SimplifiedTempContent {
   metadata: {
     contentId: string
     workspaceId: string
     sessionId: string
-    originalPath: string
-    tempPath: string
     contentType: string
     version: number
     createdAt: number
@@ -60,18 +69,37 @@ interface SubtitleEditState {
   redoStack: SubtitleModification[]
   isAutoSaving: boolean
   lastAutoSave: Date | null
+  lastResetTime?: number // Debounce rapid session resets
+  // Manual save state
+  isSaving: boolean
+  saveError: string | null
+  lastManualSave: Date | null
+  // Performance monitoring state
+  performanceMonitoring: {
+    enabled: boolean
+    indexedDBOperations: number
+    totalOperationTime: number
+    errorCount: number
+    lastCleanup: number
+  }
   // Enhanced persistence state
   sessionRecovery: {
     hasRecoverableSession: boolean
     recoverableSessionId: string | null
     lastSessionWorkspaceId: string | null
+    sessionDetails?: {
+      lastModified: number
+      subtitleCount: number
+      editCount: number
+    }
   }
   persistenceEnabled: boolean
-  tempStorageId: string | null
+  // Auto-save integration
+  autoSaveCallback: ((subtitles: SubtitleData[], action: string) => void) | null
 }
 
 interface SubtitleEditActions {
-  initializeSession: (subtitlePath: string, videoPath: string, importedData?: any[], preTransformed?: boolean) => Promise<void>
+  initializeSession: (subtitlePath: string, videoPath: string, workspaceId: string, importedData?: any[], preTransformed?: boolean) => Promise<void>
   clearSession: () => void
   loadSession: (sessionData: TempSubtitleSession) => void
   saveEdit: (edit: SubtitleModification) => void
@@ -89,6 +117,9 @@ interface SubtitleEditActions {
   redo: () => void
   clearUndoRedo: () => void
   reset: () => void
+  // Manual save actions
+  manualSaveToIndexedDB: () => Promise<boolean>
+  clearSaveError: () => void
   // Enhanced persistence actions
   enablePersistence: (workspaceId: string) => void
   disablePersistence: () => void
@@ -97,9 +128,34 @@ interface SubtitleEditActions {
   saveSessionToTempStorage: () => Promise<void>
   convertToTempContent: () => SimplifiedTempContent | null
   restorePersistedSession: () => Promise<boolean>
+  // Session management for content changes
+  resetSessionForNewContent: (reason: 'step1_import' | 'step1_video_change' | 'step3_generation') => void
+  // Auto-save integration callbacks
+  setAutoSaveCallback: (callback: ((subtitles: SubtitleData[], action: string) => void) | null) => void
+  // Workspace-session mapping functions
+  getWorkspaceSessionId: (workspaceId: string) => string | null
+  hasWorkspaceSession: (workspaceId: string) => boolean
+  checkAndRestoreWorkspaceSession: (workspaceId: string) => Promise<string | null>
+  clearSessionForWorkspace: (workspaceId: string) => void
+  // Enhanced cleanup functions
+  cleanupWorkspaceSession: (workspaceId: string) => Promise<{deletedSessions: number, deletedRecords: number, reclaimedBytes: number}>
+  performSystemCleanup: (options?: {olderThanDays?: number, removeOrphaned?: boolean}) => Promise<{totalCleaned: number, reclaimedBytes: number, duration: number}>
+  getSessionStats: () => Promise<{totalRecords: number, totalSessions: number, totalWorkspaces: number, totalBytes: number}>
+  // Performance monitoring
+  enablePerformanceMonitoring: () => void
+  disablePerformanceMonitoring: () => void
+  getPerformanceMetrics: () => {indexedDBOperations: number, averageOperationTime: number, errorRate: number}
 }
 
 type SubtitleEditStore = SubtitleEditState & SubtitleEditActions
+
+// Helper function to trigger auto-save callback and save to IndexedDB
+// DISABLED FOR PERFORMANCE: Auto-save system removed to eliminate 2-3 second re-render delays
+const triggerAutoSaveCallback = async (store: SubtitleEditStore, action: string) => {
+  // Auto-save functionality disabled for performance improvements
+  // Manual save methods still available for future implementation
+  console.log(`📝 Action recorded (auto-save disabled): ${action}`);
+}
 
 export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSelector(persist((set, get) => ({
   session: null,
@@ -110,6 +166,10 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
   redoStack: [],
   isAutoSaving: false,
   lastAutoSave: null,
+  // Manual save state
+  isSaving: false,
+  saveError: null,
+  lastManualSave: null,
   // Enhanced persistence state
   sessionRecovery: {
     hasRecoverableSession: false,
@@ -117,11 +177,55 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
     lastSessionWorkspaceId: null
   },
   persistenceEnabled: false,
-  tempStorageId: null,
+  // Auto-save integration
+  autoSaveCallback: null,
+  // Performance monitoring state
+  performanceMonitoring: {
+    enabled: false,
+    indexedDBOperations: 0,
+    totalOperationTime: 0,
+    errorCount: 0,
+    lastCleanup: Date.now()
+  },
 
-  initializeSession: async (subtitlePath: string, videoPath: string, importedData?: any[], preTransformed: boolean = false) => {
+  initializeSession: async (subtitlePath: string, videoPath: string, workspaceId: string, importedData?: any[], preTransformed: boolean = false) => {
+    const state = get()
+    const startTime = performance.now()
+    
+    // Performance monitoring
+    if (state.performanceMonitoring.enabled) {
+      set(state => ({
+        performanceMonitoring: {
+          ...state.performanceMonitoring,
+          indexedDBOperations: state.performanceMonitoring.indexedDBOperations + 1
+        }
+      }))
+    }
+    
     try {
+      console.log('🔍 DEBUG: Store initializeSession called with:', {
+        subtitlePath,
+        videoPath,
+        workspaceId,
+        hasImportedData: !!importedData,
+        importedDataLength: importedData?.length,
+        preTransformed
+      });
+      
+      // Validate workspaceId is provided and not empty
+      if (!workspaceId || workspaceId.trim() === '') {
+        throw new Error('Cannot initialize session: workspaceId is required and cannot be empty')
+      }
+      
       set({ isLoading: true, error: null })
+      
+      // Cleanup previous sessions for this workspace to prevent conflicts
+      try {
+        const cleanupResult = await cleanupWorkspaceSession(workspaceId)
+        console.log('🧹 Cleaned up workspace sessions before initialization:', cleanupResult)
+      } catch (cleanupError) {
+        console.warn('⚠️ Failed to cleanup workspace sessions (continuing):', cleanupError)
+      }
       
       // Use pre-transformed data if available, otherwise assume importedData is already SubtitleEntry[]
       const transformedSubtitles: SubtitleEntry[] = preTransformed 
@@ -133,28 +237,66 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
             endTime: sub.endTime || 0,
             duration: sub.duration || (sub.endTime - sub.startTime),
             text: sub.caption || sub.text || '',
-            originalText: sub.translation || sub.originalText || undefined,
+            translation: sub.translation || undefined,
             confidence: sub.confidence || undefined,
             speaker: sub.speaker || undefined,
             isMusic: sub.isMusic || false
           }))
       
-      // Create proper TempSubtitleSession
+      // Create workspace-bound session ID for persistence across navigation
+      const sessionId = `${workspaceId}-session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      
+      // FIXED: Set currentTime to -1 for imported data to prevent "PLAYING" state on import
+      const isImportedData = importedData && importedData.length > 0;
+      const initialCurrentTime = isImportedData ? -1 : 0; // -1 ensures no subtitle matches initially
+      
       const sessionData: TempSubtitleSession = {
-        sessionId: `session-${Date.now()}`,
-        originalPath: subtitlePath,
-        tempPath: subtitlePath,
+        sessionId,
+        workspaceId, // Bind session to workspace
         videoPath,
         originalSubtitles: [...transformedSubtitles],
         currentSubtitles: transformedSubtitles,
         modifications: [],
         lastModified: new Date(),
         isDirty: false,
-        currentTime: 0,
+        currentTime: initialCurrentTime, // FIXED: Use -1 for imports to prevent playing state
         selectedSubtitleId: null,
-        isVideoPlaying: false,
+        isVideoPlaying: false, // Always false initially
         shouldAutoPause: false,
         videoDuration: 0
+      }
+      
+      // Save original subtitles to IndexedDB with error handling
+      try {
+        const saveStartTime = performance.now()
+        await saveOriginalSubtitles(workspaceId, sessionId, transformedSubtitles)
+        const saveEndTime = performance.now()
+        
+        // Performance tracking
+        if (state.performanceMonitoring.enabled) {
+          set(state => ({
+            performanceMonitoring: {
+              ...state.performanceMonitoring,
+              totalOperationTime: state.performanceMonitoring.totalOperationTime + (saveEndTime - saveStartTime)
+            }
+          }))
+        }
+        
+        console.log('✅ Original subtitles saved to IndexedDB')
+      } catch (error) {
+        console.error('Failed to save original subtitles to IndexedDB:', error)
+        
+        // Track error
+        if (state.performanceMonitoring.enabled) {
+          set(state => ({
+            performanceMonitoring: {
+              ...state.performanceMonitoring,
+              errorCount: state.performanceMonitoring.errorCount + 1
+            }
+          }))
+        }
+        
+        // Continue without IndexedDB storage for now
       }
       
       set({ 
@@ -163,8 +305,31 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
       })
       
       console.log('✅ Subtitle editing session initialized:', sessionData)
+      
+      // Final performance tracking
+      if (state.performanceMonitoring.enabled) {
+        const totalTime = performance.now() - startTime
+        set(state => ({
+          performanceMonitoring: {
+            ...state.performanceMonitoring,
+            totalOperationTime: state.performanceMonitoring.totalOperationTime + totalTime
+          }
+        }))
+        console.log(`⚡ Session initialization took ${totalTime.toFixed(2)}ms`)
+      }
     } catch (error) {
       console.error('Failed to initialize subtitle session:', error)
+      
+      // Track error
+      if (state.performanceMonitoring.enabled) {
+        set(state => ({
+          performanceMonitoring: {
+            ...state.performanceMonitoring,
+            errorCount: state.performanceMonitoring.errorCount + 1
+          }
+        }))
+      }
+      
       set({ isLoading: false, error: error instanceof Error ? error.message : 'Unknown error' })
       throw error
     }
@@ -179,7 +344,10 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
       undoStack: [],
       redoStack: [],
       isAutoSaving: false,
-      lastAutoSave: null
+      lastAutoSave: null,
+      isSaving: false,
+      saveError: null,
+      lastManualSave: null
     })
     console.log('🧹 Subtitle editing session cleared')
   },
@@ -287,6 +455,10 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
       undoStack: [...state.undoStack, modification],
       redoStack: [] // Clear redo stack on new action
     }))
+
+    // Auto-save disabled for performance
+    // const store = get()
+    // triggerAutoSaveCallback(store, 'updateSubtitle')
   },
 
   addSubtitle: (startTime: number, endTime: number, text: string = '') => {
@@ -307,7 +479,7 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
       endTime,
       duration: endTime - startTime,
       text,
-      originalText: undefined,
+      translation: undefined,
       confidence: undefined,
       speaker: undefined
     }
@@ -343,6 +515,10 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
       undoStack: [...state.undoStack, modification],
       redoStack: [] // Clear redo stack on new action
     }))
+
+    // Auto-save disabled for performance
+    // const store = get()
+    // triggerAutoSaveCallback(store, 'addSubtitle')
   },
 
   deleteSubtitle: (subtitleId: string) => {
@@ -381,6 +557,10 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
       undoStack: [...state.undoStack, modification],
       redoStack: [] // Clear redo stack on new action
     }))
+
+    // Auto-save disabled for performance
+    // const store = get()
+    // triggerAutoSaveCallback(store, 'deleteSubtitle')
   },
 
   splitSubtitle: (subtitleId: string, splitTime: number) => {
@@ -435,6 +615,10 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
       undoStack: [...state.undoStack, modification],
       redoStack: [] // Clear redo stack on new action
     }))
+
+    // Auto-save disabled for performance
+    // const store = get()
+    // triggerAutoSaveCallback(store, 'splitSubtitle')
   },
 
   mergeSubtitles: (firstId: string, secondId: string) => {
@@ -457,9 +641,9 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
       endTime: secondSubtitle.endTime,
       duration: secondSubtitle.endTime - firstSubtitle.startTime,
       text: `${firstSubtitle.text} ${secondSubtitle.text}`.trim(),
-      originalText: firstSubtitle.originalText && secondSubtitle.originalText
-        ? `${firstSubtitle.originalText} ${secondSubtitle.originalText}`.trim()
-        : firstSubtitle.originalText || secondSubtitle.originalText
+      translation: firstSubtitle.translation && secondSubtitle.translation
+        ? `${firstSubtitle.translation} ${secondSubtitle.translation}`.trim()
+        : firstSubtitle.translation || secondSubtitle.translation
     }
     
     // Create modification record
@@ -492,6 +676,10 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
       undoStack: [...state.undoStack, modification],
       redoStack: [] // Clear redo stack on new action
     }))
+
+    // Auto-save disabled for performance
+    // const store = get()
+    // triggerAutoSaveCallback(store, 'mergeSubtitles')
   },
 
   undo: () => {
@@ -561,6 +749,10 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
       undoStack: newUndoStack,
       redoStack: newRedoStack
     }))
+
+    // Auto-save disabled for performance
+    // const store = get()
+    // triggerAutoSaveCallback(store, 'undo')
   },
 
   redo: () => {
@@ -630,6 +822,10 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
       undoStack: newUndoStack,
       redoStack: newRedoStack
     }))
+
+    // Auto-save disabled for performance
+    // const store = get()
+    // triggerAutoSaveCallback(store, 'redo')
   },
 
   clearUndoRedo: () => {
@@ -637,6 +833,94 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
       undoStack: [],
       redoStack: []
     }))
+  },
+
+  // Manual save methods
+  manualSaveToIndexedDB: async (): Promise<boolean> => {
+    const state = get()
+    
+    // Check if session exists and has changes
+    if (!state.session || !state.session.isDirty) {
+      console.log('📝 Manual save skipped: No dirty session to save')
+      return true // No changes to save, consider successful
+    }
+
+    // Check required data
+    if (!state.session.workspaceId || !state.session.sessionId || !state.session.currentSubtitles) {
+      console.error('❌ Manual save failed: Missing required session data')
+      set({ saveError: 'Missing required session data for save operation' })
+      return false
+    }
+
+    set({ 
+      isSaving: true, 
+      saveError: null 
+    })
+
+    try {
+      const startTime = performance.now()
+      
+      // Save modified subtitles to IndexedDB
+      await saveModifiedSubtitles(
+        state.session.workspaceId,
+        state.session.sessionId,
+        state.session.currentSubtitles
+      )
+
+      const endTime = performance.now()
+      const saveTime = new Date()
+
+      // Update state with successful save
+      set({ 
+        isSaving: false,
+        lastManualSave: saveTime,
+        saveError: null,
+        session: state.session ? {
+          ...state.session,
+          isDirty: false, // Mark as clean after successful save
+          lastModified: saveTime
+        } : null
+      })
+
+      // Performance tracking
+      if (state.performanceMonitoring.enabled) {
+        set(state => ({
+          performanceMonitoring: {
+            ...state.performanceMonitoring,
+            indexedDBOperations: state.performanceMonitoring.indexedDBOperations + 1,
+            totalOperationTime: state.performanceMonitoring.totalOperationTime + (endTime - startTime)
+          }
+        }))
+      }
+
+      console.log(`✅ Manual save completed successfully in ${(endTime - startTime).toFixed(2)}ms`)
+      return true
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred during save'
+      console.error('❌ Manual save failed:', error)
+      
+      // Track error in performance monitoring
+      if (state.performanceMonitoring.enabled) {
+        set(state => ({
+          performanceMonitoring: {
+            ...state.performanceMonitoring,
+            errorCount: state.performanceMonitoring.errorCount + 1
+          }
+        }))
+      }
+
+      set({ 
+        isSaving: false,
+        saveError: errorMessage
+      })
+      
+      return false
+    }
+  },
+
+  clearSaveError: () => {
+    set({ saveError: null })
   },
 
   reset: () => {
@@ -649,13 +933,15 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
       redoStack: [],
       isAutoSaving: false,
       lastAutoSave: null,
+      isSaving: false,
+      saveError: null,
+      lastManualSave: null,
       sessionRecovery: {
         hasRecoverableSession: false,
         recoverableSessionId: null,
         lastSessionWorkspaceId: null
       },
-      persistenceEnabled: false,
-      tempStorageId: null
+      persistenceEnabled: false
     })
   },
 
@@ -666,76 +952,60 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
       sessionRecovery: {
         ...state.sessionRecovery,
         lastSessionWorkspaceId: workspaceId
-      },
-      tempStorageId: state.tempStorageId || generateTempStorageId('session')
+      }
     }))
   },
 
   disablePersistence: () => {
     set({
-      persistenceEnabled: false,
-      tempStorageId: null
+      persistenceEnabled: false
     })
   },
 
   checkForRecoverableSession: async (workspaceId: string): Promise<boolean> => {
     try {
-      // Check IndexedDB for existing session using proper database name
-      const dbRequest = indexedDB.open('CantoCap_SubtitleTemp', 1)
-      const db = await new Promise<IDBDatabase>((resolve, reject) => {
-        dbRequest.onsuccess = () => resolve(dbRequest.result)
-        dbRequest.onerror = () => reject(dbRequest.error)
-        
-        // Add onupgradeneeded handler to create object stores if they don't exist
-        dbRequest.onupgradeneeded = (event) => {
-          const database = (event.target as IDBOpenDBRequest).result
+      // Check if there are any sessions for this workspace using the new IndexedDB utilities
+      const sessionIds = await listWorkspaceSessions(workspaceId)
+      
+      if (sessionIds.length > 0) {
+        // Find sessions that have data (either original or modified)
+        for (const sessionId of sessionIds) {
+          const sessionData = await hasSessionData(workspaceId, sessionId)
           
-          // Create stores if they don't exist
-          if (!database.objectStoreNames.contains('subtitle_temp_storage')) {
-            const storageStore = database.createObjectStore('subtitle_temp_storage', { keyPath: 'id' })
-            storageStore.createIndex('workspaceId', 'workspaceId', { unique: false })
-            storageStore.createIndex('sessionId', 'sessionId', { unique: false })
-            storageStore.createIndex('storageType', 'storageType', { unique: false })
-            storageStore.createIndex('lastModified', 'lastModified', { unique: false })
-          }
-          
-          if (!database.objectStoreNames.contains('subtitle_temp_sessions')) {
-            const sessionStore = database.createObjectStore('subtitle_temp_sessions', { keyPath: 'sessionId' })
-            sessionStore.createIndex('workspaceId', 'workspaceId', { unique: false })
-            sessionStore.createIndex('sessionType', 'sessionType', { unique: false })
-            sessionStore.createIndex('lastActivity', 'lastActivity', { unique: false })
+          if (sessionData.hasOriginal || sessionData.hasModified) {
+            // Load subtitle data to get counts for recovery dialog
+            let subtitleCount = 0
+            let editCount = 0
+            
+            try {
+              const subtitles = await loadSessionSubtitles(workspaceId, sessionId)
+              if (subtitles.modified) {
+                subtitleCount = subtitles.modified.length
+                editCount = 1 // If we have modified data, assume there's at least one edit
+              } else if (subtitles.original) {
+                subtitleCount = subtitles.original.length
+                editCount = 0
+              }
+            } catch (error) {
+              console.warn('Failed to load session data for recovery info:', error)
+            }
+            
+            set((state) => ({
+              sessionRecovery: {
+                ...state.sessionRecovery,
+                hasRecoverableSession: true,
+                recoverableSessionId: sessionId,
+                lastSessionWorkspaceId: workspaceId,
+                sessionDetails: {
+                  lastModified: Date.now(), // We don't have exact timestamp from simple storage
+                  subtitleCount,
+                  editCount
+                }
+              }
+            }))
+            return true
           }
         }
-      })
-
-      // Check if object stores exist before creating transaction
-      if (!db.objectStoreNames.contains('subtitle_temp_sessions')) {
-        console.warn('IndexedDB subtitle_temp_sessions store does not exist')
-        return false
-      }
-
-      const transaction = db.transaction(['subtitle_temp_sessions'], 'readonly')
-      const store = transaction.objectStore('subtitle_temp_sessions')
-      const index = store.index('workspaceId')
-      
-      const records = await new Promise<any[]>((resolve, reject) => {
-        const request = index.getAll(workspaceId)
-        request.onsuccess = () => resolve(request.result)
-        request.onerror = () => reject(request.error)
-      })
-      
-      const activeSession = records.find(record => record.status === 'active')
-      
-      if (activeSession) {
-        set((state) => ({
-          sessionRecovery: {
-            ...state.sessionRecovery,
-            hasRecoverableSession: true,
-            recoverableSessionId: activeSession.sessionId,
-            lastSessionWorkspaceId: workspaceId
-          }
-        }))
-        return true
       }
       
       return false
@@ -747,122 +1017,58 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
 
   recoverSession: async (sessionId: string): Promise<boolean> => {
     try {
-      // Load session from IndexedDB using proper database initialization
-      const dbRequest = indexedDB.open('CantoCap_SubtitleTemp', 1)
-      const db = await new Promise<IDBDatabase>((resolve, reject) => {
-        dbRequest.onsuccess = () => resolve(dbRequest.result)
-        dbRequest.onerror = () => reject(dbRequest.error)
-        
-        // Add onupgradeneeded handler to create object stores if they don't exist
-        dbRequest.onupgradeneeded = (event) => {
-          const database = (event.target as IDBOpenDBRequest).result
-          
-          // Create stores if they don't exist
-          if (!database.objectStoreNames.contains('subtitle_temp_storage')) {
-            const storageStore = database.createObjectStore('subtitle_temp_storage', { keyPath: 'id' })
-            storageStore.createIndex('workspaceId', 'workspaceId', { unique: false })
-            storageStore.createIndex('sessionId', 'sessionId', { unique: false })
-            storageStore.createIndex('storageType', 'storageType', { unique: false })
-            storageStore.createIndex('lastModified', 'lastModified', { unique: false })
-          }
-          
-          if (!database.objectStoreNames.contains('subtitle_temp_sessions')) {
-            const sessionStore = database.createObjectStore('subtitle_temp_sessions', { keyPath: 'sessionId' })
-            sessionStore.createIndex('workspaceId', 'workspaceId', { unique: false })
-            sessionStore.createIndex('sessionType', 'sessionType', { unique: false })
-            sessionStore.createIndex('lastActivity', 'lastActivity', { unique: false })
-          }
-        }
-      })
-
-      // Check if object stores exist before creating transaction
-      if (!db.objectStoreNames.contains('subtitle_temp_sessions') || 
-          !db.objectStoreNames.contains('subtitle_temp_storage')) {
-        console.warn('IndexedDB object stores do not exist, cannot recover session')
-        return false
-      }
-
-      const transaction = db.transaction(['subtitle_temp_sessions', 'subtitle_temp_storage'], 'readonly')
-      const sessionStore = transaction.objectStore('subtitle_temp_sessions')
-      const contentStore = transaction.objectStore('subtitle_temp_storage')
+      const state = get()
+      const workspaceId = state.sessionRecovery.lastSessionWorkspaceId
       
-      const sessionRecord = await new Promise<any>((resolve, reject) => {
-        const request = sessionStore.get(sessionId)
-        request.onsuccess = () => resolve(request.result)
-        request.onerror = () => reject(request.error)
-      })
-      
-      if (!sessionRecord) {
+      if (!workspaceId) {
+        console.error('Cannot recover session: no workspace ID available')
         return false
       }
       
-      // Find the latest content for this session
-      const sessionIndex = contentStore.index('sessionId')
-      const contentRecords = await new Promise<any[]>((resolve, reject) => {
-        const request = sessionIndex.getAll(sessionId)
-        request.onsuccess = () => resolve(request.result)
-        request.onerror = () => reject(request.error)
-      })
+      // Load session subtitles from IndexedDB
+      const subtitles = await loadSessionSubtitles(workspaceId, sessionId)
       
-      const latestContent = contentRecords
-        .sort((a, b) => b.lastModified - a.lastModified)[0]
-      
-      if (latestContent) {
-        const content = JSON.parse(latestContent.contentData) as SimplifiedTempContent
-        const sessionData = JSON.parse(sessionRecord.sessionData)
-        
-        // Convert temp content back to session format
-        const recoveredSession: TempSubtitleSession = {
-          sessionId: sessionData.sessionId,
-          originalPath: content.metadata.originalPath,
-          tempPath: content.metadata.tempPath,
-          videoPath: content.editingContext.videoPath || '',
-          originalSubtitles: content.subtitles.map((sub, index) => ({
-            id: sub.id.toString(),
-            index: index,
-            startTime: sub.startTime,
-            endTime: sub.endTime,
-            duration: sub.endTime - sub.startTime,
-            text: sub.text,
-            originalText: sub.translation || sub.text,
-            confidence: sub.confidence,
-            speaker: sub.speaker
-          })),
-          currentSubtitles: content.subtitles.map((sub, index) => ({
-            id: sub.id.toString(),
-            index: index,
-            startTime: sub.startTime,
-            endTime: sub.endTime,
-            duration: sub.endTime - sub.startTime,
-            text: sub.text,
-            originalText: sub.translation || sub.text,
-            confidence: sub.confidence,
-            speaker: sub.speaker
-          })),
-          modifications: [],
-          lastModified: new Date(content.metadata.lastModified),
-          isDirty: false,
-          currentTime: content.editingContext.currentTime || 0,
-          selectedSubtitleId: content.editingContext.selectedSubtitleId,
-          isVideoPlaying: content.editingContext.isVideoPlaying || false,
-          shouldAutoPause: false,
-          videoDuration: content.editingContext.videoDuration || 0
-        }
-        
-        set({
-          session: recoveredSession,
-          sessionRecovery: {
-            hasRecoverableSession: false,
-            recoverableSessionId: null,
-            lastSessionWorkspaceId: null
-          },
-          tempStorageId: latestContent.id
-        })
-        
-        return true
+      if (!subtitles.original && !subtitles.modified) {
+        console.error('No subtitle data found for session')
+        return false
       }
       
-      return false
+      // Use modified subtitles if available, otherwise use original
+      const currentSubtitles = subtitles.modified || subtitles.original || []
+      const originalSubtitles = subtitles.original || currentSubtitles
+      
+      // Create recovered session (note: we don't have full context from simple storage)
+      // Try to get video path from app store config as fallback
+      const appStore = (await import('../stores/app-store')).useAppStore.getState()
+      const fallbackVideoPath = appStore.config.inputFile || ''
+      
+      const recoveredSession: TempSubtitleSession = {
+        sessionId,
+        workspaceId,
+        videoPath: fallbackVideoPath, // Use config.inputFile as fallback since IndexedDB doesn't store video path
+        originalSubtitles: [...originalSubtitles],
+        currentSubtitles: [...currentSubtitles],
+        modifications: [],
+        lastModified: new Date(),
+        isDirty: subtitles.modified ? true : false,
+        currentTime: 0,
+        selectedSubtitleId: null,
+        isVideoPlaying: false,
+        shouldAutoPause: false,
+        videoDuration: 0
+      }
+      
+      set({
+        session: recoveredSession,
+        sessionRecovery: {
+          hasRecoverableSession: false,
+          recoverableSessionId: null,
+          lastSessionWorkspaceId: null
+        }
+      })
+      
+      console.log('✅ Session recovered from IndexedDB:', sessionId)
+      return true
     } catch (error) {
       console.error('Failed to recover session:', error)
       return false
@@ -871,77 +1077,22 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
 
   saveSessionToTempStorage: async (): Promise<void> => {
     const state = get()
-    if (!state.session || !state.persistenceEnabled || !state.tempStorageId) {
-      return
-    }
-
-    const tempContent = state.convertToTempContent()
-    if (!tempContent) {
+    if (!state.session || !state.persistenceEnabled) {
       return
     }
 
     try {
-      // Save to IndexedDB using proper database name
-      const dbRequest = indexedDB.open('CantoCap_SubtitleTemp', 1)
-      const db = await new Promise<IDBDatabase>((resolve, reject) => {
-        dbRequest.onsuccess = () => resolve(dbRequest.result)
-        dbRequest.onerror = () => reject(dbRequest.error)
+      // Save modified subtitles to IndexedDB if session is dirty
+      if (state.session.isDirty && state.session.workspaceId && state.session.sessionId) {
+        await saveModifiedSubtitles(
+          state.session.workspaceId,
+          state.session.sessionId,
+          state.session.currentSubtitles
+        )
         
-        // Add onupgradeneeded handler to create object stores if they don't exist
-        dbRequest.onupgradeneeded = (event) => {
-          const database = (event.target as IDBOpenDBRequest).result
-          
-          // Create stores if they don't exist
-          if (!database.objectStoreNames.contains('subtitle_temp_storage')) {
-            const storageStore = database.createObjectStore('subtitle_temp_storage', { keyPath: 'id' })
-            storageStore.createIndex('workspaceId', 'workspaceId', { unique: false })
-            storageStore.createIndex('sessionId', 'sessionId', { unique: false })
-            storageStore.createIndex('storageType', 'storageType', { unique: false })
-            storageStore.createIndex('lastModified', 'lastModified', { unique: false })
-          }
-          
-          if (!database.objectStoreNames.contains('subtitle_temp_sessions')) {
-            const sessionStore = database.createObjectStore('subtitle_temp_sessions', { keyPath: 'sessionId' })
-            sessionStore.createIndex('workspaceId', 'workspaceId', { unique: false })
-            sessionStore.createIndex('sessionType', 'sessionType', { unique: false })
-            sessionStore.createIndex('lastActivity', 'lastActivity', { unique: false })
-          }
-        }
-      })
-
-      // Check if object stores exist before creating transaction
-      if (!db.objectStoreNames.contains('subtitle_temp_storage')) {
-        console.warn('IndexedDB subtitle_temp_storage store does not exist, cannot save session')
-        return
+        set({ lastAutoSave: new Date() })
+        console.log('✅ Session auto-saved to IndexedDB')
       }
-
-      const transaction = db.transaction(['subtitle_temp_storage'], 'readwrite')
-      const store = transaction.objectStore('subtitle_temp_storage')
-      
-      const record = {
-        id: state.tempStorageId,
-        workspaceId: state.sessionRecovery.lastSessionWorkspaceId,
-        sessionId: state.session.sessionId,
-        storageType: 'auto_save',
-        contentData: JSON.stringify(tempContent),
-        contentHash: '',
-        createdAt: Date.now(),
-        lastModified: Date.now(),
-        dataSize: JSON.stringify(tempContent).length,
-        version: 1,
-        schemaVersion: 1,
-        isCompressed: false,
-        generationLevel: 0,
-        isLatest: true
-      }
-      
-      await new Promise<void>((resolve, reject) => {
-        const request = store.put(record)
-        request.onsuccess = () => resolve()
-        request.onerror = () => reject(request.error)
-      })
-      
-      set({ lastAutoSave: new Date() })
     } catch (error) {
       console.error('Failed to save session to temp storage:', error)
     }
@@ -955,11 +1106,9 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
 
     return {
       metadata: {
-        contentId: generateTempStorageId('content'),
+        contentId: `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         workspaceId: state.sessionRecovery.lastSessionWorkspaceId || 'unknown',
         sessionId: state.session.sessionId,
-        originalPath: state.session.originalPath,
-        tempPath: state.session.tempPath,
         contentType: 'subtitle_session',
         version: 1,
         createdAt: Date.now(),
@@ -973,7 +1122,7 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
         startTime: subtitle.startTime,
         endTime: subtitle.endTime,
         text: subtitle.text || '',
-        originalText: subtitle.originalText,
+        translation: subtitle.translation,
         confidence: subtitle.confidence,
         speaker: subtitle.speaker
       })),
@@ -1011,7 +1160,7 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
     }
 
     try {
-      // Try to recover from IndexedDB first (enhanced system)
+      // Recover session from IndexedDB
       const sessionId = state.sessionRecovery.recoverableSessionId
       const success = await state.recoverSession(sessionId)
       
@@ -1020,49 +1169,284 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
         return true
       }
       
-      // If IndexedDB recovery fails, check if we have persisted session data in localStorage
-      const persistedState: any = JSON.parse(localStorage.getItem('subtitle-edit-store') || '{}')
-      
-      if (persistedState.state?.session && persistedState.state.session.isDirty) {
-        // Reconstruct minimal session for recovery dialog
-        const sessionInfo = persistedState.state.session
-        
-        // Create a placeholder session that can trigger the recovery dialog
-        const partialSession: TempSubtitleSession = {
-          sessionId: sessionInfo.sessionId,
-          originalPath: sessionInfo.originalPath,
-          tempPath: sessionInfo.tempPath,
-          videoPath: sessionInfo.videoPath,
-          originalSubtitles: [], // Will be loaded from temp storage
-          currentSubtitles: [], // Will be loaded from temp storage
-          modifications: [],
-          lastModified: new Date(sessionInfo.lastModified),
-          isDirty: sessionInfo.isDirty,
-          currentTime: sessionInfo.currentTime || 0,
-          selectedSubtitleId: sessionInfo.selectedSubtitleId,
-          isVideoPlaying: false,
-          shouldAutoPause: false,
-          videoDuration: sessionInfo.videoDuration || 0
-        }
-        
-        set((state) => ({
-          session: partialSession,
-          sessionRecovery: {
-            hasRecoverableSession: true,
-            recoverableSessionId: sessionInfo.sessionId,
-            lastSessionWorkspaceId: state.sessionRecovery.lastSessionWorkspaceId
-          }
-        }))
-        
-        console.log('📝 Partial session restored from localStorage for recovery:', sessionInfo.sessionId)
-        return true
-      }
-      
+      console.log('❌ Failed to restore session from IndexedDB:', sessionId)
       return false
     } catch (error) {
       console.error('Failed to restore persisted session:', error)
       return false
     }
+  },
+
+  // Reset session when new content is available from Step 1 or Step 3
+  resetSessionForNewContent: (reason: 'step1_import' | 'step1_video_change' | 'step3_generation') => {
+    const state = get()
+    
+    // Prevent rapid successive resets (debounce to 100ms)
+    const now = Date.now()
+    if (state.lastResetTime && (now - state.lastResetTime) < 100) {
+      console.log(`⚠️ Skipping rapid reset for: ${reason} (within 100ms of previous reset)`)
+      return
+    }
+    
+    console.log(`🔄 Resetting session for new content: ${reason}`)
+    
+    // Enhanced cleanup with IndexedDB cleanup for certain scenarios
+    if (reason === 'step1_video_change' && state.session?.workspaceId) {
+      // Async cleanup without blocking the reset
+      cleanupWorkspaceSession(state.session.workspaceId)
+        .then(result => {
+          console.log('🧹 Cleaned up IndexedDB for video change:', result)
+        })
+        .catch(error => {
+          console.warn('⚠️ Failed to cleanup IndexedDB for video change:', error)
+        })
+    }
+    
+    // Clear current session state
+    set({
+      session: null,
+      edits: [],
+      undoStack: [],
+      redoStack: [],
+      error: null,
+      isLoading: false,
+      isSaving: false,
+      saveError: null,
+      lastManualSave: null,
+      lastResetTime: now,
+      // Reset session recovery state to prevent stale session recovery
+      sessionRecovery: {
+        hasRecoverableSession: false,
+        recoverableSessionId: null,
+        lastSessionWorkspaceId: state.sessionRecovery.lastSessionWorkspaceId
+      }
+    })
+
+    // Do NOT trigger auto-save callback here to prevent loops
+    // Components will detect session changes through state subscription
+    
+    console.log(`✅ Session reset complete for: ${reason}`)
+  },
+
+  // Auto-save integration callback setter
+  setAutoSaveCallback: (callback: ((subtitles: SubtitleData[], action: string) => void) | null) => {
+    set({ autoSaveCallback: callback })
+  },
+
+  // Workspace-session mapping functions
+  getWorkspaceSessionId: (workspaceId: string): string | null => {
+    const state = get()
+    
+    console.log('🔍 getWorkspaceSessionId called with workspaceId:', workspaceId)
+    console.log('🔍 Current state.session:', state.session ? {
+      sessionId: state.session.sessionId,
+      workspaceId: state.session.workspaceId
+    } : null)
+    
+    if (state.session && state.session.workspaceId === workspaceId) {
+      console.log('✅ Found matching session in current state:', state.session.sessionId)
+      return state.session.sessionId
+    }
+    
+    console.log('❌ No active session found for workspaceId:', workspaceId)
+    return null
+  },
+
+  hasWorkspaceSession: (workspaceId: string): boolean => {
+    return get().getWorkspaceSessionId(workspaceId) !== null
+  },
+
+  // Check for workspace session and restore if needed
+  checkAndRestoreWorkspaceSession: async (workspaceId: string): Promise<string | null> => {
+    const state = get()
+    
+    console.log('🔍 DEBUG: checkAndRestoreWorkspaceSession called with workspaceId:', workspaceId)
+    
+    // Check if there's already an active session for this workspace
+    if (state.session && state.session.workspaceId === workspaceId) {
+      console.log('✅ Found active session for workspace:', state.session.sessionId)
+      return state.session.sessionId
+    }
+    
+    // Find and restore session from IndexedDB
+    try {
+      const sessionIds = await listWorkspaceSessions(workspaceId)
+      
+      if (sessionIds.length > 0) {
+        // Try to restore the first session that has data
+        for (const sessionId of sessionIds) {
+          const sessionData = await hasSessionData(workspaceId, sessionId)
+          
+          if (sessionData.hasOriginal || sessionData.hasModified) {
+            console.log('🔄 Found IndexedDB session for workspace, attempting restore:', sessionId)
+            
+            // Load session data from IndexedDB
+            const subtitles = await loadSessionSubtitles(workspaceId, sessionId)
+            const currentSubtitles = subtitles.modified || subtitles.original || []
+            const originalSubtitles = subtitles.original || currentSubtitles
+            
+            // Create restored session
+            // Try to get video path from app store config as fallback
+            const appStore = (await import('../stores/app-store')).useAppStore.getState()
+            const fallbackVideoPath = appStore.config.inputFile || ''
+            
+            const restoredSession: TempSubtitleSession = {
+              sessionId,
+              workspaceId,
+              videoPath: fallbackVideoPath, // Use config.inputFile as fallback since IndexedDB doesn't store video path
+              originalSubtitles: [...originalSubtitles],
+              currentSubtitles: [...currentSubtitles],
+              modifications: [],
+              lastModified: new Date(),
+              isDirty: subtitles.modified ? true : false,
+              currentTime: 0,
+              selectedSubtitleId: null,
+              isVideoPlaying: false,
+              shouldAutoPause: false,
+              videoDuration: 0
+            }
+            
+            // Load the session into the store
+            set({ session: restoredSession })
+            
+            console.log('✅ Session restored from IndexedDB for workspace:', workspaceId)
+            return sessionId
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to check IndexedDB for workspace session:', error)
+    }
+    
+    console.log('❌ No session found or restored for workspaceId:', workspaceId)
+    return null
+  },
+
+  clearSessionForWorkspace: (workspaceId: string) => {
+    const state = get()
+    if (state.session && state.session.workspaceId === workspaceId) {
+      console.log(`🗑️ Clearing session for workspace: ${workspaceId}`)
+      set({
+        session: null,
+        edits: [],
+        undoStack: [],
+        redoStack: [],
+        error: null
+      })
+    }
+  },
+
+  // Enhanced cleanup functions
+  cleanupWorkspaceSession: async (workspaceId: string) => {
+    const startTime = performance.now()
+    
+    try {
+      const result = await cleanupWorkspaceSession(workspaceId)
+      const endTime = performance.now()
+      
+      console.log(`🧹 Workspace ${workspaceId} cleanup completed:`, {
+        ...result,
+        duration: `${(endTime - startTime).toFixed(2)}ms`
+      })
+      
+      return result
+    } catch (error) {
+      console.error(`❌ Failed to cleanup workspace ${workspaceId}:`, error)
+      throw error
+    }
+  },
+
+  performSystemCleanup: async (options = {}) => {
+    const { olderThanDays = 7, removeOrphaned = true } = options
+    const startTime = performance.now()
+    let totalCleaned = 0
+    let totalReclaimedBytes = 0
+    
+    try {
+      console.log('🧹 Starting system cleanup...', { olderThanDays, removeOrphaned })
+      
+      // Cleanup old sessions
+      const oldSessionsResult = await cleanupOldSessions(olderThanDays)
+      totalCleaned += oldSessionsResult.deletedRecords
+      totalReclaimedBytes += oldSessionsResult.reclaimedBytes
+      
+      // Cleanup orphaned sessions if requested
+      if (removeOrphaned) {
+        const orphanedResult = await cleanupOrphanedSessions()
+        totalCleaned += orphanedResult.deletedRecords
+        totalReclaimedBytes += orphanedResult.reclaimedBytes
+      }
+      
+      const duration = performance.now() - startTime
+      
+      // Update cleanup timestamp
+      set(state => ({
+        performanceMonitoring: {
+          ...state.performanceMonitoring,
+          lastCleanup: Date.now()
+        }
+      }))
+      
+      const result = {
+        totalCleaned,
+        reclaimedBytes: totalReclaimedBytes,
+        duration
+      }
+      
+      console.log('✅ System cleanup completed:', result)
+      return result
+    } catch (error) {
+      console.error('❌ System cleanup failed:', error)
+      throw error
+    }
+  },
+
+  getSessionStats: async () => {
+    try {
+      const stats = await getStorageStats()
+      console.log('📊 Session statistics:', stats)
+      return stats
+    } catch (error) {
+      console.error('❌ Failed to get session stats:', error)
+      throw error
+    }
+  },
+
+  // Performance monitoring
+  enablePerformanceMonitoring: () => {
+    set(state => ({
+      performanceMonitoring: {
+        ...state.performanceMonitoring,
+        enabled: true
+      }
+    }))
+    console.log('⚡ Performance monitoring enabled')
+  },
+
+  disablePerformanceMonitoring: () => {
+    set(state => ({
+      performanceMonitoring: {
+        ...state.performanceMonitoring,
+        enabled: false
+      }
+    }))
+    console.log('⚡ Performance monitoring disabled')
+  },
+
+  getPerformanceMetrics: () => {
+    const state = get()
+    const metrics = {
+      indexedDBOperations: state.performanceMonitoring.indexedDBOperations,
+      averageOperationTime: state.performanceMonitoring.indexedDBOperations > 0
+        ? state.performanceMonitoring.totalOperationTime / state.performanceMonitoring.indexedDBOperations
+        : 0,
+      errorRate: state.performanceMonitoring.indexedDBOperations > 0
+        ? (state.performanceMonitoring.errorCount / state.performanceMonitoring.indexedDBOperations) * 100
+        : 0
+    }
+    
+    console.log('📊 Performance metrics:', metrics)
+    return metrics
   }
 }), {
   name: 'subtitle-edit-store',
@@ -1070,8 +1454,7 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
     // Persist the core session data for app restart recovery
     session: state.session ? {
       sessionId: state.session.sessionId,
-      originalPath: state.session.originalPath,
-      tempPath: state.session.tempPath,
+      workspaceId: state.session.workspaceId, // Include workspace binding
       videoPath: state.session.videoPath,
       lastModified: state.session.lastModified,
       isDirty: state.session.isDirty,
@@ -1085,7 +1468,6 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
     // Persist persistence settings
     sessionRecovery: state.sessionRecovery,
     persistenceEnabled: state.persistenceEnabled,
-    tempStorageId: state.tempStorageId,
     // Store edit count for session info
     edits: state.edits.slice(-10), // Keep last 10 edits for context
     lastAutoSave: state.lastAutoSave
@@ -1094,12 +1476,34 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
   merge: (persistedState: any, currentState: SubtitleEditStore) => {
     const merged = { ...currentState, ...persistedState }
     
-    // If we have a persisted session, mark it as recoverable
-    if (persistedState?.session && persistedState.session.isDirty) {
-      merged.sessionRecovery = {
-        hasRecoverableSession: true,
-        recoverableSessionId: persistedState.session.sessionId,
-        lastSessionWorkspaceId: persistedState.sessionRecovery?.lastSessionWorkspaceId || null
+    // Validate that any persisted session has a proper workspaceId
+    if (persistedState?.session) {
+      if (!persistedState.session.workspaceId) {
+        console.warn('🔧 Clearing persisted session without workspaceId:', persistedState.session.sessionId)
+        merged.session = null
+        merged.sessionRecovery = {
+          hasRecoverableSession: false,
+          recoverableSessionId: null,
+          lastSessionWorkspaceId: null
+        }
+      } else if (persistedState.session.isDirty) {
+        // If we have a valid persisted session, mark it as recoverable
+        merged.sessionRecovery = {
+          hasRecoverableSession: true,
+          recoverableSessionId: persistedState.session.sessionId,
+          lastSessionWorkspaceId: persistedState.session.workspaceId
+        }
+      }
+    }
+    
+    // Initialize performance monitoring state if not present
+    if (!persistedState?.performanceMonitoring) {
+      merged.performanceMonitoring = {
+        enabled: false,
+        indexedDBOperations: 0,
+        totalOperationTime: 0,
+        errorCount: 0,
+        lastCleanup: Date.now()
       }
     }
     
@@ -1107,10 +1511,16 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
   }
 })))
 
-// Auto-save subscription for temp storage integration
-let autoSaveInterval: NodeJS.Timeout | null = null
+// PERFORMANCE IMPROVEMENT: Auto-save subscription disabled to eliminate 2-3 second re-render delays
+// Auto-save subscription for temp storage integration - DISABLED
+// let autoSaveInterval: NodeJS.Timeout | null = null
 
-// Subscribe to state changes for auto-save
+// DISABLED: Subscribe to state changes for auto-save
+// This 30-second interval and subscription was causing significant performance issues
+// Manual save methods are still available via saveSessionToTempStorage()
+
+/*
+// Original auto-save subscription (disabled for performance)
 useSubtitleEditStore.subscribe(
   (state) => ({ session: state.session, persistenceEnabled: state.persistenceEnabled }),
   (current, previous) => {
@@ -1136,5 +1546,6 @@ useSubtitleEditStore.subscribe(
   },
   { equalityFn: (a, b) => a.persistenceEnabled === b.persistenceEnabled && a.session?.isDirty === b.session?.isDirty }
 )
+*/
 
 // Clean up duplicate class definition for testing compatibility

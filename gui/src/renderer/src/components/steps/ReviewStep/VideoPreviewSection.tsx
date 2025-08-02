@@ -13,6 +13,7 @@ import {
 } from "@mui/icons-material";
 import { BasicVideoPlayer } from "../../VideoPlayer/BasicVideoPlayer";
 import { useSubtitleEditStore } from "../../../stores/subtitle-edit-store";
+import { useAppStore } from "../../../stores/app-store";
 import { SubtitleEntry } from "../../../types/subtitle";
 import { ActionButton } from "./styles";
 import { formatTime } from "./utils";
@@ -26,7 +27,23 @@ export const VideoPreviewSection: React.FC<VideoPreviewSectionProps> = () => {
     jumpToSubtitle,
     setVideoDuration,
   } = useSubtitleEditStore();
+  const { config } = useAppStore();
   const [duration, setDuration] = useState(0);
+
+  // Video path resolution with fallback logic
+  const resolvedVideoPath = session?.videoPath || config.inputFile || '';
+  
+  // Debug logging for video path resolution
+  useEffect(() => {
+    console.log('🎬 DEBUG: VideoPreviewSection video path resolution:', {
+      'session.videoPath': session?.videoPath,
+      'config.inputFile': config.inputFile,
+      'resolvedVideoPath': resolvedVideoPath,
+      'fallbackUsed': !session?.videoPath && !!config.inputFile,
+      'hasSession': !!session,
+      'timestamp': new Date().toISOString()
+    });
+  }, [session?.videoPath, config.inputFile, resolvedVideoPath]);
 
   const isPlaying = session?.isVideoPlaying || false;
   const shouldAutoPause = session?.shouldAutoPause || false;
@@ -115,7 +132,7 @@ export const VideoPreviewSection: React.FC<VideoPreviewSectionProps> = () => {
       </Typography>
 
       {/* Video player - fixed height to prevent subtitle expansion from affecting it */}
-      {session ? (
+      {(session || resolvedVideoPath) ? (
         <Box
           sx={{
             height: "calc(100% - 190px)", // Adjusted height: total minus header(40px), controls(40px), and subtitle preview(110px)
@@ -137,7 +154,7 @@ export const VideoPreviewSection: React.FC<VideoPreviewSectionProps> = () => {
             }}
           >
             <BasicVideoPlayer
-              src={session.videoPath}
+              src={resolvedVideoPath}
               currentTime={currentTime}
               onTimeUpdate={handleTimeUpdate}
               onLoadedMetadata={handleLoadedMetadata}
@@ -173,7 +190,7 @@ export const VideoPreviewSection: React.FC<VideoPreviewSectionProps> = () => {
           color="primary"
           size="small"
           onClick={() => setVideoPlaying(!isPlaying)}
-          disabled={!session}
+          disabled={!session && !resolvedVideoPath}
         >
           {isPlaying ? <PauseIcon /> : <PlayIcon />}
         </IconButton>
@@ -268,16 +285,16 @@ export const VideoPreviewSection: React.FC<VideoPreviewSectionProps> = () => {
                   color: "white",
                   textAlign: "center",
                   whiteSpace: "pre-line",
-                  mb: currentSubtitle.originalText && currentSubtitle.originalText.trim() && currentSubtitle.originalText !== currentSubtitle.text ? 0.5 : 0,
+                  mb: currentSubtitle.translation && currentSubtitle.translation.trim() && currentSubtitle.translation !== currentSubtitle.text ? 0.5 : 0,
                 }}
               >
                 {currentSubtitle.text}
               </Typography>
               
               {/* Display translation if available */}
-              {currentSubtitle.originalText && 
-               currentSubtitle.originalText.trim() && 
-               currentSubtitle.originalText !== currentSubtitle.text && (
+              {currentSubtitle.translation && 
+               currentSubtitle.translation.trim() && 
+               currentSubtitle.translation !== currentSubtitle.text && (
                 <Typography
                   variant="body2"
                   sx={{
@@ -290,7 +307,7 @@ export const VideoPreviewSection: React.FC<VideoPreviewSectionProps> = () => {
                     fontStyle: "italic",
                   }}
                 >
-                  {currentSubtitle.originalText}
+                  {currentSubtitle.translation}
                 </Typography>
               )}
             </Box>

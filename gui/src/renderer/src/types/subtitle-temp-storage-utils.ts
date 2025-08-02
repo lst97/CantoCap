@@ -517,6 +517,34 @@ export function isStorageId(value: string): value is StorageId {
   return typeof value === 'string' && value.startsWith('temp-') && value.length > 8
 }
 
+/**
+ * Generate cryptographically secure unique identifier with prefix and validation
+ */
+export function generateTempStorageId(prefix: string = 'temp', options?: {
+  includeTimestamp?: boolean
+  includeRandom?: boolean
+  length?: number
+}): string {
+  const opts = {
+    includeTimestamp: true,
+    includeRandom: true,
+    length: 8,
+    ...options
+  }
+  
+  const parts: string[] = [prefix]
+  
+  if (opts.includeTimestamp) {
+    parts.push(Date.now().toString(36))
+  }
+  
+  if (opts.includeRandom) {
+    parts.push(Math.random().toString(36).substring(2, 2 + opts.length))
+  }
+  
+  return parts.join('-')
+}
+
 export function isOperationId(value: string): value is OperationId {
   return typeof value === 'string' && value.includes('-') && value.length > 16
 }

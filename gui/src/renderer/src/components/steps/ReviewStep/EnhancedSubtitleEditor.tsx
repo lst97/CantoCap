@@ -103,11 +103,11 @@ export const EnhancedSubtitleEditor: React.FC<SubtitleEditorProps> = () => {
 
   // Check if this is a new subtitle (empty text and no original text)
   const isNewSubtitle =
-    editingSubtitle && !editingSubtitle.text && !editingSubtitle.originalText
+    editingSubtitle && !editingSubtitle.text && !editingSubtitle.translation
   
   // Check if subtitle has translation
-  const hasTranslation = editingSubtitle && editingSubtitle.originalText && 
-    editingSubtitle.originalText.trim() && editingSubtitle.originalText !== editingSubtitle.text
+  const hasTranslation = editingSubtitle && editingSubtitle.translation && 
+    editingSubtitle.translation.trim() && editingSubtitle.translation !== editingSubtitle.text
 
   // Initialize session on mount
   useEffect(() => {
@@ -147,7 +147,7 @@ export const EnhancedSubtitleEditor: React.FC<SubtitleEditorProps> = () => {
   useEffect(() => {
     if (editingSubtitle) {
       setEditText(editingSubtitle.text)
-      setEditTranslation(editingSubtitle.originalText || '')
+      setEditTranslation(editingSubtitle.translation || '')
       setEditStartTime(formatTime(editingSubtitle.startTime))
       setEditEndTime(formatTime(editingSubtitle.endTime))
       setHasChanges(false)
@@ -241,7 +241,7 @@ export const EnhancedSubtitleEditor: React.FC<SubtitleEditorProps> = () => {
 
     updateSubtitle(editingSubtitle.id, {
       text: editText,
-      originalText: editTranslation || undefined,
+      translation: editTranslation || undefined,
       startTime: parseTime(editStartTime),
       endTime: parseTime(editEndTime),
     })
@@ -257,7 +257,7 @@ export const EnhancedSubtitleEditor: React.FC<SubtitleEditorProps> = () => {
   const handleCancel = () => {
     if (editingSubtitle) {
       setEditText(editingSubtitle.text)
-      setEditTranslation(editingSubtitle.originalText || '')
+      setEditTranslation(editingSubtitle.translation || '')
       setEditStartTime(formatTime(editingSubtitle.startTime))
       setEditEndTime(formatTime(editingSubtitle.endTime))
       setHasChanges(false)
@@ -267,7 +267,7 @@ export const EnhancedSubtitleEditor: React.FC<SubtitleEditorProps> = () => {
   const handleReset = () => {
     if (editingSubtitle) {
       setEditText(editingSubtitle.text)
-      setEditTranslation(editingSubtitle.originalText || '')
+      setEditTranslation(editingSubtitle.translation || '')
       setHasChanges(false)
     }
   }

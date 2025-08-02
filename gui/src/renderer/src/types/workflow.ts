@@ -9,6 +9,11 @@ export interface WorkflowStep {
   errorMessage?: string
   requiredFields?: string[]
   validationRules?: (() => boolean)[]
+  importContext?: {
+    sourceType?: 'regular' | 'json-import' | 'manual'
+    timestamp?: number
+    metadata?: Record<string, any>
+  }
 }
 
 export interface WorkflowState {
@@ -20,6 +25,7 @@ export interface WorkflowState {
   validateStep: (stepId: string) => boolean
   getNextAccessibleStep: (stepId: string) => string | null
   disableStep: (stepId: string) => void
+  enableStep: (stepId: string) => void
   resetWorkflowFromStep: (fromStepId: string) => void
   skipToStep: (stepId: string) => void
   markStepAsSkipped: (stepId: string) => void
@@ -28,4 +34,8 @@ export interface WorkflowState {
   markStepAsError: (stepId: string, errorMessage?: string) => void
   clearStepError: (stepId: string) => void
   initializeFromWorkspace: () => Promise<void>
+  // Enhanced atomic operations
+  executeAtomicOperation: (operation: () => void) => { success: boolean; error?: string; rollback?: () => void }
+  setStepImportContext: (stepId: string, context: WorkflowStep['importContext']) => void
+  reset: () => void
 }

@@ -65,8 +65,8 @@ const prepareTextContent = (
   }
 
   // Add English translation if available and enabled
-  if (settings.includeEnglish && subtitle.originalText) {
-    lines.push(subtitle.originalText);
+  if (settings.includeEnglish && subtitle.translation) {
+    lines.push(subtitle.translation);
   }
 
   // Add confidence score if enabled
@@ -133,7 +133,7 @@ export const convertToVTT = (
       } else if (
         settings.includeCantonese &&
         settings.includeEnglish &&
-        subtitle.originalText
+        subtitle.translation
       ) {
         // Add default positioning for new dual language content if no existing settings
         timestampLine += ` line:90%`;
@@ -206,11 +206,11 @@ export const convertToASS = (
     if (settings.includeCantonese && subtitle.text) {
       subtitleText = subtitle.text;
     }
-    if (settings.includeEnglish && subtitle.originalText) {
+    if (settings.includeEnglish && subtitle.translation) {
       if (subtitleText) {
-        subtitleText += "\\N" + subtitle.originalText; // \\N is ASS line break
+        subtitleText += "\\N" + subtitle.translation; // \\N is ASS line break
       } else {
-        subtitleText = subtitle.originalText;
+        subtitleText = subtitle.translation;
       }
     }
 
@@ -266,8 +266,8 @@ export const convertToJSON = (
         entry.caption = subtitle.text;
       }
 
-      if (settings.includeEnglish && subtitle.originalText) {
-        entry.translation = subtitle.originalText;
+      if (settings.includeEnglish && subtitle.translation) {
+        entry.translation = subtitle.translation;
       }
 
       // Add optional fields

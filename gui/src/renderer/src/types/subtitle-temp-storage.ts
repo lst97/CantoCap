@@ -368,7 +368,7 @@ export interface SubtitleTempOperationResponse<T = any> {
  */
 export interface SubtitleTempError {
   /** Error code */
-  code: 'STORAGE_UNAVAILABLE' | 'DATA_CORRUPTION' | 'VALIDATION_FAILED' | 'QUOTA_EXCEEDED' | 'SESSION_EXPIRED' | 'HASH_MISMATCH' | 'SCHEMA_VIOLATION' | 'COMPRESSION_FAILED'
+  code: 'STORAGE_UNAVAILABLE' | 'DATA_CORRUPTION' | 'VALIDATION_FAILED' | 'QUOTA_EXCEEDED' | 'SESSION_EXPIRED' | 'HASH_MISMATCH' | 'SCHEMA_VIOLATION' | 'COMPRESSION_FAILED' | 'OPERATION_CANCELLED' | 'STORAGE_TIMEOUT' | 'WORKSPACE_NOT_READY'
   /** Error message */
   message: string
   /** Associated workspace ID */
@@ -1098,36 +1098,10 @@ export function createTypeGuard<T>(
 // UTILITY FUNCTIONS WITH ENHANCED TYPE SAFETY
 // ============================================================================
 
-/**
- * Generate cryptographically secure unique identifier with prefix and validation
- */
-export function generateTempStorageId(prefix: string = 'temp', options?: {
-  includeTimestamp?: boolean
-  includeRandom?: boolean
-  length?: number
-}): string {
-  const opts = {
-    includeTimestamp: true,
-    includeRandom: true,
-    length: 8,
-    ...options
-  }
-  
-  const parts: string[] = [prefix]
-  
-  if (opts.includeTimestamp) {
-    parts.push(Date.now().toString(36))
-  }
-  
-  if (opts.includeRandom) {
-    parts.push(Math.random().toString(36).substring(2, 2 + opts.length))
-  }
-  
-  return parts.join('-')
-}
 
 /**
  * Calculate secure content hash using Web Crypto API when available
+ * DEPRECATED: Use ContentHashManager.calculateOptimizedHash instead for better performance
  */
 export async function calculateContentHash(content: any, algorithm: 'SHA-256' | 'SHA-1' = 'SHA-256'): Promise<string> {
   const jsonString = JSON.stringify(content, Object.keys(content).sort())
@@ -1400,7 +1374,7 @@ export function createPerformanceMonitor(): PerformanceMonitor {
     
     recordMetric(name: string, value: number, tags?: Record<string, string>): void {
       metrics.push({
-        id: generateTempStorageId('metric'),
+        id: `metric-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
         operation: name,
         value,
         unit: 'count',

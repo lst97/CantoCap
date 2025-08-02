@@ -52,7 +52,7 @@ function isCacheValid(key: string): boolean {
 function transformSubtitleEntry(sub: any, index: number): SubtitleEntry {
   // Extract text values efficiently
   const chineseText = sub.caption || sub.text || '';
-  const translationText = sub.translation || sub.originalText || '';
+  const translationText = sub.translation || '';
   
   // Calculate duration once
   const startTime = sub.startTime || 0;
@@ -66,7 +66,7 @@ function transformSubtitleEntry(sub: any, index: number): SubtitleEntry {
     endTime,
     duration,
     text: chineseText,
-    originalText: translationText || undefined,
+    translation: translationText || undefined,
     confidence: sub.confidence || undefined,
     speaker: sub.speaker || undefined,
     isMusic: sub.isMusic || false

@@ -390,6 +390,52 @@ export const useWorkflowStore = create<WorkflowState>()(
           currentStep: 'input-file',
           steps: INITIAL_STEPS
         })
+      },
+
+      // Enhanced atomic operations
+      executeAtomicOperation: (operation: () => void) => {
+        const currentState = get()
+        
+        // Capture current state for rollback
+        const snapshot = {
+          currentStep: currentState.currentStep,
+          steps: currentState.steps.map(step => ({ ...step }))
+        }
+        
+        try {
+          operation()
+          return { 
+            success: true,
+            rollback: () => {
+              set({
+                currentStep: snapshot.currentStep,
+                steps: snapshot.steps
+              })
+              console.log('🔄 Workflow state rolled back via executeAtomicOperation')
+            }
+          }
+        } catch (error) {
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error',
+            rollback: () => {} // No-op since operation failed
+          }
+        }
+      },
+
+      setStepImportContext: (stepId: string, context: WorkflowStep['importContext']) => {
+        set((state) => {
+          const updatedSteps = state.steps.map((step) => {
+            if (step.id === stepId) {
+              return { ...step, importContext: context }
+            }
+            return step
+          })
+
+          const newState = { steps: updatedSteps }
+          saveWorkflowToWorkspace(newState)
+          return newState
+        })
       }
     }),
     {

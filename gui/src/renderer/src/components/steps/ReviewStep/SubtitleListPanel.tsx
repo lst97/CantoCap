@@ -19,6 +19,7 @@ import {
   VisibilityOff as HideIcon,
 } from "@mui/icons-material";
 import { useSubtitleEditStore } from "../../../stores/subtitle-edit-store";
+import { useAppStore } from "../../../stores/app-store";
 import { SubtitleEntry, SubtitleModification } from "../../../types/subtitle";
 import { ReviewCard, ModificationChip, ActionButton } from "./styles";
 import { formatTime, generateCharacterDiff, generateBilingualDiff } from "./utils";
@@ -41,11 +42,63 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
     deleteSubtitle,
     addSubtitle,
     isLoading,
+    manualSaveToIndexedDB,
+    isSaving,
   } = useSubtitleEditStore();
+  
+  const { config } = useAppStore();
+  const currentWorkspaceId = config?.workspaceId;
+
+  // DEBUG: Log session data when it changes (with performance monitoring)
+  React.useEffect(() => {
+    const perfStart = performance.now();
+    
+    console.log('🔍 DEBUG: SubtitleListPanel session data:', {
+      hasSession: !!session,
+      sessionId: session?.sessionId,
+      workspaceId: session?.workspaceId,
+      hasCurrentSubtitles: !!session?.currentSubtitles,
+      currentSubtitlesLength: session?.currentSubtitles?.length,
+      currentSubtitlesSample: session?.currentSubtitles?.slice(0, 2),
+      isLoading,
+      sessionLastModified: session?.lastModified,
+      sessionIsDirty: session?.isDirty,
+      isVideoPlaying: session?.isVideoPlaying, // ADDED: Monitor video playing state
+      currentTime: session?.currentTime // ADDED: Monitor current time
+    });
+    
+    // Additional debug for empty session but should have data
+    if (!session?.currentSubtitles?.length && !isLoading) {
+      console.log('⚠️ DEBUG: SubtitleListPanel has no data to display');
+      
+      // Check if app config has subtitle data that should be in session
+      if (config?.subtitle?.length > 0) {
+        console.log('🔍 DEBUG: App config has subtitle data but session is empty:', {
+          configSubtitleLength: config.subtitle.length,
+          hasImportedJson: !!config.importedJsonFile,
+          isImportedFromJson: !!config.isImportedFromJson,
+          configSample: config.subtitle.slice(0, 2)
+        });
+      }
+    }
+    
+    // PERFORMANCE: Log render time for debugging
+    const perfEnd = performance.now();
+    if (perfEnd - perfStart > 10) { // Only log if > 10ms
+      console.log('⏱️ PERF: SubtitleListPanel debug effect took', (perfEnd - perfStart).toFixed(2), 'ms');
+    }
+  }, [session, isLoading, config]);
 
   // Get current subtitle based on current time for highlighting
+  // FIXED: Only show as "currently playing" when video is actually playing
   const getCurrentSubtitle = (): SubtitleEntry | null => {
     if (!session || !session.currentSubtitles || !Array.isArray(session.currentSubtitles)) return null;
+    
+    // CRITICAL FIX: Only return current subtitle if video is actually playing
+    // This prevents all subtitles from showing "PLAYING" state on JSON import
+    if (!session.isVideoPlaying) {
+      return null; // No subtitle is "currently playing" if video isn't playing
+    }
 
     return (
       session.currentSubtitles.find(
@@ -68,6 +121,7 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
 
   // 🚀 OPTIMIZED: Calculate all gap states once when subtitles change
   const gapStates = useMemo((): Map<number, GapState> => {
+    const perfStart = performance.now();
     const gaps = new Map<number, GapState>();
 
     if (!session?.currentSubtitles || session.currentSubtitles.length < 2) {
@@ -119,6 +173,12 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
       });
     }
 
+    // PERFORMANCE: Log calculation time
+    const perfEnd = performance.now();
+    if (perfEnd - perfStart > 5) { // Only log if > 5ms
+      console.log('⏱️ PERF: Gap states calculation took', (perfEnd - perfStart).toFixed(2), 'ms');
+    }
+    
     return gaps;
   }, [session?.currentSubtitles]); // Only recalculate when subtitles change
 
@@ -158,8 +218,9 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
     jumpToSubtitle(subtitleId);
   };
 
-  const handleDelete = (subtitleId: string) => {
+  const handleDelete = async (subtitleId: string) => {
     deleteSubtitle(subtitleId);
+    await manualSaveToIndexedDB();
   };
 
   const handleAddBetween = (index: number) => {
@@ -193,7 +254,7 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
       endTime,
       duration: endTime - startTime,
       text: "",
-      originalText: "",
+      translation: "",
     };
 
     addSubtitle(newSubtitle);
@@ -261,7 +322,7 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
       endTime,
       duration: endTime - startTime,
       text: "",
-      originalText: "",
+      translation: "",
     };
 
     addSubtitle(newSubtitle);
@@ -301,8 +362,8 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
     if (modification && modification.original && modification.type === 'modified') {
       const originalChinese = modification.original.text || '';
       const currentChinese = subtitle.text || '';
-      const originalTranslation = modification.original.originalText || '';
-      const currentTranslation = subtitle.originalText || '';
+      const originalTranslation = modification.original.translation || '';
+      const currentTranslation = subtitle.translation || '';
 
       // Check if either Chinese text or translation has changed
       const chineseChanged = originalChinese.trim() !== currentChinese.trim();
@@ -333,15 +394,50 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
     );
   }
 
+  // REMOVED: Fallback display mechanism that prevented proper session initialization
+  // The session should be properly initialized instead of showing fallback data
+  
+  // Check for session data availability
+  const hasSessionData = session?.currentSubtitles?.length > 0;
+  const hasConfigData = config?.subtitle?.length > 0;
+  const isJsonImport = config?.importedJsonFile || config?.isImportedFromJson;
+  
+  // REMOVED: Fallback display logic - this was preventing proper session initialization
+  // If we have config data but no session, the session initialization should handle it
+  if (!hasSessionData && hasConfigData && isJsonImport) {
+    console.log('🔄 DEBUG: Config data available but no session - session initialization should handle this');
+    // Let the session initialization handle this case instead of showing fallback
+  }
+
   if (!session) {
     return (
       <ReviewCard>
         <Typography variant="h6" sx={{ mb: 2 }}>
           Generated Subtitles
         </Typography>
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Subtitle session is initializing...
+        </Alert>
         <Alert severity="info">
-          No subtitle session active. Please ensure Step 3 processing is
-          completed and SRT file is available.
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            {isJsonImport && hasConfigData ? 
+              'JSON import detected - session is being initialized with imported data.' :
+              hasConfigData ?
+              'Subtitle data found - session is being initialized.' :
+              'No subtitle data available yet. Complete Step 3 to generate subtitles.'}
+          </Typography>
+          <Typography variant="body2">
+            <strong>Status:</strong>
+            <br />• Workspace ID: {currentWorkspaceId || 'Not set'}
+            <br />• Has config data: {hasConfigData ? `Yes (${config?.subtitle?.length || 0} subtitles)` : 'No'}
+            <br />• JSON import: {isJsonImport ? 'Yes' : 'No'}
+            <br />• Session loading: {isLoading ? 'Yes' : 'No'}
+            {!currentWorkspaceId && (
+              <>
+                <br /><br /><strong>Action needed:</strong> Please select a video file in Step 1 to initialize workspace.
+              </>
+            )}
+          </Typography>
         </Alert>
       </ReviewCard>
     );
@@ -624,9 +720,9 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
                           </Typography>
 
                           {/* Display translation text if available */}
-                          {subtitle.originalText && 
-                           subtitle.originalText.trim() && 
-                           subtitle.originalText !== subtitle.text && (
+                          {subtitle.translation && 
+                           subtitle.translation.trim() && 
+                           subtitle.translation !== subtitle.text && (
                             <Typography
                               variant="body2"
                               sx={{
@@ -639,7 +735,7 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
                                 fontSize: "0.9em",
                               }}
                             >
-                              {subtitle.originalText}
+                              {subtitle.translation}
                             </Typography>
                           )}
 
@@ -649,8 +745,8 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
 
                             const originalChinese = modification.original.text || '';
                             const currentChinese = subtitle.text || '';
-                            const originalTranslation = modification.original.originalText || '';
-                            const currentTranslation = subtitle.originalText || '';
+                            const originalTranslation = modification.original.translation || '';
+                            const currentTranslation = subtitle.translation || '';
 
                             const chineseChanged = originalChinese.trim() !== currentChinese.trim();
                             const translationChanged = originalTranslation.trim() !== currentTranslation.trim();
@@ -802,14 +898,22 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
                             e.stopPropagation();
                             handleDelete(subtitle.id);
                           }}
+                          disabled={isSaving}
                           sx={{
                             color: "#ED4245",
                             "&:hover": {
                               backgroundColor: "rgba(237, 66, 69, 0.1)",
                             },
+                            "&:disabled": {
+                              color: "rgba(237, 66, 69, 0.3)",
+                            },
                           }}
                         >
-                          <DeleteIcon fontSize="small" />
+                          {isSaving ? (
+                            <CircularProgress size={16} sx={{ color: "#ED4245" }} />
+                          ) : (
+                            <DeleteIcon fontSize="small" />
+                          )}
                         </IconButton>
                       </Tooltip>
                     </Box>

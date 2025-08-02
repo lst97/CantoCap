@@ -1,8 +1,14 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import { navigateToProcessing, navigateToConfig } from '../utils/workflow-navigation'
+import { 
+  handleVideoRemovalWithCleanup, 
+  performEnhancedSessionReset,
+  handleWorkspaceChangeWithSessionCoordination 
+} from '../utils/session-workflow-integration'
 import { useWorkflowStore } from '../stores/workflow-store'
 import { useWorkspaceStore } from '../stores/workspace-store'
+import { useSubtitleEditStore } from '../stores/subtitle-edit-store'
 import type { 
   AppState, 
   AppConfig, 
@@ -329,6 +335,17 @@ export const useAppStore = create<AppStore>()(
     },
     
     updateConfig: <K extends keyof AppConfig>(key: K, value: AppConfig[K]) => {
+      const previousConfig = get().config
+      
+      // Log all config updates for debugging
+      console.log('🔧 Config Update:', {
+        key,
+        previousValue: previousConfig[key],
+        newValue: value,
+        isChanged: previousConfig[key] !== value,
+        timestamp: new Date().toISOString()
+      })
+      
       // Update app store state immediately for UI responsiveness
       set((state: AppStore) => ({
         config: { ...state.config, [key]: value }
@@ -337,6 +354,181 @@ export const useAppStore = create<AppStore>()(
       // Get updated config for persistence
       const currentConfig = get().config
       const updatedConfig = { ...currentConfig, [key]: value }
+      
+      // Handle explicit session resets for critical file changes ONLY if they're actually different
+      try {
+        const subtitleStore = useSubtitleEditStore.getState()
+        const workspaceStore = useWorkspaceStore.getState()
+        
+        // Video file change (upload/remove) - Enhanced with workspace rebinding
+        if (key === 'inputFile' && previousConfig.inputFile !== value) {
+          console.log('🎬 Config: Video file changed via updateConfig, triggering enhanced session reset')
+          
+          // If removing video file, trigger comprehensive integrated cleanup
+          if (!value && previousConfig.inputFile) {
+            console.log('🗑️ Video file removed, performing integrated cleanup operation')
+            
+            // Use the integrated atomic operation for comprehensive cleanup
+            handleVideoRemovalWithCleanup()
+              .then(result => {
+                console.log('✅ Integrated video removal completed:', result)
+              })
+              .catch(error => {
+                console.warn('⚠️ Integrated video removal failed:', error)
+                // Fallback to standard session reset
+                subtitleStore.resetSessionForNewContent('step1_video_change')
+              })
+          } else {
+            // For video upload/change, use enhanced session reset
+            performEnhancedSessionReset('step1_video_change', workspaceStore.currentWorkspace?.id)
+              .then(result => {
+                console.log('✅ Enhanced session reset completed for video change:', result)
+              })
+              .catch(error => {
+                console.warn('⚠️ Enhanced session reset failed, using fallback:', error)
+                // Fallback to standard session reset
+                subtitleStore.resetSessionForNewContent('step1_video_change')
+              })
+          }
+        }
+        
+        // JSON import file change (upload/remove) - Enhanced with atomic navigation
+        if (key === 'importedJsonFile' && previousConfig.importedJsonFile !== value) {
+          console.log('📄 Config: JSON file changed via updateConfig, triggering enhanced session reset', {
+            previousValue: previousConfig.importedJsonFile,
+            newValue: value,
+            changeType: value ? 'upload' : 'remove',
+            triggeredBy: 'updateConfig',
+            timestamp: new Date().toISOString()
+          })
+          
+          // Use enhanced session reset for better coordination
+          performEnhancedSessionReset('step1_import', workspaceStore.currentWorkspace?.id)
+            .then(result => {
+              console.log('✅ Enhanced session reset completed for JSON import:', result)
+              
+              // If adding JSON file, prepare for atomic navigation to review
+              if (value && !previousConfig.importedJsonFile) {
+                console.log('📄 Session prepared for atomic navigation after JSON import')
+                // Navigation will be handled by the component that processes subtitle data
+                // This ensures session reset happens before navigation
+              }
+              
+              // If removing JSON file, ensure proper workflow navigation
+              if (!value && previousConfig.importedJsonFile) {
+                console.log('🔄 JSON file removed, navigating to config')
+                try {
+                  navigateToConfig()
+                } catch (navError) {
+                  console.warn('Failed to navigate to config after JSON removal:', navError)
+                }
+              }
+            })
+            .catch(error => {
+              console.warn('⚠️ Enhanced session reset failed for JSON import, using fallback:', error)
+              // Fallback to standard session reset
+              subtitleStore.resetSessionForNewContent('step1_import')
+            })
+        }
+        
+        // Output file change from subtitle generation - Enhanced cleanup
+        if (key === 'outputFile' && previousConfig.outputFile !== value && !updatedConfig.importedJsonFile) {
+          console.log('⚡ Config: Output file changed via updateConfig (generation), triggering enhanced session reset')
+          
+          // Use enhanced session reset for generation
+          performEnhancedSessionReset('step3_generation', workspaceStore.currentWorkspace?.id)
+            .then(result => {
+              console.log('✅ Enhanced session reset completed for generation:', result)
+              
+              // If we have a new output file, prepare workflow for review
+              if (value && !previousConfig.outputFile) {
+                console.log('✅ New subtitle output generated, workflow prepared for review')
+                // Navigation to review will be handled by the processing completion logic
+                // This ensures proper session state before navigation
+              }
+            })
+            .catch(error => {
+              console.warn('⚠️ Enhanced session reset failed for generation, using fallback:', error)
+              // Fallback to standard session reset
+              subtitleStore.resetSessionForNewContent('step3_generation')
+            })
+        }
+        
+        // Subtitle data change from JSON import - Enhanced session integration with batch protection
+        if (key === 'subtitle' && previousConfig.subtitle !== value) {
+          console.log('📥 Config: Subtitle data changed via updateConfig, checking for session integration needs', {
+            previousDataLength: Array.isArray(previousConfig.subtitle) ? previousConfig.subtitle.length : 0,
+            newDataLength: Array.isArray(value) ? value.length : 0,
+            isJsonImport: !!updatedConfig.importedJsonFile || !!updatedConfig.isImportedFromJson,
+            hasInputFile: !!updatedConfig.inputFile,
+            isImportInProgress: !!(window as any).__JSON_IMPORT_IN_PROGRESS,
+            timestamp: new Date().toISOString()
+          })
+          
+          // CRITICAL FIX: Only trigger session integration if not in batch import mode
+          if ((window as any).__JSON_IMPORT_IN_PROGRESS) {
+            console.log('📋 Skipping session integration - batch import in progress');
+            return; // Skip session integration during batch updates
+          }
+          
+          // If we have subtitle data from JSON import and an input file, trigger session integration
+          if (value && Array.isArray(value) && value.length > 0 && 
+              (updatedConfig.importedJsonFile || updatedConfig.isImportedFromJson) && 
+              updatedConfig.inputFile) {
+            
+            console.log('📥 JSON import subtitle data detected, triggering session integration')
+            
+            // Add debouncing to prevent multiple rapid integrations
+            const integrationKey = 'json-import-integration';
+            if ((window as any).__INTEGRATION_TIMEOUTS) {
+              clearTimeout((window as any).__INTEGRATION_TIMEOUTS[integrationKey]);
+            } else {
+              (window as any).__INTEGRATION_TIMEOUTS = {};
+            }
+            
+            (window as any).__INTEGRATION_TIMEOUTS[integrationKey] = setTimeout(() => {
+              // Trigger session integration using the enhanced integration utilities
+              try {
+                import('../utils/session-workflow-integration')
+                  .then(integrationModule => {
+                    const { handleJsonImportWithSessionReset } = integrationModule
+                    
+                    return handleJsonImportWithSessionReset(value, {
+                      sourceType: 'json-import',
+                      timestamp: Date.now(),
+                      metadata: {
+                        fileName: updatedConfig.importedJsonFile || 'imported-json',
+                        subtitleCount: value.length,
+                        triggeredBy: 'config-subtitle-update'
+                      }
+                    })
+                  })
+                  .then(result => {
+                    if (result.success) {
+                      console.log('✅ JSON import session integration completed successfully:', result)
+                    } else {
+                      console.warn('⚠️ JSON import session integration failed:', result.error)
+                    }
+                  })
+                  .catch(error => {
+                    console.warn('⚠️ Failed to integrate JSON import with session:', error)
+                  })
+              } catch (error) {
+                console.warn('⚠️ Could not load session integration module:', error)
+              }
+            }, 200); // 200ms debounce
+          }
+          
+          // If subtitle data is being cleared, ensure session cleanup
+          else if (!value && previousConfig.subtitle) {
+            console.log('🗑️ Subtitle data cleared, ensuring session cleanup')
+            subtitleStore.resetSessionForNewContent('subtitle_cleared')
+          }
+        }
+      } catch (error) {
+        console.warn('Could not trigger enhanced session reset from updateConfig:', error)
+        // Continue with normal config update even if session reset fails
+      }
       
       // Define which config keys are workspace-specific vs global/system-wide
       const workspaceSpecificKeys: (keyof AppConfig)[] = [
@@ -635,6 +827,29 @@ export const useAppStore = create<AppStore>()(
         return
       }
 
+      // Trigger enhanced session reset for subtitle generation BEFORE starting transcription
+      try {
+        const workspaceStore = useWorkspaceStore.getState()
+        
+        console.log('⚡ User clicked generate subtitle button, triggering enhanced session reset')
+        
+        // Use the integrated enhanced session reset
+        performEnhancedSessionReset('step3_generation', workspaceStore.currentWorkspace?.id)
+          .then(result => {
+            console.log('✅ Enhanced session reset completed before transcription:', result)
+          })
+          .catch(error => {
+            console.warn('⚠️ Enhanced session reset failed, using fallback:', error)
+            // Fallback to standard reset if enhancement fails
+            const subtitleStore = useSubtitleEditStore.getState()
+            subtitleStore.resetSessionForNewContent('step3_generation')
+          })
+        
+        console.log('✅ Pre-transcription session reset initiated')
+      } catch (error) {
+        console.warn('Could not trigger enhanced session reset from startTranscription:', error)
+      }
+
       set((state: AppStore) => ({
         processing: {
           ...state.processing,
@@ -891,6 +1106,18 @@ useWorkspaceStore.subscribe(
         to: currentWorkspace.name,
         workspaceId: currentWorkspace.id
       })
+      
+      // Use integrated session coordination for workspace changes
+      handleWorkspaceChangeWithSessionCoordination(
+        currentWorkspace.id,
+        previousWorkspace?.id
+      )
+        .then(result => {
+          console.log('✅ Integrated workspace change completed:', result)
+        })
+        .catch(error => {
+          console.warn('⚠️ Integrated workspace change failed, using fallback:', error)
+        })
       
       // Ensure any pending config changes are saved to the previous workspace before switching
       if (previousWorkspace) {

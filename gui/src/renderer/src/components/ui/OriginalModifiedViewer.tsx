@@ -140,7 +140,7 @@ function calculateDiff(original: SubtitleData[], modified: SubtitleData[]): {
       }
       
       // Check for translation changes
-      if (originalSub.originalText !== modifiedSub.originalText) {
+      if (originalSub.translation !== modifiedSub.translation) {
         hasTranslationChanges = true
         stats.translationChanges++
         changeCount++
@@ -443,7 +443,7 @@ export const OriginalModifiedViewer: React.FC<OriginalModifiedViewerProps> = ({
                     </Typography>
                     
                     {/* Translation */}
-                    {originalSubtitle.originalText && (
+                    {originalSubtitle.translation && (
                       <Typography 
                         variant="body2" 
                         color="text.secondary"
@@ -454,7 +454,7 @@ export const OriginalModifiedViewer: React.FC<OriginalModifiedViewerProps> = ({
                           borderRadius: 1
                         }}
                       >
-                        Translation: {originalSubtitle.originalText}
+                        Translation: {originalSubtitle.translation}
                       </Typography>
                     )}
                     
@@ -504,7 +504,7 @@ export const OriginalModifiedViewer: React.FC<OriginalModifiedViewerProps> = ({
                     </Typography>
                     
                     {/* Translation */}
-                    {modifiedSubtitle.originalText && (
+                    {modifiedSubtitle.translation && (
                       <Typography 
                         variant="body2" 
                         color="text.secondary"
@@ -515,7 +515,7 @@ export const OriginalModifiedViewer: React.FC<OriginalModifiedViewerProps> = ({
                           borderRadius: 1
                         }}
                       >
-                        Translation: {modifiedSubtitle.originalText}
+                        Translation: {modifiedSubtitle.translation}
                       </Typography>
                     )}
                     

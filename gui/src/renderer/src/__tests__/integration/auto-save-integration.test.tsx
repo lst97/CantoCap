@@ -71,6 +71,7 @@ describe('Auto-save Integration', () => {
         await result.current.initializeSession(
           'test-subtitles.srt',
           'test-video.mp4',
+          'test-workspace-id',
           [
             {
               id: 1,
@@ -281,7 +282,7 @@ describe('Auto-save Integration', () => {
 
       // Initialize session
       await act(async () => {
-        await result.current.initializeSession('test.srt', 'test.mp4', [], true)
+        await result.current.initializeSession('test.srt', 'test.mp4', 'test-workspace-id', [], true)
       })
 
       // Make multiple rapid updates

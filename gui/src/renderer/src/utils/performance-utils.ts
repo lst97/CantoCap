@@ -93,6 +93,14 @@ export class PerformanceMonitor {
         if (duration > targetTime) {
           console.warn(`💡 OPTIMIZATION TIP: Target time for ${dataSize} items should be ~${targetTime}ms. Consider async processing or caching.`);
         }
+        
+        // More specific suggestions based on operation type
+        if (operationName.includes('JSON Import')) {
+          const optimizedTargetTime = dataSize * 1.5; // Target: 1.5ms per item with optimizations
+          if (duration > optimizedTargetTime) {
+            console.warn(`🚀 OPTIMIZED TARGET: ${dataSize} items should complete in ~${optimizedTargetTime}ms with parallel processing.`);
+          }
+        }
       }
     } else {
       console.log(`✅ Operation completed: ${operationName}${sizeInfo} in ${duration.toFixed(2)}ms${throughputInfo}`);

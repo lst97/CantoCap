@@ -9,6 +9,9 @@ import {
   Stack,
   Divider,
   Tooltip,
+  CircularProgress,
+  Alert,
+  Snackbar,
 } from "@mui/material";
 import {
   Edit as EditIcon,
@@ -40,6 +43,10 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
     undoStack,
     redoStack,
     clearUndoRedo,
+    manualSaveToIndexedDB,
+    isSaving,
+    saveError,
+    clearSaveError,
   } = useSubtitleEditStore();
   
   const { setCurrentStep, completeStep } = useWorkflowStore();
@@ -56,16 +63,16 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
 
   // Check if this is a new subtitle (empty text and no original text)
   const isNewSubtitle =
-    editingSubtitle && !editingSubtitle.text && !editingSubtitle.originalText;
+    editingSubtitle && !editingSubtitle.text && !editingSubtitle.translation;
   
   // Check if subtitle has translation
-  const hasTranslation = editingSubtitle && editingSubtitle.originalText && editingSubtitle.originalText.trim() && editingSubtitle.originalText !== editingSubtitle.text;
+  const hasTranslation = editingSubtitle && editingSubtitle.translation && editingSubtitle.translation.trim() && editingSubtitle.translation !== editingSubtitle.text;
 
   // Update local state when selected subtitle changes
   useEffect(() => {
     if (editingSubtitle) {
       setEditText(editingSubtitle.text);
-      setEditTranslation(editingSubtitle.originalText || "");
+      setEditTranslation(editingSubtitle.translation || "");
       setEditStartTime(formatTime(editingSubtitle.startTime));
       setEditEndTime(formatTime(editingSubtitle.endTime));
       setHasChanges(false);
@@ -82,22 +89,26 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
     setHasChanges(editingSubtitle?.text !== editText || (editingSubtitle?.originalText || "") !== value);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!editingSubtitle || !hasChanges) return;
 
+    // Update the subtitle first
     updateSubtitle(editingSubtitle.id, {
       text: editText,
-      originalText: editTranslation || undefined,
+      translation: editTranslation || undefined,
       startTime: parseTime(editStartTime),
       endTime: parseTime(editEndTime),
     });
     setHasChanges(false);
+
+    // Trigger manual save to IndexedDB
+    await manualSaveToIndexedDB();
   };
 
   const handleCancel = () => {
     if (editingSubtitle) {
       setEditText(editingSubtitle.text);
-      setEditTranslation(editingSubtitle.originalText || "");
+      setEditTranslation(editingSubtitle.translation || "");
       setEditStartTime(formatTime(editingSubtitle.startTime));
       setEditEndTime(formatTime(editingSubtitle.endTime));
       setHasChanges(false);
@@ -109,7 +120,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
       // Reset to initial values - this is different from the subtitle list reset
       // Here we reset to the current stored values, not to "original" text
       setEditText(editingSubtitle.text);
-      setEditTranslation(editingSubtitle.originalText || "");
+      setEditTranslation(editingSubtitle.translation || "");
       setHasChanges(false);
     }
   };
@@ -132,7 +143,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
     setCurrentStep('export');
   };
 
-  const handleSplit = () => {
+  const handleSplit = async () => {
     if (editingSubtitle && session) {
       const splitTime =
         session.currentTime ||
@@ -142,6 +153,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
         splitTime < editingSubtitle.endTime
       ) {
         splitSubtitle(editingSubtitle.id, splitTime);
+        await manualSaveToIndexedDB();
       }
     }
   };
@@ -194,8 +206,11 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
           <Tooltip title="Undo">
             <IconButton
               size="small"
-              onClick={undo}
-              disabled={undoStack.length === 0}
+              onClick={async () => {
+                undo();
+                await manualSaveToIndexedDB();
+              }}
+              disabled={undoStack.length === 0 || isSaving}
             >
               <UndoIcon />
             </IconButton>
@@ -203,8 +218,11 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
           <Tooltip title="Redo">
             <IconButton
               size="small"
-              onClick={redo}
-              disabled={redoStack.length === 0}
+              onClick={async () => {
+                redo();
+                await manualSaveToIndexedDB();
+              }}
+              disabled={redoStack.length === 0 || isSaving}
             >
               <RedoIcon />
             </IconButton>
@@ -308,13 +326,13 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
           <Box sx={{ display: "flex", gap: 1 }}>
             <Button
               variant="contained"
-              startIcon={<SaveIcon />}
+              startIcon={isSaving ? <CircularProgress size={16} /> : <SaveIcon />}
               size="small"
               sx={{ flex: 1 }}
               onClick={handleSave}
-              disabled={!hasChanges}
+              disabled={!hasChanges || isSaving}
             >
-              Save Changes
+              {isSaving ? 'Saving...' : 'Save Changes'}
             </Button>
             <ActionButton
               startIcon={<UndoIcon />}
@@ -325,6 +343,17 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
               Cancel
             </ActionButton>
           </Box>
+
+          {/* Save Error Display */}
+          {saveError && (
+            <Alert 
+              severity="error" 
+              onClose={clearSaveError}
+              sx={{ mt: 1 }}
+            >
+              Save failed: {saveError}
+            </Alert>
+          )}
 
           <Divider />
 

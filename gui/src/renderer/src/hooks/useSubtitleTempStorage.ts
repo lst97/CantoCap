@@ -17,12 +17,18 @@ import type {
   SubtitleTempResult,
   SubtitleTempStorageConfig,
   SubtitleValidationWarning,
-  SubtitleValidationError,
-  generateTempStorageId,
+  SubtitleValidationError
+} from '../types/subtitle-temp-storage'
+
+import {
   calculateContentHash,
   isSubtitleTempError,
   isSubtitleTempContent
 } from '../types/subtitle-temp-storage'
+
+import {
+  generateTempStorageId
+} from '../types/subtitle-temp-storage-utils'
 
 import {
   DEFAULT_SUBTITLE_TEMP_CONFIG,
@@ -110,7 +116,7 @@ export interface UseSubtitleTempStorageResult {
 interface SaveContentOptions {
   createBackup?: boolean
   description?: string
-  priority?: 'low' | 'normal' | 'high' | 'critical'
+  priority?: 'low' | 'normal' | 'high'
 }
 
 interface CleanupOptions {
@@ -172,16 +178,58 @@ export function useSubtitleTempStorage(
   // DATABASE OPERATIONS
   // ============================================================================
 
-  const initializeDatabase = useCallback(async (): Promise<IDBDatabase> => {
-    if (dbRef.current) return dbRef.current
+  // Database connection state tracking
+  const connectionStateRef = useRef<'closed' | 'opening' | 'open' | 'closing'>('closed')
+  const connectionPromiseRef = useRef<Promise<IDBDatabase> | null>(null)
 
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open(DEFAULT_SUBTITLE_TEMP_CONFIG.database.name, DEFAULT_SUBTITLE_TEMP_CONFIG.database.version)
+  const initializeDatabase = useCallback(async (): Promise<IDBDatabase> => {
+    // Return existing connection if available and open
+    if (dbRef.current && connectionStateRef.current === 'open') {
+      return dbRef.current
+    }
+
+    // Return pending connection promise if already opening
+    if (connectionStateRef.current === 'opening' && connectionPromiseRef.current) {
+      return connectionPromiseRef.current
+    }
+
+    // Create new connection
+    connectionStateRef.current = 'opening'
+    
+    const connectionPromise = new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(
+        DEFAULT_SUBTITLE_TEMP_CONFIG.database.name, 
+        DEFAULT_SUBTITLE_TEMP_CONFIG.database.version
+      )
       
-      request.onerror = () => reject(request.error)
+      request.onerror = () => {
+        connectionStateRef.current = 'closed'
+        connectionPromiseRef.current = null
+        reject(request.error)
+      }
+      
       request.onsuccess = () => {
-        dbRef.current = request.result
-        resolve(request.result)
+        const db = request.result
+        
+        // Set up connection lifecycle handlers
+        db.onclose = () => {
+          connectionStateRef.current = 'closed'
+          connectionPromiseRef.current = null
+          if (dbRef.current === db) {
+            dbRef.current = null
+          }
+        }
+        
+        db.onversionchange = () => {
+          // Close the database when version changes
+          connectionStateRef.current = 'closing'
+          db.close()
+        }
+        
+        connectionStateRef.current = 'open'
+        connectionPromiseRef.current = null
+        dbRef.current = db
+        resolve(db)
       }
       
       request.onupgradeneeded = (event) => {
@@ -203,37 +251,141 @@ export function useSubtitleTempStorage(
           sessionStore.createIndex('lastActivity', 'lastActivity', { unique: false })
         }
       }
+
+      request.onblocked = () => {
+        console.warn('IndexedDB upgrade blocked. Please close other tabs using this application.')
+      }
     })
+
+    connectionPromiseRef.current = connectionPromise
+    return connectionPromise
   }, [])
 
+  // Enhanced IndexedDB operation with 2024 best practices
   const performDatabaseOperation = useCallback(async <T>(
-    operation: (db: IDBDatabase) => Promise<T>
+    operation: (db: IDBDatabase) => Promise<T>,
+    options: {
+      timeout?: number
+      priority?: 'low' | 'normal' | 'high'
+      retryCount?: number
+    } = {}
   ): Promise<SubtitleTempResult<T>> => {
-    try {
-      const db = await initializeDatabase()
-      const result = await operation(db)
-      return {
-        success: true,
-        data: result,
-        metrics: { duration: 0, dataSize: 0 }
+    const { timeout = 10000, priority = 'normal', retryCount = 3 } = options
+    const startTime = performance.now()
+
+    // Create AbortController for operation cancellation
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), timeout)
+
+    let attempt = 0
+    while (attempt < retryCount) {
+      try {
+        // Check if operation was cancelled before starting
+        if (controller.signal.aborted) {
+          throw new Error('Operation was cancelled')
+        }
+
+        const db = await initializeDatabase()
+
+        // Validate database connection state
+        if (!db || connectionStateRef.current !== 'open') {
+          throw new Error('Database connection is not available')
+        }
+
+        // Add abort signal handler to the database operation
+        const operationPromise = operation(db)
+        const abortPromise = new Promise<never>((_, reject) => {
+          controller.signal.addEventListener('abort', () => {
+            reject(new Error('Operation aborted'))
+          })
+        })
+
+        // Race between operation completion and abortion
+        const result = await Promise.race([operationPromise, abortPromise])
+
+        clearTimeout(timeoutId)
+        
+        const duration = performance.now() - startTime
+        return {
+          success: true,
+          data: result,
+          metrics: { duration, dataSize: 0 }
+        }
+
+      } catch (error) {
+        attempt++
+        const isConnectionClosing = error?.message?.includes('database connection is closing')
+        const isAborted = error?.message?.includes('aborted') || error?.message?.includes('cancelled')
+        const isTimeout = error?.message?.includes('timeout')
+
+        // Don't retry for certain error types
+        if (isAborted || attempt >= retryCount) {
+          clearTimeout(timeoutId)
+          
+          let errorCode: SubtitleTempError['code'] = 'STORAGE_UNAVAILABLE'
+          let severity: SubtitleTempError['severity'] = 'high'
+          let errorMessage = error instanceof Error ? error.message : 'Database operation failed'
+
+          if (isConnectionClosing) {
+            errorCode = 'SESSION_EXPIRED'
+            severity = 'medium'
+            errorMessage = 'Database connection is closing, operation cancelled gracefully'
+          } else if (isAborted) {
+            errorCode = 'OPERATION_CANCELLED'
+            severity = 'low'
+            errorMessage = 'Operation was cancelled by user or timeout'
+          } else if (isTimeout) {
+            errorCode = 'STORAGE_TIMEOUT'
+            severity = 'medium'
+            errorMessage = `Database operation timed out after ${timeout}ms`
+          }
+
+          const tempError: SubtitleTempError = {
+            code: errorCode,
+            message: errorMessage,
+            timestamp: Date.now(),
+            severity,
+            workspaceId: currentWorkspaceId || undefined
+          }
+
+          // Only set error state for non-cancellation errors
+          if (!isAborted && !isConnectionClosing) {
+            setError(tempError)
+            config.onError(tempError)
+          }
+
+          return {
+            success: false,
+            error: tempError,
+            metrics: { duration: performance.now() - startTime }
+          }
+        }
+
+        // Wait before retry (exponential backoff)
+        if (attempt < retryCount) {
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000)
+          await new Promise(resolve => setTimeout(resolve, delay))
+        }
       }
-    } catch (error) {
-      const tempError: SubtitleTempError = {
-        code: 'STORAGE_UNAVAILABLE',
-        message: error instanceof Error ? error.message : 'Database operation failed',
-        timestamp: Date.now(),
-        severity: 'high',
-        workspaceId: currentWorkspaceId || undefined
-      }
-      
-      setError(tempError)
-      config.onError(tempError)
-      
-      return {
-        success: false,
-        error: tempError,
-        metrics: { duration: 0 }
-      }
+    }
+
+    // This should never be reached, but TypeScript requires it
+    clearTimeout(timeoutId)
+    const tempError: SubtitleTempError = {
+      code: 'STORAGE_UNAVAILABLE',
+      message: 'Maximum retry attempts exceeded',
+      timestamp: Date.now(),
+      severity: 'critical',
+      workspaceId: currentWorkspaceId || undefined
+    }
+
+    setError(tempError)
+    config.onError(tempError)
+
+    return {
+      success: false,
+      error: tempError,
+      metrics: { duration: performance.now() - startTime }
     }
   }, [initializeDatabase, currentWorkspaceId, config])
 
@@ -412,7 +564,7 @@ export function useSubtitleTempStorage(
         }
       }
 
-      // Save to database
+      // Save to database with priority-based timeout
       const result = await performDatabaseOperation(async (db) => {
         const transaction = db.transaction(['subtitle_temp_storage'], 'readwrite')
         const store = transaction.objectStore('subtitle_temp_storage')
@@ -443,6 +595,10 @@ export function useSubtitleTempStorage(
         })
         
         return storageId
+      }, {
+        priority: options.priority || 'normal',
+        timeout: options.priority === 'high' ? 15000 : 10000,
+        retryCount: options.priority === 'high' ? 5 : 3
       })
 
       if (result.success) {
@@ -508,7 +664,7 @@ export function useSubtitleTempStorage(
         ...currentContent.changeTracking,
         changeCount: currentContent.changeTracking.changeCount + 1,
         lastUserAction: Date.now(),
-        modifiedIds: new Set([...currentContent.changeTracking.modifiedIds, ...subtitles.map(s => s.id)])
+        modifiedIds: new Set([...Array.from(currentContent.changeTracking.modifiedIds), ...subtitles.map(s => s.id)])
       }
     }
 
@@ -544,10 +700,10 @@ export function useSubtitleTempStorage(
   const createSession = useCallback(async (
     sessionType: SubtitleTempSession['sessionType'] = 'review'
   ): Promise<SubtitleTempResult<string>> => {
-    if (!currentWorkspaceId) {
+    if (!currentWorkspaceId || !isWorkspaceReady) {
       const error: SubtitleTempError = {
-        code: 'SESSION_EXPIRED',
-        message: 'No active workspace',
+        code: 'WORKSPACE_NOT_READY',
+        message: !currentWorkspaceId ? 'No active workspace' : 'Workspace not ready',
         timestamp: Date.now(),
         severity: 'critical'
       }
@@ -611,6 +767,9 @@ export function useSubtitleTempStorage(
       }
     }
 
+    // Calculate hash BEFORE creating the transaction to prevent timeout
+    const stateHash = await calculateContentHash(session.state)
+
     const result = await performDatabaseOperation(async (db) => {
       const transaction = db.transaction(['subtitle_temp_sessions'], 'readwrite')
       const store = transaction.objectStore('subtitle_temp_sessions')
@@ -620,7 +779,7 @@ export function useSubtitleTempStorage(
         workspaceId: currentWorkspaceId,
         sessionType,
         sessionData: JSON.stringify(session),
-        stateHash: await calculateContentHash(session.state),
+        stateHash, // Use pre-calculated hash
         createdAt: now,
         lastActivity: now,
         status: 'active' as const,
@@ -644,7 +803,7 @@ export function useSubtitleTempStorage(
     }
 
     return result
-  }, [currentWorkspaceId, config, performDatabaseOperation])
+  }, [currentWorkspaceId, isWorkspaceReady, config, performDatabaseOperation])
 
   const recoverSession = useCallback(async (sessionId: string): Promise<SubtitleTempResult<SubtitleTempSession>> => {
     return await performDatabaseOperation(async (db) => {
@@ -686,6 +845,9 @@ export function useSubtitleTempStorage(
       lastActivity: Date.now()
     }
 
+    // Calculate hash BEFORE creating the transaction to prevent timeout
+    const stateHash = await calculateContentHash(updatedSession.state)
+
     const result = await performDatabaseOperation(async (db) => {
       const transaction = db.transaction(['subtitle_temp_sessions'], 'readwrite')
       const store = transaction.objectStore('subtitle_temp_sessions')
@@ -695,7 +857,7 @@ export function useSubtitleTempStorage(
         workspaceId: updatedSession.workspaceId,
         sessionType: updatedSession.sessionType,
         sessionData: JSON.stringify(updatedSession),
-        stateHash: await calculateContentHash(updatedSession.state),
+        stateHash, // Use pre-calculated hash
         createdAt: updatedSession.createdAt,
         lastActivity: updatedSession.lastActivity,
         status: 'active' as const,
@@ -995,11 +1157,32 @@ export function useSubtitleTempStorage(
     }
   }, [config.autoSaveEnabled, enableAutoSave, disableAutoSave])
 
-  // Cleanup on unmount
+  // Enhanced cleanup with proper connection management
   useEffect(() => {
     return () => {
-      if (dbRef.current) {
-        dbRef.current.close()
+      // Clear timers
+      if (autoSaveTimerRef.current) {
+        clearInterval(autoSaveTimerRef.current)
+        autoSaveTimerRef.current = null
+      }
+      if (idleTimerRef.current) {
+        clearTimeout(idleTimerRef.current)
+        idleTimerRef.current = null
+      }
+
+      // Gracefully close database connection
+      if (dbRef.current && connectionStateRef.current === 'open') {
+        connectionStateRef.current = 'closing'
+        
+        // Give ongoing operations a chance to complete
+        setTimeout(() => {
+          if (dbRef.current && connectionStateRef.current === 'closing') {
+            dbRef.current.close()
+            dbRef.current = null
+            connectionStateRef.current = 'closed'
+            connectionPromiseRef.current = null
+          }
+        }, 100) // 100ms grace period
       }
     }
   }, [])

@@ -27,6 +27,7 @@ import {
 } from "@mui/icons-material";
 import { useAppStore } from "../../stores/app-store";
 import { useWorkflowStore } from "../../stores/workflow-store";
+import { navigateToReviewFromJsonImport, synchronizeWorkflowState } from "../../utils/workflow-navigation";
 
 interface FileSelectorProps {
   onFileRemoved?: () => void;
@@ -383,55 +384,160 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
 
   // JSON validation function
   const validateCantocapJson = (jsonData: any): boolean => {
-    if (!jsonData || typeof jsonData !== 'object') return false;
+    console.log('🔍 Starting JSON validation...');
     
-    // Check for required structure
-    if (!jsonData.metadata || !jsonData.subtitles) return false;
+    if (!jsonData || typeof jsonData !== 'object') {
+      console.error('❌ JSON validation failed: Invalid JSON object');
+      return false;
+    }
+    
+    // Check for required structure with enhanced logging
+    if (!jsonData.metadata || !jsonData.subtitles) {
+      console.error('❌ JSON validation failed: Missing metadata or subtitles', {
+        hasMetadata: !!jsonData.metadata,
+        hasSubtitles: !!jsonData.subtitles,
+        availableKeys: Object.keys(jsonData)
+      });
+      return false;
+    }
     
     // Validate metadata
     const { metadata } = jsonData;
-    if (!metadata.format || !metadata.version) return false;
+    if (!metadata.format || !metadata.version) {
+      console.error('❌ JSON validation failed: Invalid metadata structure', metadata);
+      return false;
+    }
     
     // Check if it's CantoCap format
-    if (!metadata.format.includes('CantoCap')) return false;
+    if (!metadata.format.includes('CantoCap')) {
+      console.error('❌ JSON validation failed: Not CantoCap format', metadata.format);
+      return false;
+    }
     
     // Validate subtitles array
     const { subtitles } = jsonData;
-    if (!Array.isArray(subtitles) || subtitles.length === 0) return false;
+    if (!Array.isArray(subtitles) || subtitles.length === 0) {
+      console.error('❌ JSON validation failed: Invalid subtitles array', {
+        isArray: Array.isArray(subtitles),
+        length: subtitles?.length
+      });
+      return false;
+    }
     
-    // Validate subtitle structure
-    return subtitles.every((sub: any) => {
-      return (
-        typeof sub.index === 'number' &&
-        typeof sub.startTime === 'number' &&
-        typeof sub.endTime === 'number' &&
-        typeof sub.caption === 'string' &&
-        (sub.translation === undefined || typeof sub.translation === 'string')
-      );
+    console.log('🔍 Validating', subtitles.length, 'subtitles...');
+    
+    // Enhanced subtitle structure validation with tolerance
+    const validSubtitles = subtitles.filter((sub: any, index: number) => {
+      const hasValidIndex = typeof sub.index === 'number';
+      const hasValidTiming = typeof sub.startTime === 'number' && typeof sub.endTime === 'number' && sub.endTime > sub.startTime;
+      const hasValidCaption = typeof sub.caption === 'string' && sub.caption.trim().length > 0;
+      const hasValidTranslation = sub.translation === undefined || typeof sub.translation === 'string';
+      
+      const isValid = hasValidIndex && hasValidTiming && hasValidCaption && hasValidTranslation;
+      
+      if (!isValid && index < 5) { // Log first 5 invalid subtitles for debugging
+        console.warn(`⚠️ Subtitle ${index} failed validation:`, {
+          hasValidIndex,
+          hasValidTiming,
+          hasValidCaption,
+          hasValidTranslation,
+          original: sub
+        });
+      }
+      
+      return isValid;
     });
+    
+    const validationRatio = validSubtitles.length / subtitles.length;
+    console.log(`📊 JSON validation result: ${validSubtitles.length}/${subtitles.length} valid subtitles (${(validationRatio * 100).toFixed(1)}%)`);
+    
+    // CRITICAL FIX: Accept JSON if at least 90% of subtitles are valid (more tolerant)
+    // This prevents rejecting good JSON files due to a few problematic subtitles
+    const isValid = validationRatio >= 0.9;
+    
+    if (!isValid) {
+      console.error(`❌ JSON validation failed: Only ${(validationRatio * 100).toFixed(1)}% of subtitles are valid (minimum 90% required)`);
+    } else {
+      console.log('✅ JSON validation passed successfully');
+    }
+    
+    return isValid;
   };
 
   // Convert CantoCap JSON to Step 4 format
   const convertJsonToStep4Format = (jsonData: any) => {
     const { subtitles } = jsonData;
     
-    return subtitles.map((sub: any, index: number) => ({
-      id: sub.index || index + 1,
-      startTime: sub.startTime,
-      endTime: sub.endTime,
-      text: sub.caption,
-      translation: sub.translation || '',
-      confidence: sub.confidence || 0,
-      speaker: sub.speaker || null,
-      isMusic: sub.isMusic || false
-    }));
+    if (!Array.isArray(subtitles)) {
+      console.error('❌ Subtitles is not an array:', subtitles);
+      return [];
+    }
+    
+    console.log('🔄 Converting', subtitles.length, 'subtitles from JSON format');
+    
+    return subtitles.map((sub: any, index: number) => {
+      // CRITICAL FIX: Proper ID generation to ensure string IDs and handle zero-based indexing
+      const subtitleId = sub.index !== undefined ? String(sub.index) : `imported_${index}`;
+      
+      // CRITICAL FIX: Better field mapping and validation
+      const converted = {
+        id: subtitleId,
+        index: sub.index !== undefined ? sub.index : index,
+        startTime: Number(sub.startTime) || 0,
+        endTime: Number(sub.endTime) || 0,
+        duration: Number(sub.endTime || 0) - Number(sub.startTime || 0),
+        text: String(sub.caption || sub.text || '').trim(),
+        translation: String(sub.translation || '').trim(),
+        confidence: Number(sub.confidence) || 0,
+        speaker: sub.speaker || null,
+        isMusic: Boolean(sub.isMusic || false)
+      };
+      
+      // Log conversion details for debugging missing subtitles
+      if (index < 3) { // Log first 3 for debugging
+        console.log(`📝 Subtitle ${index} conversion:`, {
+          original: { index: sub.index, caption: sub.caption, text: sub.text },
+          converted: { id: converted.id, text: converted.text }
+        });
+      }
+      
+      // Validation: Ensure we have essential data
+      if (!converted.text) {
+        console.warn(`⚠️ Subtitle ${index} has empty text after conversion:`, sub);
+      }
+      
+      if (converted.startTime >= converted.endTime) {
+        console.warn(`⚠️ Subtitle ${index} has invalid timing:`, { 
+          start: converted.startTime, 
+          end: converted.endTime 
+        });
+      }
+      
+      return converted;
+    }).filter(sub => {
+      // CRITICAL FIX: Filter out invalid subtitles that could cause data loss
+      const isValid = sub.text.length > 0 && sub.endTime > sub.startTime;
+      if (!isValid) {
+        console.warn('❌ Filtering out invalid subtitle:', sub);
+      }
+      return isValid;
+    });
   };
 
   // Handle JSON import
   const handleJsonImport = useCallback(async () => {
+    const importStartTime = performance.now();
+    let importSuccess = false;
     try {
       setIsImportingJson(true);
-      console.log('🔄 Starting JSON import process');
+      console.log('🔄 Starting JSON import process...', {
+        timestamp: new Date().toISOString(),
+        currentConfig: {
+          hasInputFile: !!config.inputFile,
+          hasSubtitle: !!config.subtitle,
+          hasImportedJson: !!config.importedJsonFile
+        }
+      });
       
       const result = await window.cantocapAPI.openFileDialog({
         filters: [
@@ -461,8 +567,23 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
         console.log('✅ JSON validation passed, converting format...');
         
         // Convert to Step 4 format and store in app config
+        const conversionStartTime = performance.now();
         const convertedSubtitles = convertJsonToStep4Format(jsonContent);
-        console.log('🔄 Converted subtitles:', convertedSubtitles.length, 'entries');
+        const conversionTime = performance.now() - conversionStartTime;
+        
+        console.log('🔄 Conversion completed:', {
+          originalCount: jsonContent.subtitles?.length || 0,
+          convertedCount: convertedSubtitles.length,
+          conversionTime: `${conversionTime.toFixed(2)}ms`,
+          dataLossDetected: (jsonContent.subtitles?.length || 0) !== convertedSubtitles.length
+        });
+        
+        // CRITICAL: Check for data loss
+        if ((jsonContent.subtitles?.length || 0) !== convertedSubtitles.length) {
+          const lostCount = (jsonContent.subtitles?.length || 0) - convertedSubtitles.length;
+          console.warn(`⚠️ DATA LOSS DETECTED: ${lostCount} subtitles were filtered out during conversion`);
+          showNotification(`Warning: ${lostCount} subtitles were filtered out due to invalid data`, 'warning');
+        }
         
         // Store subtitle data as temp file for persistence across app restarts
         const tempResult = await window.cantocapAPI.storeTempSubtitleData(convertedSubtitles);
@@ -472,47 +593,155 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
           console.log('📄 Subtitle data stored in temp file:', tempResult.tempFilePath);
         }
         
-        // Update config with converted data and mark as imported from JSON
-        updateConfig('subtitle', convertedSubtitles);
-        updateConfig('importedJsonFile', filePath); // Store the imported JSON file path
-        updateConfig('isImportedFromJson', true); // Flag to indicate JSON import
+        // FIXED: Use a single state update with a flag to prevent session integration cascade
+        console.log('🔄 Performing atomic config update for JSON import');
         
-        // Set metadata from JSON
-        if (jsonContent.metadata?.statistics) {
-          const stats = jsonContent.metadata.statistics;
-          if (stats.totalDuration) {
-            updateConfig('duration', stats.totalDuration);
+        // First, set a flag to prevent session integration during batch update
+        window.__JSON_IMPORT_IN_PROGRESS = true;
+        
+        try {
+          // Batch config updates with minimal triggers
+          updateConfig('subtitle', convertedSubtitles);
+          updateConfig('importedJsonFile', filePath);
+          updateConfig('isImportedFromJson', true);
+          
+          // Add duration if available from metadata
+          if (jsonContent.metadata?.statistics?.totalDuration) {
+            updateConfig('duration', jsonContent.metadata.statistics.totalDuration);
           }
+          
+          console.log('✅ Batched config updates completed:', {
+            subtitleCount: convertedSubtitles.length,
+            importedFile: filePath
+          });
+        } finally {
+          // Clear the flag after updates
+          window.__JSON_IMPORT_IN_PROGRESS = false;
         }
+        
+        // CRITICAL FIX: Trigger debounced session integration after batch updates complete
+        console.log('🔄 Triggering manual session integration after batch update');
+        setTimeout(async () => {
+          try {
+            const { handleJsonImportWithSessionReset } = await import('../../utils/session-workflow-integration');
+            
+            const result = await handleJsonImportWithSessionReset(convertedSubtitles, {
+              sourceType: 'json-import-batch',
+              timestamp: Date.now(),
+              metadata: {
+                fileName: filePath,
+                subtitleCount: convertedSubtitles.length,
+                triggeredBy: 'post-batch-integration'
+              }
+            });
+            
+            if (result.success) {
+              console.log('✅ Post-batch session integration completed successfully:', result);
+            } else {
+              console.warn('⚠️ Post-batch session integration failed:', result.error);
+            }
+          } catch (error) {
+            console.warn('⚠️ Could not load session integration after batch:', error);
+          }
+        }, 100); // Short delay to ensure config updates have been processed
         
         showNotification('JSON subtitles imported successfully!', 'success');
         console.log('✅ JSON import complete, navigating to review step...');
         
-        // Skip Steps 2 (Config) and 3 (Processing) and navigate to Step 4 (Review)
-        // Use setTimeout with longer delay to ensure React state stabilizes
-        setTimeout(() => {
-          try {
-            const workflowStore = useWorkflowStore.getState();
-            // First, skip the processing steps and mark them appropriately
-            workflowStore.skipStepsAndNavigate(['config', 'processing'], 'review');
-            // Explicitly ensure review step is enabled (defensive programming)
-            workflowStore.enableStep('review');
-            // Also enable export step since we have complete subtitle data
-            workflowStore.enableStep('export');
-            console.log('✅ Navigation to review step completed, steps enabled');
-          } catch (navError) {
-            console.error('❌ Navigation error:', navError);
-            showNotification('Navigation failed. Please manually go to Review step.', 'warning');
+        // Enhanced atomic navigation with state synchronization
+        try {
+          // First, synchronize workflow state to ensure consistency
+          const syncSuccess = await synchronizeWorkflowState();
+          if (!syncSuccess) {
+            console.warn('⚠️ Workflow state synchronization failed, proceeding with navigation anyway');
           }
-        }, 300); // Allow time for React to complete all state updates and re-renders
+          
+          // Perform atomic navigation
+          const navigationResult = navigateToReviewFromJsonImport({
+            sourceType: 'json-import',
+            timestamp: Date.now(),
+            metadata: {
+              fileName: filePath,
+              subtitleCount: convertedSubtitles.length,
+              hasMetadata: !!jsonContent.metadata,
+              importedAt: new Date().toISOString()
+            }
+          });
+          
+          if (navigationResult.success) {
+            importSuccess = true;
+            console.log('✅ Atomic JSON import navigation completed successfully');
+            showNotification('🎉 JSON import complete! Ready for review.', 'success');
+            
+            // Additional UI state optimization - ensure React re-renders
+            setTimeout(() => {
+              showNotification('Navigation to Review step completed!', 'info');
+            }, 100);
+          } else {
+            console.error('❌ Atomic navigation failed:', navigationResult.error);
+            showNotification(`Navigation failed: ${navigationResult.error}`, 'error');
+            
+            // Enhanced error recovery with state synchronization
+            try {
+              // Attempt rollback if available
+              if (navigationResult.rollback) {
+                console.log('🔄 Attempting atomic rollback...');
+                navigationResult.rollback();
+                
+                // Re-synchronize after rollback
+                await synchronizeWorkflowState();
+                showNotification('Workflow state restored. Please try again or navigate manually.', 'warning');
+              } else {
+                showNotification('Please manually navigate to Review step to continue.', 'warning');
+              }
+            } catch (rollbackError) {
+              console.error('❌ Rollback failed:', rollbackError);
+              showNotification('Recovery failed. Please restart the application if needed.', 'error');
+            }
+          }
+        } catch (navError) {
+          console.error('❌ Atomic navigation error:', navError);
+          showNotification('Navigation system error. Please manually go to Review step.', 'error');
+          
+          // Final fallback - attempt to restore a known good state
+          try {
+            await synchronizeWorkflowState();
+            showNotification('Attempted state recovery. Please try navigation again.', 'info');
+          } catch (syncError) {
+            console.error('❌ State recovery failed:', syncError);
+          }
+        }
       }
     } catch (error) {
       console.error('❌ JSON import error:', error);
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       showNotification(`Failed to import JSON: ${errorMsg}`, 'error');
+      
+      // Enhanced error logging with context
+      console.error('💥 JSON import failed with context:', {
+        error: errorMsg,
+        stack: error instanceof Error ? error.stack : undefined,
+        currentConfig: {
+          hasInputFile: !!config.inputFile,
+          hasSubtitle: !!config.subtitle,
+          hasImportedJson: !!config.importedJsonFile
+        },
+        importTime: performance.now() - importStartTime
+      });
     } finally {
       setIsImportingJson(false);
-      console.log('🔄 JSON import process finished');
+      const totalImportTime = performance.now() - importStartTime;
+      console.log('🔄 JSON import process finished', {
+        totalTime: `${totalImportTime.toFixed(2)}ms`,
+        success: importSuccess,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Performance warning for slow imports
+      if (totalImportTime > 5000) { // 5 seconds
+        console.warn(`⚠️ Slow JSON import detected: ${totalImportTime.toFixed(2)}ms`);
+        showNotification('JSON import completed but took longer than expected', 'warning');
+      }
     }
   }, [updateConfig, showNotification, completeStep]);
 

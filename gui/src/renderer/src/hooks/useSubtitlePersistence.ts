@@ -721,8 +721,9 @@ export function useSubtitlePersistence(
    */
   const enableAutoSave = useCallback(
     (interval?: number): void => {
-      setAutoSaveEnabled(true);
-
+      // Note: Do not call setAutoSaveEnabled(true) here to avoid infinite loops
+      // The state management is handled by the component using this hook
+      
       if (autoSaveTimerRef.current) {
         clearInterval(autoSaveTimerRef.current);
       }
@@ -756,7 +757,8 @@ export function useSubtitlePersistence(
    * Disable auto-save
    */
   const disableAutoSave = useCallback((): void => {
-    setAutoSaveEnabled(false);
+    // Note: Do not call setAutoSaveEnabled(false) here to avoid infinite loops
+    // The state management is handled by the component using this hook
 
     if (autoSaveTimerRef.current) {
       clearInterval(autoSaveTimerRef.current);
@@ -864,13 +866,42 @@ export function useSubtitlePersistence(
   }, [service, mergedOptions.enablePerformanceMonitoring]);
 
   /**
-   * Auto-save setup
+   * Auto-save setup - Fixed infinite loop by removing setState calls from useEffect
    */
   useEffect(() => {
     if (autoSaveEnabled && isWorkspaceReady) {
-      enableAutoSave();
+      // Setup auto-save timer directly without calling enableAutoSave() to prevent infinite loop
+      if (autoSaveTimerRef.current) {
+        clearInterval(autoSaveTimerRef.current);
+      }
+
+      autoSaveTimerRef.current = setInterval(async () => {
+        if (dirtyFilesRef.current.size > 0 && !isSavingFiles) {
+          setIsAutoSaving(true);
+
+          try {
+            const savePromises = Array.from(dirtyFilesRef.current).map(async (fileId) => {
+              const content = currentFiles[fileId];
+              if (content) {
+                await saveFile(fileId, content);
+              }
+            });
+
+            await Promise.all(savePromises);
+            setLastAutoSave(Date.now());
+          } catch (error) {
+            console.error('Auto-save failed:', error);
+          } finally {
+            setIsAutoSaving(false);
+          }
+        }
+      }, mergedOptions.fileAutoSaveInterval);
     } else {
-      disableAutoSave();
+      // Disable auto-save timer directly without calling disableAutoSave() to prevent infinite loop
+      if (autoSaveTimerRef.current) {
+        clearInterval(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
     }
 
     return () => {
@@ -878,7 +909,7 @@ export function useSubtitlePersistence(
         clearInterval(autoSaveTimerRef.current);
       }
     };
-  }, [autoSaveEnabled, isWorkspaceReady, enableAutoSave, disableAutoSave]);
+  }, [autoSaveEnabled, isWorkspaceReady, isSavingFiles, currentFiles, saveFile, mergedOptions.fileAutoSaveInterval]);
 
   /**
    * Load session on workspace change

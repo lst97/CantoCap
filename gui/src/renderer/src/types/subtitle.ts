@@ -7,9 +7,10 @@ export interface SubtitleEntry {
   endTime: number
   duration: number
   text: string
-  originalText?: string
+  translation?: string  // Changed from originalText to translation for consistency
   confidence?: number
   speaker?: string
+  isMusic?: boolean
   cueSettings?: string // VTT cue settings like "line:90%"
 }
 
@@ -26,8 +27,7 @@ export interface SubtitleModification {
 
 export interface TempSubtitleSession {
   sessionId: string
-  originalPath: string
-  tempPath: string
+  workspaceId: string  // Bind session to workspace for persistence across navigation
   videoPath: string
   originalSubtitles: SubtitleEntry[]
   currentSubtitles: SubtitleEntry[]
