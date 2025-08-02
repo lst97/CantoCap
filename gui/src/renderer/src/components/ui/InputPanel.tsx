@@ -19,9 +19,35 @@ import { VideoPlayer } from './VideoPlayer'
 import { useAppStore } from '../../stores/app-store'
 import { useUnifiedConfig } from '../../contexts/EnhancedWorkspaceConfigContext'
 
-export const InputPanel = () => {
-  const { config } = useAppStore()
+interface InputPanelProps {
+  initialFile?: string | null
+  initialRange?: { start: number; end: number } | null
+  initialJsonFile?: string | null
+  onFileSelect?: (file: string) => void
+  onJsonFileSelect?: (file: string | null) => void
+  onRangeSelect?: (start: number, end: number) => void
+  onMetadataUpdate?: (metadata: any) => void
+}
+
+export const InputPanel: React.FC<InputPanelProps> = ({
+  initialFile,
+  initialRange,
+  initialJsonFile,
+  onFileSelect,
+  onJsonFileSelect,
+  onRangeSelect,
+  onMetadataUpdate
+}) => {
+  // Use app store for fallback, but prioritize passed props
+  const { config: appConfig } = useAppStore()
   const { setValue, isReady, error, clearError } = useUnifiedConfig()
+  
+  // Prioritize workspace config passed via props
+  const config = {
+    ...appConfig,
+    inputFile: initialFile !== undefined ? initialFile : appConfig.inputFile,
+    importedJsonFile: initialJsonFile !== undefined ? initialJsonFile : appConfig.importedJsonFile
+  }
   const [timeRange, setTimeRange] = useState(null)
   const [isRangeValid, setIsRangeValid] = useState(false)
   const [videoDuration, setVideoDuration] = useState(0)
@@ -226,7 +252,13 @@ export const InputPanel = () => {
         <Stack spacing={2} sx={{ display: 'flex', flexDirection: 'column' }}>
         {/* File Selector */}
         <Box>
-          <FileSelector onFileRemoved={handleFileRemoved} />
+          <FileSelector 
+            onFileRemoved={handleFileRemoved}
+            initialFile={config.inputFile}
+            initialJsonFile={config.importedJsonFile}
+            onFileSelect={onFileSelect}
+            onJsonFileSelect={onJsonFileSelect}
+          />
         </Box>
         
         <Divider sx={{ borderColor: 'divider' }} />

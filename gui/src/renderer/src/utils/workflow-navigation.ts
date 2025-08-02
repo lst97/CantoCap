@@ -82,7 +82,15 @@ export const navigateToReview = () => {
  * Provides rollback capability and comprehensive error handling
  */
 export const navigateToReviewFromJsonImport = (context?: NavigationContext): NavigationResult => {
-  console.log('🚀 Starting atomic JSON import navigation to Review step')
+  console.log('🚀 Starting atomic JSON import navigation to Review step', {
+    sourceType: context?.sourceType,
+    triggeredBy: context?.metadata?.triggeredBy
+  })
+  
+  // Defensive check: Ensure no batch operations are interfering (synchronous check)
+  if ((window as any).__JSON_IMPORT_IN_PROGRESS) {
+    console.warn('⚠️ Batch import still in progress during navigation, this may cause issues');
+  }
   
   const navigationContext: NavigationContext = {
     sourceType: 'json-import',
@@ -94,14 +102,19 @@ export const navigateToReviewFromJsonImport = (context?: NavigationContext): Nav
   const workflowStore = useWorkflowStore.getState()
   
   return workflowStore.executeAtomicOperation(() => {
-    // Step 1: Validate current state
+    // Step 1: Validate and complete input step for JSON import
     const inputStep = workflowStore.steps.find(s => s.id === 'input-file')
-    if (!inputStep || !inputStep.isCompleted) {
-      throw new Error('Input file step must be completed before JSON import navigation')
+    if (!inputStep) {
+      throw new Error('Input file step not found during JSON import navigation')
     }
     
-    // Step 2: Mark input-file as completed (defensive)
-    workflowStore.completeStep('input-file')
+    // Step 2: Complete input-file step if not already completed (defensive for JSON imports)
+    if (!inputStep.isCompleted) {
+      console.log('🔧 Input-file step not completed, completing it for JSON import navigation');
+      workflowStore.completeStep('input-file')
+    } else {
+      console.log('✅ Input-file step already completed for JSON import navigation');
+    }
     
     // Step 3: Set import context for all affected steps
     workflowStore.setStepImportContext('config', navigationContext)
@@ -131,9 +144,20 @@ export const navigateToReviewFromJsonImport = (context?: NavigationContext): Nav
     
     // Step 7: Force validation update for the new workflow state
     // This ensures that validation checks the updated step states immediately
-    setTimeout(() => {
+    setTimeout(async () => {
       // Import validation store dynamically to avoid circular dependencies
       try {
+        // Check batch manager status asynchronously in the timeout
+        try {
+          const batchManager = await import('./json-import-batch-manager');
+          if (batchManager.isJsonImportBatchActive()) {
+            console.log('🔄 Skipping validation - batch still active');
+            return;
+          }
+        } catch (error) {
+          // Continue with validation even if batch manager fails
+        }
+        
         const validationStore = window.__workflowValidationStore || 
           (typeof useWorkflowValidationStore !== 'undefined' && useWorkflowValidationStore.getState());
         
@@ -145,13 +169,14 @@ export const navigateToReviewFromJsonImport = (context?: NavigationContext): Nav
       } catch (error) {
         console.warn('⚠️ Could not trigger post-navigation validation:', error);
       }
-    }, 100); // Small delay to ensure state changes are flushed
+    }, 150); // Increased delay to ensure all state changes are flushed
     
     console.log('✅ Atomic JSON import navigation completed successfully', {
       context: navigationContext,
       targetStep: 'review',
       skippedSteps: ['config', 'processing'],
-      enabledSteps: ['review', 'export']
+      enabledSteps: ['review', 'export'],
+      timestamp: Date.now()
     })
   })
 }

@@ -67,6 +67,16 @@ function App(): JSX.Element {
         
         console.log("✅ All initialization completed successfully");
         
+        // Initialize JSON import batch cleanup monitor
+        console.log("🔄 Initializing batch cleanup monitor...");
+        try {
+          const { initializeBatchCleanupMonitor } = await import('./utils/json-import-batch-manager');
+          initializeBatchCleanupMonitor();
+          console.log("✅ Batch cleanup monitor initialized");
+        } catch (error) {
+          console.warn("⚠️ Failed to initialize batch cleanup monitor:", error);
+        }
+        
         // Wait for workspace system to be ready
         console.log("🔄 Checking workspace readiness...");
         // Add a small delay to ensure workspace store is properly initialized

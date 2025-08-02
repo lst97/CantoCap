@@ -212,17 +212,52 @@ export const useAppStore = create<AppStore>()(
         if (workspaceStore.currentWorkspace) {
           console.log('✅ Current workspace found, merging config')
           const workspaceConfig = workspaceStore.currentWorkspace.config
+          
+          // Debug workspace config to see if importedJsonFile is stored
+          console.log('🔍 Workspace config details:', {
+            workspaceName: workspaceStore.currentWorkspace.name,
+            workspaceId: workspaceStore.currentWorkspace.id,
+            hasConfig: !!workspaceConfig,
+            configKeys: workspaceConfig ? Object.keys(workspaceConfig) : [],
+            importedJsonFile: workspaceConfig?.importedJsonFile,
+            inputFile: workspaceConfig?.inputFile,
+            outputFile: workspaceConfig?.outputFile
+          })
+          
           set((state: AppState) => ({
             config: {
               ...state.config,
               ...workspaceConfig
             }
           }))
-          console.log('✅ Workspace config merged')
+          console.log('✅ Workspace config merged', {
+            finalImportedJsonFile: get().config.importedJsonFile
+          })
         } else {
           console.log('ℹ️ No current workspace, falling back to localStorage')
           get().loadConfigFromStorage()
         }
+        
+        // Restore subtitle session data from IndexedDB if workspace exists
+        if (workspaceStore.currentWorkspace) {
+          try {
+            console.log('🔄 Checking for existing subtitle session data...')
+            const { useSubtitleEditStore } = await import('./subtitle-edit-store')
+            const subtitleStore = useSubtitleEditStore.getState()
+            
+            const restoredSessionId = await subtitleStore.checkAndRestoreWorkspaceSession(workspaceStore.currentWorkspace.id)
+            
+            if (restoredSessionId) {
+              console.log('✅ Subtitle session restored from IndexedDB:', restoredSessionId)
+            } else {
+              console.log('ℹ️ No existing subtitle session found for workspace:', workspaceStore.currentWorkspace.id)
+            }
+          } catch (error) {
+            console.warn('⚠️ Failed to restore subtitle session from IndexedDB:', error)
+            // Continue with normal initialization even if session restoration fails
+          }
+        }
+        
         console.log('✅ App store workspace initialization completed')
       } catch (error) {
         console.error('❌ Failed to initialize workspaces:', error)
@@ -334,7 +369,7 @@ export const useAppStore = create<AppStore>()(
       })
     },
     
-    updateConfig: <K extends keyof AppConfig>(key: K, value: AppConfig[K]) => {
+    updateConfig: async <K extends keyof AppConfig>(key: K, value: AppConfig[K]) => {
       const previousConfig = get().config
       
       // Log all config updates for debugging
@@ -465,10 +500,29 @@ export const useAppStore = create<AppStore>()(
             timestamp: new Date().toISOString()
           })
           
-          // CRITICAL FIX: Only trigger session integration if not in batch import mode
-          if ((window as any).__JSON_IMPORT_IN_PROGRESS) {
-            console.log('📋 Skipping session integration - batch import in progress');
-            return; // Skip session integration during batch updates
+          // CRITICAL FIX: Use batch manager to handle batch import mode
+          try {
+            const batchManager = await import('../utils/json-import-batch-manager');
+            if (batchManager.isJsonImportBatchActive()) {
+              console.log('📋 JSON batch import in progress - deferring session integration');
+              batchManager.deferJsonIntegration({
+                subtitleData: value,
+                config: updatedConfig,
+                timestamp: Date.now()
+              });
+              return; // Skip session integration during batch updates
+            }
+          } catch (error) {
+            // Fallback to legacy check if batch manager fails to load
+            if ((window as any).__JSON_IMPORT_IN_PROGRESS) {
+              console.log('📋 JSON batch import in progress (fallback check) - deferring session integration');
+              (window as any).__DEFERRED_JSON_INTEGRATION = {
+                subtitleData: value,
+                config: updatedConfig,
+                timestamp: Date.now()
+              };
+              return;
+            }
           }
           
           // If we have subtitle data from JSON import and an input file, trigger session integration
@@ -486,7 +540,22 @@ export const useAppStore = create<AppStore>()(
               (window as any).__INTEGRATION_TIMEOUTS = {};
             }
             
-            (window as any).__INTEGRATION_TIMEOUTS[integrationKey] = setTimeout(() => {
+            (window as any).__INTEGRATION_TIMEOUTS[integrationKey] = setTimeout(async () => {
+              // Double-check that batch import is not in progress using manager
+              try {
+                const batchManager = await import('../utils/json-import-batch-manager');
+                if (batchManager.isJsonImportBatchActive()) {
+                  console.log('📋 Delaying integration - batch still in progress');
+                  return;
+                }
+              } catch (error) {
+                // Fallback check
+                if ((window as any).__JSON_IMPORT_IN_PROGRESS) {
+                  console.log('📋 Delaying integration - batch still in progress (fallback)');
+                  return;
+                }
+              }
+              
               // Trigger session integration using the enhanced integration utilities
               try {
                 import('../utils/session-workflow-integration')
@@ -494,7 +563,7 @@ export const useAppStore = create<AppStore>()(
                     const { handleJsonImportWithSessionReset } = integrationModule
                     
                     return handleJsonImportWithSessionReset(value, {
-                      sourceType: 'json-import',
+                      sourceType: 'json-import-config',
                       timestamp: Date.now(),
                       metadata: {
                         fileName: updatedConfig.importedJsonFile || 'imported-json',
@@ -516,7 +585,7 @@ export const useAppStore = create<AppStore>()(
               } catch (error) {
                 console.warn('⚠️ Could not load session integration module:', error)
               }
-            }, 200); // 200ms debounce
+            }, 300); // Increased debounce to 300ms for better batch protection
           }
           
           // If subtitle data is being cleared, ensure session cleanup
@@ -548,8 +617,8 @@ export const useAppStore = create<AppStore>()(
       // Save config to workspace if it's workspace-specific and we have an active workspace
       const workspaceStore = useWorkspaceStore.getState()
       if (isWorkspaceSpecific && workspaceStore.currentWorkspace) {
-        // For critical config changes like inputFile/outputFile, ensure immediate workspace sync
-        if (key === 'inputFile' || key === 'outputFile') {
+        // For critical config changes like inputFile/outputFile/importedJsonFile, ensure immediate workspace sync
+        if (key === 'inputFile' || key === 'outputFile' || key === 'importedJsonFile') {
           console.log(`🔄 Critical config change: ${key} = ${value}, forcing immediate workspace sync`)
           
           // Update workspace config immediately to prevent race conditions during workspace switching
@@ -567,9 +636,29 @@ export const useAppStore = create<AppStore>()(
               workspaceStore.updateWorkspaceConfig(currentWorkspace.id, { [key]: value })
                 .then(() => {
                   console.log(`✅ Workspace-specific config '${key}' saved to workspace:`, currentWorkspace.name)
+                  
+                  // Special logging for importedJsonFile to debug persistence
+                  if (key === 'importedJsonFile') {
+                    console.log('📄 JSON file path saved to workspace config:', {
+                      workspaceId: currentWorkspace.id,
+                      workspaceName: currentWorkspace.name,
+                      jsonFilePath: value,
+                      fullConfigUpdate: { [key]: value }
+                    })
+                  }
                 })
                 .catch(error => {
                   console.error('❌ Failed to persist workspace config:', error)
+                  
+                  // Special error logging for importedJsonFile
+                  if (key === 'importedJsonFile') {
+                    console.error('📄 Failed to save JSON file path to workspace:', {
+                      workspaceId: currentWorkspace.id,
+                      jsonFilePath: value,
+                      error: error
+                    })
+                  }
+                  
                   // Fallback to localStorage if workspace update fails
                   localStorage.setItem('cantocap-config', JSON.stringify(updatedConfig))
                   console.log('💾 Config saved to localStorage as fallback')
@@ -585,9 +674,29 @@ export const useAppStore = create<AppStore>()(
           workspaceStore.updateWorkspaceConfig(workspaceStore.currentWorkspace.id, { [key]: value })
             .then(() => {
               console.log(`✅ Workspace-specific config '${key}' saved to workspace:`, workspaceStore.currentWorkspace?.name)
+              
+              // Special logging for importedJsonFile to debug persistence
+              if (key === 'importedJsonFile') {
+                console.log('📄 JSON file path saved to workspace config (async):', {
+                  workspaceId: workspaceStore.currentWorkspace?.id,
+                  workspaceName: workspaceStore.currentWorkspace?.name,
+                  jsonFilePath: value,
+                  fullConfigUpdate: { [key]: value }
+                })
+              }
             })
             .catch(error => {
               console.error('❌ Failed to update workspace config:', error)
+              
+              // Special error logging for importedJsonFile
+              if (key === 'importedJsonFile') {
+                console.error('📄 Failed to save JSON file path to workspace (async):', {
+                  workspaceId: workspaceStore.currentWorkspace?.id,
+                  jsonFilePath: value,
+                  error: error
+                })
+              }
+              
               // Fallback to localStorage if workspace update fails
               localStorage.setItem('cantocap-config', JSON.stringify(updatedConfig))
               console.log('💾 Config saved to localStorage as fallback')
@@ -721,13 +830,16 @@ export const useAppStore = create<AppStore>()(
             hfToken: mainConfig.apiKeys?.huggingface || '',
             // Map other nested structures as needed
             ffmpegPath: mainConfig.dependencies?.ffmpegPath || null,
+            // Map imported JSON file path
+            importedJsonFile: mainConfig.importedCaption?.jsonFilePath || null,
             // Remove nested structures to avoid conflicts
             apiKeys: undefined,
             dependencies: undefined,
             modelSettings: undefined,
             advancedSettings: undefined,
             ui: undefined,
-            window: undefined
+            window: undefined,
+            importedCaption: undefined
           }
         }
         
@@ -770,6 +882,16 @@ export const useAppStore = create<AppStore>()(
         } catch (error) {
           console.error('Failed to load temp subtitle data:', error);
         }
+
+        // Log final config state for debugging JSON file path restoration
+        console.log('🔧 Config loaded from storage:', {
+          importedJsonFile: get().config.importedJsonFile,
+          hasMainConfig: !!mainConfig,
+          mainConfigJsonPath: mainConfig?.importedCaption?.jsonFilePath,
+          hasLocalConfig: !!localConfig,
+          localConfigJsonPath: localConfig?.importedJsonFile,
+          mergedJsonPath: mergedConfig.importedJsonFile
+        })
         
       } catch (error) {
         console.error('Failed to load config from storage:', error)
@@ -1183,6 +1305,11 @@ useWorkspaceStore.subscribe(
         inputFile: { 
           workspace: workspaceConfig.inputFile,
           final: finalConfig.inputFile 
+        },
+        importedJsonFile: {
+          workspace: workspaceConfig.importedJsonFile,
+          final: finalConfig.importedJsonFile,
+          systemConfig: systemConfig.importedJsonFile
         }
       })
       

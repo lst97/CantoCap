@@ -36,11 +36,24 @@ export const InputFileStep: React.FC = () => {
   const handleFileSelect = async (file: string) => {
     try {
       await updateConfig({
-        inputFile: file,
+        selectedFile: file,
         lastModified: Date.now()
       })
     } catch (error) {
       console.error('Failed to save input file selection:', error)
+      // Error will be handled by error notification system
+    }
+  }
+
+  // Handle JSON file selection
+  const handleJsonFileSelect = async (file: string | null) => {
+    try {
+      await updateConfig({
+        importedJsonFile: file,
+        lastModified: Date.now()
+      })
+    } catch (error) {
+      console.error('Failed to save JSON file selection:', error)
       // Error will be handled by error notification system
     }
   }
@@ -121,9 +134,11 @@ export const InputFileStep: React.FC = () => {
         >
           <InputPanel 
             // Pass workspace-aware configuration
-            initialFile={config?.inputFile || null}
+            initialFile={config?.selectedFile || null}
             initialRange={config?.selectedRange}
+            initialJsonFile={config?.importedJsonFile || null}
             onFileSelect={handleFileSelect}
+            onJsonFileSelect={handleJsonFileSelect}
             onRangeSelect={handleRangeSelect}
             onMetadataUpdate={handleMetadataUpdate}
           />

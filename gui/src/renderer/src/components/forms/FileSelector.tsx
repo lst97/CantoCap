@@ -28,16 +28,33 @@ import {
 import { useAppStore } from "../../stores/app-store";
 import { useWorkflowStore } from "../../stores/workflow-store";
 import { navigateToReviewFromJsonImport, synchronizeWorkflowState } from "../../utils/workflow-navigation";
+import { atomicFileUpload, atomicJsonNavigation, batchStateUpdates } from "../../utils/step-state-controller";
 
 interface FileSelectorProps {
   onFileRemoved?: () => void;
+  initialFile?: string | null;
+  initialJsonFile?: string | null;
+  onFileSelect?: (file: string) => void;
+  onJsonFileSelect?: (file: string | null) => void;
 }
 
 export const FileSelector: React.FC<FileSelectorProps> = ({
   onFileRemoved,
+  initialFile,
+  initialJsonFile,
+  onFileSelect,
+  onJsonFileSelect,
 }) => {
-  const { config, updateConfig, showNotification } = useAppStore();
-  const { completeStep, resetStepsFromRange } = useWorkflowStore();
+  // Use app store for fallback, but prioritize passed props
+  const { config: appConfig, updateConfig, showNotification } = useAppStore();
+  
+  // Prioritize workspace config passed via props
+  const config = {
+    ...appConfig,
+    inputFile: initialFile !== undefined ? initialFile : appConfig.inputFile,
+    importedJsonFile: initialJsonFile !== undefined ? initialJsonFile : appConfig.importedJsonFile
+  };
+  const { completeStep } = useWorkflowStore();
   const [isDragOver, setIsDragOver] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isGeneratingMetadata, setIsGeneratingMetadata] = useState(false);
@@ -193,18 +210,25 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
         // Simulate processing delay for video loading
         await new Promise((resolve) => setTimeout(resolve, 800));
 
-        console.log('📁 Saving video file and auto-saving to workspace');
+        console.log('📁 Saving video file with atomic operations');
         
-        // Save the input file - this triggers auto-save via updateConfig
-        updateConfig("inputFile", filePath);
+        // Use atomic file upload to coordinate all state updates
+        await atomicFileUpload('video', filePath, {
+          resetSteps: true,
+          completeInputStep: true
+        });
+        
+        // Save the input file - prioritize prop callback, fallback to updateConfig
+        if (onFileSelect) {
+          onFileSelect(filePath);
+        } else {
+          updateConfig("inputFile", filePath);
+        }
 
         if (!config.outputFile) {
           const outputPath = filePath.replace(/\.[^/.]+$/, ".srt");
           updateConfig("outputFile", outputPath);
         }
-
-        // Reset steps 2-5 when new video is uploaded
-        resetStepsFromRange("config", "export");
 
         // Generate video metadata if it's a video file
         const ext = filePath.split(".").pop()?.toLowerCase();
@@ -214,10 +238,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
         }
 
         showNotification("Video file selected and auto-saved successfully", "success");
-        console.log('✅ Video selection and auto-save completed');
-
-        // Enable the Configuration step
-        completeStep("input-file");
+        console.log('✅ Video selection and atomic step updates completed');
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : "Unknown error";
@@ -225,13 +246,23 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [updateConfig, config.outputFile, showNotification, completeStep, generateVideoMetadata]);
+  }, [updateConfig, config.outputFile, showNotification, completeStep, generateVideoMetadata, onFileSelect]);
 
-  const handleClearFile = useCallback(() => {
-    console.log('🗑️ Removing video file and auto-saving changes');
+  const handleClearFile = useCallback(async () => {
+    console.log('🗑️ Removing video file with atomic operations');
     
-    // Clear the input file - this triggers auto-save via updateConfig
-    updateConfig("inputFile", null);
+    // Use atomic file upload to coordinate all state updates
+    await atomicFileUpload('video', null, {
+      resetSteps: true,
+      completeInputStep: false
+    });
+    
+    // Clear the input file - prioritize prop callback, fallback to updateConfig
+    if (onFileSelect) {
+      onFileSelect(null);
+    } else {
+      updateConfig("inputFile", null);
+    }
     
     // Clear related output file if it's auto-generated
     if (config.outputFile && config.outputFile.endsWith(".srt")) {
@@ -241,7 +272,13 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
     // Also clear imported JSON caption if it exists
     if (config.importedJsonFile) {
       updateConfig("subtitle", null);
-      updateConfig("importedJsonFile", null);
+      
+      // Use workspace config callback if available, fallback to app store
+      if (onJsonFileSelect) {
+        onJsonFileSelect(null);
+      } else {
+        updateConfig("importedJsonFile", null);
+      }
     }
     
     // Clear video metadata and loading states
@@ -249,15 +286,12 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
     setVideoMetadata(null);
     setIsGeneratingMetadata(false);
     
-    // Note: Workflow state will be automatically updated via workflow validation store subscription
-    // This ensures proper coordination between config changes and workflow state
-    
     // Notify parent component that file was removed
     onFileRemoved?.();
     
     showNotification("Video file removed and changes auto-saved", "info");
-    console.log('✅ Video removal and auto-save completed');
-  }, [updateConfig, config.outputFile, config.importedJsonFile, onFileRemoved, showNotification]);
+    console.log('✅ Video removal and atomic step updates completed');
+  }, [updateConfig, config.outputFile, config.importedJsonFile, onFileRemoved, showNotification, onFileSelect, onJsonFileSelect]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -317,16 +351,23 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
               throw new Error('Unable to access the file path. Please use the "Browse Files" button to select your video.');
             }
             
-            // Save the input file - this triggers auto-save via updateConfig
-            updateConfig("inputFile", filePath);
+            // Use atomic file upload to coordinate all state updates
+            await atomicFileUpload('video', filePath, {
+              resetSteps: true,
+              completeInputStep: true
+            });
+            
+            // Save the input file - prioritize prop callback, fallback to updateConfig
+            if (onFileSelect) {
+              onFileSelect(filePath);
+            } else {
+              updateConfig("inputFile", filePath);
+            }
 
             if (!config.outputFile) {
               const outputPath = filePath.replace(/\.[^/.]+$/, ".srt");
               updateConfig("outputFile", outputPath);
             }
-
-            // Reset steps 2-5 when new video is uploaded
-            resetStepsFromRange("config", "export");
 
             // Generate video metadata if it's a video file
             const ext = filePath.split(".").pop()?.toLowerCase();
@@ -336,10 +377,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
             }
 
             showNotification("Video file dropped and auto-saved successfully", "success");
-            console.log('✅ Drag & drop auto-save completed');
-
-            // Enable the Configuration step
-            completeStep("input-file");
+            console.log('✅ Drag & drop with atomic step updates completed');
           } catch (error) {
             console.error('Error in drag and drop file handling:', error);
             const errorMsg = error instanceof Error ? error.message : 'Unknown error occurred while processing the dropped file';
@@ -352,7 +390,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
         }
       }
     },
-    [updateConfig, config.outputFile, showNotification, completeStep, generateVideoMetadata]
+    [updateConfig, config.outputFile, showNotification, completeStep, generateVideoMetadata, onFileSelect, onJsonFileSelect]
   );
 
   const getFileName = (filePath: string | null): string | null => {
@@ -593,16 +631,22 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
           console.log('📄 Subtitle data stored in temp file:', tempResult.tempFilePath);
         }
         
-        // FIXED: Use a single state update with a flag to prevent session integration cascade
-        console.log('🔄 Performing atomic config update for JSON import');
+        // FIXED: Use managed batch operations to prevent race conditions
+        const { executeInBatch } = await import('../../utils/json-import-batch-manager');
         
-        // First, set a flag to prevent session integration during batch update
-        window.__JSON_IMPORT_IN_PROGRESS = true;
-        
-        try {
-          // Batch config updates with minimal triggers
+        await executeInBatch(async () => {
+          console.log('🔄 Applying batched config updates...');
+          
+          // Perform all config updates atomically
           updateConfig('subtitle', convertedSubtitles);
-          updateConfig('importedJsonFile', filePath);
+          
+          // Use workspace config callback if available, fallback to app store
+          if (onJsonFileSelect) {
+            onJsonFileSelect(filePath);
+          } else {
+            updateConfig('importedJsonFile', filePath);
+          }
+          
           updateConfig('isImportedFromJson', true);
           
           // Add duration if available from metadata
@@ -610,28 +654,49 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
             updateConfig('duration', jsonContent.metadata.statistics.totalDuration);
           }
           
-          console.log('✅ Batched config updates completed:', {
+          // CRITICAL FIX: Complete input-file step for JSON imports
+          // JSON imports should count as completing the input step since we have content to process
+          const workflowStore = useWorkflowStore.getState();
+          workflowStore.completeStep('input-file');
+          console.log('✅ Input-file step completed for JSON import');
+          
+          console.log('✅ Atomic config batch completed:', {
             subtitleCount: convertedSubtitles.length,
-            importedFile: filePath
+            importedFile: filePath,
+            inputStepCompleted: true
           });
-        } finally {
-          // Clear the flag after updates
-          window.__JSON_IMPORT_IN_PROGRESS = false;
-        }
+        });
         
-        // CRITICAL FIX: Trigger debounced session integration after batch updates complete
-        console.log('🔄 Triggering manual session integration after batch update');
+        // CRITICAL FIX: Trigger managed session integration after batch completes
+        console.log('🔄 Initiating post-batch session integration');
+        
+        const { isJsonImportBatchActive, getDeferredJsonIntegration } = await import('../../utils/json-import-batch-manager');
+        
+        // Use a shorter delay since batch manager handles timing
         setTimeout(async () => {
           try {
+            // Verify batch is complete using manager
+            if (isJsonImportBatchActive()) {
+              console.warn('⚠️ Batch still active per manager, skipping integration');
+              return;
+            }
+            
+            // Check for any deferred integration
+            const deferredIntegration = getDeferredJsonIntegration();
+            if (deferredIntegration) {
+              console.log('🔄 Processing deferred JSON integration:', deferredIntegration);
+            }
+            
             const { handleJsonImportWithSessionReset } = await import('../../utils/session-workflow-integration');
             
             const result = await handleJsonImportWithSessionReset(convertedSubtitles, {
-              sourceType: 'json-import-batch',
+              sourceType: 'json-import-fileselector',
               timestamp: Date.now(),
               metadata: {
                 fileName: filePath,
                 subtitleCount: convertedSubtitles.length,
-                triggeredBy: 'post-batch-integration'
+                triggeredBy: 'fileselector-managed-batch',
+                hadDeferredIntegration: !!deferredIntegration
               }
             });
             
@@ -643,18 +708,24 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
           } catch (error) {
             console.warn('⚠️ Could not load session integration after batch:', error);
           }
-        }, 100); // Short delay to ensure config updates have been processed
+        }, 150); // Reduced delay since manager handles timing
         
         showNotification('JSON subtitles imported successfully!', 'success');
         console.log('✅ JSON import complete, navigating to review step...');
         
-        // Enhanced atomic navigation with state synchronization
+        // Enhanced atomic navigation with proper timing coordination
         try {
-          // First, synchronize workflow state to ensure consistency
+          // Brief delay to ensure all config updates have been processed
+          await new Promise(resolve => setTimeout(resolve, 50));
+          
+          // Synchronize workflow state to ensure consistency
           const syncSuccess = await synchronizeWorkflowState();
           if (!syncSuccess) {
             console.warn('⚠️ Workflow state synchronization failed, proceeding with navigation anyway');
           }
+          
+          // Additional delay before navigation to ensure session integration completes
+          await new Promise(resolve => setTimeout(resolve, 100));
           
           // Perform atomic navigation
           const navigationResult = navigateToReviewFromJsonImport({
@@ -746,26 +817,37 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
   }, [updateConfig, showNotification, completeStep]);
 
   // Handle JSON caption removal
-  const handleRemoveJsonCaption = useCallback(() => {
-    console.log('🗑️ Removing imported JSON caption');
+  const handleRemoveJsonCaption = useCallback(async () => {
+    console.log('🗑️ Removing imported JSON caption with atomic operations');
+    
+    // Use atomic JSON file operation to coordinate all state updates
+    await atomicFileUpload('json', null, {
+      resetSteps: false // Don't reset all steps, just config->export
+    });
     
     // Clear subtitle data and imported file path
     updateConfig('subtitle', null);
-    updateConfig('importedJsonFile', null);
     
-    // Reset workflow from config step when JSON is removed
-    // This will re-enable step 2 (config) and reset steps 4-5
-    const workflowStore = useWorkflowStore.getState();
-    workflowStore.resetStepsFromRange('config', 'export');
+    // Use workspace config callback if available, fallback to app store
+    if (onJsonFileSelect) {
+      onJsonFileSelect(null);
+    } else {
+      updateConfig('importedJsonFile', null);
+    }
+    
+    // Reset workflow from config step when JSON is removed using atomic operation
+    const { atomicStepReset } = await import('../../utils/step-state-controller');
+    await atomicStepReset('config', 'export', true);
     
     // Ensure config step is accessible and completed if we have input file
     if (config.inputFile) {
+      const workflowStore = useWorkflowStore.getState();
       workflowStore.completeStep('input-file');
     }
     
     showNotification('Imported subtitle removed. You can now configure subtitle generation.', 'info');
-    console.log('✅ JSON caption removal completed');
-  }, [updateConfig, config.inputFile, showNotification]);
+    console.log('✅ JSON caption removal with atomic operations completed');
+  }, [updateConfig, config.inputFile, showNotification, onJsonFileSelect]);
 
   return (
     <Box>

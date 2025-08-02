@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import { useAppStore } from './app-store'
 import { useWorkflowStore } from './workflow-store'
+import { stepStateController, atomicStepReset } from '../utils/step-state-controller'
 
 /**
  * Workflow Validation Store - Simplified User Experience Flow
@@ -257,7 +258,7 @@ export const useWorkflowValidationStore = create<WorkflowValidationStore>()(
       // Apply the user experience flow immediately after media validation
       if (result) {
         // First enforce step access to set correct step states
-        get().enforceStepAccess()
+        await get().enforceStepAccess()
         
         // Only validate steps that are accessible to avoid error states on blocked steps
         const workflowStore = useWorkflowStore.getState()
@@ -268,7 +269,7 @@ export const useWorkflowValidationStore = create<WorkflowValidationStore>()(
         }
         
         // Sync workflow store to ensure consistency
-        get().syncWithWorkflowStore()
+        await get().syncWithWorkflowStore()
       }
     },
 
@@ -374,7 +375,7 @@ export const useWorkflowValidationStore = create<WorkflowValidationStore>()(
     },
 
     // Simplified Workflow State Management - Implements User Experience Flow
-    enforceStepAccess: () => {
+    enforceStepAccess: async () => {
       const appStore = useAppStore.getState()
       const workflowStore = useWorkflowStore.getState()
       const hasMediaFile = !!appStore.config.inputFile
@@ -388,6 +389,9 @@ export const useWorkflowValidationStore = create<WorkflowValidationStore>()(
         // User Experience Flow: App loads OR User removes video
         // → Step 1 active (ready), Step 2-5 blocked
         
+        // Use atomic step reset to prevent race conditions
+        console.log('🔧 Using atomic step reset for validation store')
+        
         // Clear validation states for steps 2-5 to prevent showing errors
         const state = get()
         const clearedValidations = { ...state.stepValidations }
@@ -399,8 +403,8 @@ export const useWorkflowValidationStore = create<WorkflowValidationStore>()(
         
         set({ stepValidations: clearedValidations })
         
-        // Reset all steps to initial state - but this makes config accessible
-        workflowStore.resetStepsFromRange('config', 'export')
+        // Use atomic step reset instead of direct workflow store calls
+        await atomicStepReset('config', 'export', true)
         
         // Force update workflow store to ensure Step 2 is properly blocked
         const workflowStoreState = useWorkflowStore.getState()
@@ -439,8 +443,10 @@ export const useWorkflowValidationStore = create<WorkflowValidationStore>()(
         const configStep = workflowStore.steps.find(s => s.id === 'config')
         
         if (inputFileStep && !inputFileStep.isCompleted) {
-          // Mark Step 1 as completed
-          workflowStore.completeStep('input-file')
+          // Use atomic operation to mark Step 1 as completed
+          await stepStateController.executeAtomicStepOperation(() => {
+            workflowStore.completeStep('input-file')
+          }, { operation: 'complete-input-step', source: 'validation-store' })
         }
         
         if (configStep) {
@@ -450,9 +456,11 @@ export const useWorkflowValidationStore = create<WorkflowValidationStore>()(
           configStep.errorMessage = undefined
         }
         
-        // Navigate to Step 2 if still on Step 1
+        // Navigate to Step 2 if still on Step 1 using atomic operation
         if (workflowStore.currentStep === 'input-file') {
-          workflowStore.setCurrentStep('config')
+          await stepStateController.executeAtomicStepOperation(() => {
+            workflowStore.setCurrentStep('config')
+          }, { operation: 'navigate-to-config', source: 'validation-store' })
         }
       }
     },
@@ -489,9 +497,9 @@ export const useWorkflowValidationStore = create<WorkflowValidationStore>()(
     },
 
     // Integration with workflow store - Simplified
-    syncWithWorkflowStore: () => {
+    syncWithWorkflowStore: async () => {
       // Apply the simplified user experience flow
-      get().enforceStepAccess()
+      await get().enforceStepAccess()
       get().updateWorkflowFromValidation()
     },
 
@@ -499,7 +507,7 @@ export const useWorkflowValidationStore = create<WorkflowValidationStore>()(
     initialize: async () => {
       await get().validateMediaFile()
       await get().validateAllSteps()
-      get().syncWithWorkflowStore()
+      await get().syncWithWorkflowStore()
     },
 
     getValidationSummary: () => {
@@ -517,42 +525,56 @@ export const useWorkflowValidationStore = create<WorkflowValidationStore>()(
   }))
 )
 
-// Subscribe to app store changes for automatic validation
+// Initialize subscriptions after module load to prevent circular dependency issues
 let updateTimeout: NodeJS.Timeout | null = null
-useAppStore.subscribe(
-  (state) => state.config.inputFile,
-  (inputFile, prevInputFile) => {
-    if (inputFile !== prevInputFile) {
-      console.log('🔧 App store inputFile subscription triggered:', {
-        inputFile,
-        prevInputFile,
-        timestamp: Date.now()
-      })
-      
-      // Debounce updates to prevent race conditions
-      if (updateTimeout) {
-        clearTimeout(updateTimeout)
-      }
-      
-      updateTimeout = setTimeout(() => {
-        const validationStore = useWorkflowValidationStore.getState()
-        validationStore.updateMediaFile(inputFile)
-        updateTimeout = null
-      }, 50) // 50ms debounce
-    }
-  }
-)
 
-// Subscribe to dependencies changes
-useAppStore.subscribe(
-  (state) => state.dependencies,
-  (dependencies, prevDependencies) => {
-    if (JSON.stringify(dependencies) !== JSON.stringify(prevDependencies)) {
-      const validationStore = useWorkflowValidationStore.getState()
-      validationStore.validateStep('config')
-    }
+// Initialize subscriptions in a timeout to ensure all stores are loaded
+const initializeSubscriptions = () => {
+  try {
+    // Subscribe to app store changes for automatic validation
+    useAppStore.subscribe(
+      (state) => state.config.inputFile,
+      (inputFile, prevInputFile) => {
+        if (inputFile !== prevInputFile) {
+          console.log('🔧 App store inputFile subscription triggered:', {
+            inputFile,
+            prevInputFile,
+            timestamp: Date.now()
+          })
+          
+          // Debounce updates to prevent race conditions
+          if (updateTimeout) {
+            clearTimeout(updateTimeout)
+          }
+          
+          updateTimeout = setTimeout(async () => {
+            const validationStore = useWorkflowValidationStore.getState()
+            await validationStore.updateMediaFile(inputFile)
+            updateTimeout = null
+          }, 50) // 50ms debounce
+        }
+      }
+    )
+
+    // Subscribe to dependencies changes
+    useAppStore.subscribe(
+      (state) => state.dependencies,
+      async (dependencies, prevDependencies) => {
+        if (JSON.stringify(dependencies) !== JSON.stringify(prevDependencies)) {
+          const validationStore = useWorkflowValidationStore.getState()
+          await validationStore.validateStep('config')
+        }
+      }
+    )
+    
+    console.log('✅ Workflow validation store subscriptions initialized')
+  } catch (error) {
+    console.warn('⚠️ Failed to initialize workflow validation subscriptions:', error)
   }
-)
+}
+
+// Initialize subscriptions after current execution context
+setTimeout(initializeSubscriptions, 0)
 
 // Export selectors
 export const selectMediaValidation = (state: WorkflowValidationStore) => state.mediaValidation

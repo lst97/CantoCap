@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import {
   Box,
   Typography,
@@ -24,6 +24,7 @@ import { SubtitleEntry, SubtitleModification } from "../../../types/subtitle";
 import { ReviewCard, ModificationChip, ActionButton } from "./styles";
 import { formatTime, generateCharacterDiff, generateBilingualDiff } from "./utils";
 import { SubtitleListPanelProps } from "./types";
+import { loadSessionSubtitles } from "../../../utils/subtitle-indexeddb";
 
 // Interface for gap state management
 interface GapState {
@@ -48,6 +49,42 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
   
   const { config } = useAppStore();
   const currentWorkspaceId = config?.workspaceId;
+
+  // State for IndexedDB original data for accurate diff comparison
+  const [originalSubtitlesFromDB, setOriginalSubtitlesFromDB] = useState<SubtitleEntry[]>([]);
+  const [isLoadingOriginalData, setIsLoadingOriginalData] = useState(false);
+  const [showDiff, setShowDiff] = useState(false);
+
+  // Load original subtitles from IndexedDB for accurate diff comparison
+  const loadOriginalDataForDiff = useCallback(async () => {
+    if (!session?.workspaceId || !session?.sessionId || isLoadingOriginalData) {
+      return;
+    }
+
+    setIsLoadingOriginalData(true);
+    try {
+      console.log('🔍 Loading original subtitles from IndexedDB for diff comparison');
+      const subtitles = await loadSessionSubtitles(session.workspaceId, session.sessionId);
+      
+      if (subtitles.original && Array.isArray(subtitles.original)) {
+        setOriginalSubtitlesFromDB(subtitles.original);
+        console.log('✅ Loaded original subtitles for diff:', subtitles.original.length);
+      } else {
+        console.log('⚠️ No original subtitles found in IndexedDB');
+        setOriginalSubtitlesFromDB([]);
+      }
+    } catch (error) {
+      console.error('❌ Failed to load original subtitles for diff:', error);
+      setOriginalSubtitlesFromDB([]);
+    } finally {
+      setIsLoadingOriginalData(false);
+    }
+  }, [session?.workspaceId, session?.sessionId]);
+
+  // Clear original data when session changes
+  useEffect(() => {
+    setOriginalSubtitlesFromDB([]);
+  }, [session?.workspaceId, session?.sessionId]);
 
   // DEBUG: Log session data when it changes (with performance monitoring)
   React.useEffect(() => {
@@ -111,7 +148,6 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
 
   const currentSubtitle = getCurrentSubtitle();
 
-  const [showDiff, setShowDiff] = useState(false);
   const [hoveredSubtitleId, setHoveredSubtitleId] = useState<string | null>(
     null
   );
@@ -349,6 +385,25 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
     );
   };
 
+  // NEW: Get original subtitle from IndexedDB data for accurate comparison
+  const getOriginalSubtitleFromDB = (currentSubtitle: SubtitleEntry): SubtitleEntry | null => {
+    if (!originalSubtitlesFromDB.length) return null;
+    
+    // Try to find by ID first
+    let original = originalSubtitlesFromDB.find(orig => orig.id === currentSubtitle.id);
+    
+    // If not found by ID, try to find by index or timing (for subtitles that might have been re-indexed)
+    if (!original) {
+      original = originalSubtitlesFromDB.find(orig => 
+        orig.index === currentSubtitle.index ||
+        (Math.abs(orig.startTime - currentSubtitle.startTime) < 0.1 && 
+         Math.abs(orig.endTime - currentSubtitle.endTime) < 0.1)
+      );
+    }
+    
+    return original || null;
+  };
+
   const getModificationType = (
     subtitle: SubtitleEntry
   ): "added" | "modified" | "deleted" | null => {
@@ -358,7 +413,33 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
       return modification.type;
     }
 
-    // For modified subtitles, check if there's actually a difference by comparing with original stored values
+    // NEW: Use IndexedDB original data for comparison if available
+    if (originalSubtitlesFromDB.length > 0) {
+      const originalSubtitle = getOriginalSubtitleFromDB(subtitle);
+      
+      if (!originalSubtitle) {
+        // Current subtitle exists but no original found - likely added
+        return "added";
+      }
+      
+      // Compare with original from IndexedDB
+      const originalChinese = originalSubtitle.text || '';
+      const currentChinese = subtitle.text || '';
+      const originalTranslation = originalSubtitle.translation || '';
+      const currentTranslation = subtitle.translation || '';
+
+      // Check if either Chinese text or translation has changed
+      const chineseChanged = originalChinese.trim() !== currentChinese.trim();
+      const translationChanged = originalTranslation.trim() !== currentTranslation.trim();
+
+      if (chineseChanged || translationChanged) {
+        return "modified";
+      }
+      
+      return null; // No changes detected
+    }
+
+    // FALLBACK: Use modification records if IndexedDB data not available
     if (modification && modification.original && modification.type === 'modified') {
       const originalChinese = modification.original.text || '';
       const currentChinese = subtitle.text || '';
@@ -488,11 +569,38 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
         </Box>
 
         <Box sx={{ display: "flex", gap: 1 }}>
-          <Tooltip title="Toggle diff view">
-            <IconButton size="small" onClick={() => setShowDiff(!showDiff)}>
+          <Tooltip title={showDiff ? "Hide diff view" : "Show diff view (loads original data)"}>
+            <IconButton 
+              size="small" 
+              onClick={() => {
+                const newShowDiff = !showDiff;
+                setShowDiff(newShowDiff);
+                // Load original data when diff view is enabled (only if we don't have it yet)
+                if (newShowDiff && session?.workspaceId && session?.sessionId && originalSubtitlesFromDB.length === 0 && !isLoadingOriginalData) {
+                  loadOriginalDataForDiff();
+                }
+              }}
+              disabled={isLoadingOriginalData}
+            >
               <HideIcon color={showDiff ? "primary" : "inherit"} />
             </IconButton>
           </Tooltip>
+          {showDiff && originalSubtitlesFromDB.length > 0 && (
+            <Chip
+              label={`${originalSubtitlesFromDB.length} original`}
+              size="small"
+              variant="outlined"
+              sx={{ 
+                fontSize: "0.65rem",
+                backgroundColor: "rgba(29, 185, 84, 0.1)",
+                borderColor: "rgba(29, 185, 84, 0.3)",
+                color: "#1DB954"
+              }}
+            />
+          )}
+          {isLoadingOriginalData && (
+            <CircularProgress size={16} sx={{ ml: 1 }} />
+          )}
         </Box>
       </Box>
 
@@ -740,12 +848,24 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
                           )}
 
                           {modificationType === "modified" && showDiff && (() => {
-                            const modification = getModificationForSubtitle(subtitle.id);
-                            if (!modification || !modification.original) return null;
+                            // NEW: Use IndexedDB original data if available, fallback to modification records
+                            const originalSubtitle = getOriginalSubtitleFromDB(subtitle);
+                            let originalChinese = '';
+                            let originalTranslation = '';
+                            
+                            if (originalSubtitle) {
+                              // Use IndexedDB original data
+                              originalChinese = originalSubtitle.text || '';
+                              originalTranslation = originalSubtitle.translation || '';
+                            } else {
+                              // Fallback to modification records
+                              const modification = getModificationForSubtitle(subtitle.id);
+                              if (!modification || !modification.original) return null;
+                              originalChinese = modification.original.text || '';
+                              originalTranslation = modification.original.translation || '';
+                            }
 
-                            const originalChinese = modification.original.text || '';
                             const currentChinese = subtitle.text || '';
-                            const originalTranslation = modification.original.translation || '';
                             const currentTranslation = subtitle.translation || '';
 
                             const chineseChanged = originalChinese.trim() !== currentChinese.trim();
@@ -835,6 +955,41 @@ export const SubtitleListPanel: React.FC<SubtitleListPanelProps> = () => {
                                     </Box>
                                   </Box>
                                 )}
+                                
+                                {/* Data source indicator */}
+                                <Box sx={{ mt: 1, pt: 1, borderTop: "1px solid rgba(64, 68, 75, 0.2)" }}>
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    sx={{ fontSize: "0.65rem", display: "flex", alignItems: "center", gap: 0.5 }}
+                                  >
+                                    {originalSubtitle ? (
+                                      <>
+                                        <Box 
+                                          sx={{ 
+                                            width: 6, 
+                                            height: 6, 
+                                            borderRadius: "50%", 
+                                            backgroundColor: "#1DB954" 
+                                          }} 
+                                        />
+                                        Compared with IndexedDB original
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Box 
+                                          sx={{ 
+                                            width: 6, 
+                                            height: 6, 
+                                            borderRadius: "50%", 
+                                            backgroundColor: "#F59E0B" 
+                                          }} 
+                                        />
+                                        Compared with modification record
+                                      </>
+                                    )}
+                                  </Typography>
+                                </Box>
                               </Box>
                             );
                           })()}

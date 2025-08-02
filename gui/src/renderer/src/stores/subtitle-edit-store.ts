@@ -1264,13 +1264,20 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
     
     // Check if there's already an active session for this workspace
     if (state.session && state.session.workspaceId === workspaceId) {
-      console.log('✅ Found active session for workspace:', state.session.sessionId)
-      return state.session.sessionId
+      // Check if session has subtitle data, if not try to restore it from IndexedDB
+      if (state.session.currentSubtitles && state.session.currentSubtitles.length > 0) {
+        console.log('✅ Found active session with data for workspace:', state.session.sessionId)
+        return state.session.sessionId
+      } else {
+        console.log('🔄 Active session exists but no subtitle data, attempting to restore from IndexedDB:', state.session.sessionId)
+        // Continue to IndexedDB restoration logic below
+      }
     }
     
     // Find and restore session from IndexedDB
     try {
       const sessionIds = await listWorkspaceSessions(workspaceId)
+      const existingSession = state.session
       
       if (sessionIds.length > 0) {
         // Try to restore the first session that has data
@@ -1285,32 +1292,52 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
             const currentSubtitles = subtitles.modified || subtitles.original || []
             const originalSubtitles = subtitles.original || currentSubtitles
             
-            // Create restored session
-            // Try to get video path from app store config as fallback
-            const appStore = (await import('../stores/app-store')).useAppStore.getState()
-            const fallbackVideoPath = appStore.config.inputFile || ''
-            
-            const restoredSession: TempSubtitleSession = {
-              sessionId,
-              workspaceId,
-              videoPath: fallbackVideoPath, // Use config.inputFile as fallback since IndexedDB doesn't store video path
-              originalSubtitles: [...originalSubtitles],
-              currentSubtitles: [...currentSubtitles],
-              modifications: [],
-              lastModified: new Date(),
-              isDirty: subtitles.modified ? true : false,
-              currentTime: 0,
-              selectedSubtitleId: null,
-              isVideoPlaying: false,
-              shouldAutoPause: false,
-              videoDuration: 0
+            // If we have an existing session, update it with the loaded data
+            if (existingSession && existingSession.workspaceId === workspaceId) {
+              console.log('🔄 Updating existing session with IndexedDB data')
+              
+              const updatedSession: TempSubtitleSession = {
+                ...existingSession,
+                originalSubtitles: [...originalSubtitles],
+                currentSubtitles: [...currentSubtitles],
+                modifications: [],
+                lastModified: new Date(),
+                isDirty: subtitles.modified ? true : false,
+              }
+              
+              // Update the existing session with loaded data
+              set({ session: updatedSession })
+              
+              console.log('✅ Updated existing session with IndexedDB data for workspace:', workspaceId)
+              return existingSession.sessionId
+            } else {
+              // Create new restored session
+              // Try to get video path from app store config as fallback
+              const appStore = (await import('../stores/app-store')).useAppStore.getState()
+              const fallbackVideoPath = appStore.config.inputFile || ''
+              
+              const restoredSession: TempSubtitleSession = {
+                sessionId,
+                workspaceId,
+                videoPath: fallbackVideoPath, // Use config.inputFile as fallback since IndexedDB doesn't store video path
+                originalSubtitles: [...originalSubtitles],
+                currentSubtitles: [...currentSubtitles],
+                modifications: [],
+                lastModified: new Date(),
+                isDirty: subtitles.modified ? true : false,
+                currentTime: 0,
+                selectedSubtitleId: null,
+                isVideoPlaying: false,
+                shouldAutoPause: false,
+                videoDuration: 0
+              }
+              
+              // Load the session into the store
+              set({ session: restoredSession })
+              
+              console.log('✅ Session restored from IndexedDB for workspace:', workspaceId)
+              return sessionId
             }
-            
-            // Load the session into the store
-            set({ session: restoredSession })
-            
-            console.log('✅ Session restored from IndexedDB for workspace:', workspaceId)
-            return sessionId
           }
         }
       }

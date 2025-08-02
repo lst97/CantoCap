@@ -16,6 +16,7 @@ import {
   type NavigationContext,
   type NavigationResult
 } from './workflow-navigation'
+import { atomicJsonNavigation, batchStateUpdates } from './step-state-controller'
 
 // Enhanced result type for integrated operations
 export interface IntegratedOperationResult extends NavigationResult {
@@ -36,12 +37,37 @@ export const handleJsonImportWithSessionReset = async (
   subtitleData: any[],
   context?: NavigationContext
 ): Promise<IntegratedOperationResult> => {
-  console.log('🚀 Starting atomic JSON import operation with session integration')
+  console.log('🚀 Starting atomic JSON import operation with session integration', {
+    dataLength: subtitleData?.length,
+    sourceType: context?.sourceType,
+    triggeredBy: context?.metadata?.triggeredBy
+  })
   
   const subtitleStore = useSubtitleEditStore.getState()
   const workspaceStore = useWorkspaceStore.getState()
   
   try {
+    // Ensure no batch operations are in progress using batch manager
+    try {
+      const batchManager = await import('./json-import-batch-manager');
+      if (batchManager.isJsonImportBatchActive()) {
+        console.warn('⚠️ JSON import batch still in progress, aborting session integration');
+        return {
+          success: false,
+          error: 'Batch import operation still in progress'
+        };
+      }
+    } catch (error) {
+      // Fallback to legacy check
+      if ((window as any).__JSON_IMPORT_IN_PROGRESS) {
+        console.warn('⚠️ JSON import batch still in progress (fallback), aborting session integration');
+        return {
+          success: false,
+          error: 'Batch import operation still in progress'
+        };
+      }
+    }
+    
     // Step 1: Reset session state first (critical for clean state)
     console.log('🧹 Step 1: Resetting session for JSON import')
     subtitleStore.resetSessionForNewContent('step1_import')
@@ -76,31 +102,47 @@ export const handleJsonImportWithSessionReset = async (
       }
     }
     
-    // Step 4: Perform atomic navigation to review
-    console.log('🚀 Step 4: Performing atomic navigation to review')
-    const navigationResult = navigateToReviewFromJsonImport(context)
+    // Step 4: Batch all navigation and workflow operations to prevent multiple re-renders
+    console.log('🚀 Step 4: Performing batched atomic navigation and state updates')
     
-    if (!navigationResult.success) {
-      console.error('❌ Navigation failed:', navigationResult.error)
-      return {
-        ...navigationResult,
-        sessionCleanupResult,
-        sessionInitialized
+    let navigationResult: NavigationResult
+    
+    await batchStateUpdates([
+      // Navigation operation
+      () => {
+        console.log('🔄 Executing atomic JSON navigation')
+        atomicJsonNavigation(context)
+      },
+      
+      // Workflow synchronization
+      () => {
+        console.log('🔄 Synchronizing workflow state')
+        synchronizeWorkflowState()
       }
+    ])
+    
+    // Create successful navigation result since atomic operations succeeded
+    navigationResult = {
+      success: true,
+      metadata: context
     }
     
-    // Step 5: Synchronize workflow state
-    console.log('🔄 Step 5: Synchronizing workflow state')
-    await synchronizeWorkflowState()
+    // Single verification delay instead of multiple delays
+    console.log('✅ Step 5: Final state verification')
+    await new Promise(resolve => setTimeout(resolve, 50));
     
-    console.log('✅ Atomic JSON import operation completed successfully')
+    console.log('✅ Atomic JSON import operation completed successfully', {
+      sessionInitialized,
+      cleanupRecords: sessionCleanupResult?.deletedRecords || 0,
+      sourceType: context?.sourceType
+    })
     
     return {
       success: true,
       sessionCleanupResult,
       workspaceRebound: true,
       sessionInitialized,
-      rollbackFn: navigationResult.rollbackFn
+      rollbackFn: navigationResult?.rollbackFn
     }
     
   } catch (error) {
@@ -112,7 +154,7 @@ export const handleJsonImportWithSessionReset = async (
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
-      sessionCleanupResult,
+      sessionCleanupResult: sessionCleanupResult || undefined,
       sessionInitialized: false
     }
   }
