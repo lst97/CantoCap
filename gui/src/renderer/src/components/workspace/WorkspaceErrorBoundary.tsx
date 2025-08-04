@@ -1,4 +1,5 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react'
+import { generateErrorId } from '../../utils/id-generator'
 import {
   Box,
   Typography,
@@ -51,7 +52,7 @@ export class WorkspaceErrorBoundary extends Component<Props, State> {
     return {
       hasError: true,
       error,
-      errorId: `workspace-error-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      errorId: generateErrorId()
     }
   }
 

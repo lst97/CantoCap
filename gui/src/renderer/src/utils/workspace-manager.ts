@@ -8,6 +8,7 @@
 import { WorkspaceConfig, AppConfig } from '../types/workflow'
 import { IndexedDBService } from './indexeddb-service'
 import { WorkspaceMigrationService, MigrationResult } from './workspace-migration'
+import { generateWorkspaceId } from './id-generator'
 
 export class WorkspaceManager {
   private indexedDBService: IndexedDBService
@@ -253,10 +254,10 @@ export class WorkspaceManager {
   }
 
   /**
-   * Generate unique workspace ID
+   * Generate unique workspace ID using modern crypto.randomUUID()
    */
   private generateWorkspaceId(): string {
-    return `workspace-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    return generateWorkspaceId()
   }
 
   /**

@@ -33,23 +33,19 @@ export const VideoPreviewSection: React.FC<VideoPreviewSectionProps> = () => {
   // Video path resolution with fallback logic
   const resolvedVideoPath = session?.videoPath || config.inputFile || '';
   
-  // Debug logging for video path resolution
-  useEffect(() => {
-    console.log('🎬 DEBUG: VideoPreviewSection video path resolution:', {
-      'session.videoPath': session?.videoPath,
-      'config.inputFile': config.inputFile,
-      'resolvedVideoPath': resolvedVideoPath,
-      'fallbackUsed': !session?.videoPath && !!config.inputFile,
-      'hasSession': !!session,
-      'timestamp': new Date().toISOString()
-    });
-  }, [session?.videoPath, config.inputFile, resolvedVideoPath]);
+  // Video path resolution (debug logging removed for performance)
 
   const isPlaying = session?.isVideoPlaying || false;
   const shouldAutoPause = session?.shouldAutoPause || false;
   const currentTime = session?.currentTime || 0;
 
   const handleTimeUpdate = (time: number) => {
+    // Throttle time updates to improve performance (update every ~100ms)
+    const now = Date.now();
+    const lastUpdate = handleTimeUpdate._lastUpdate || 0;
+    if (now - lastUpdate < 100) return;
+    handleTimeUpdate._lastUpdate = now;
+
     setCurrentTime(time);
 
     // Auto-pause when subtitle selection ends

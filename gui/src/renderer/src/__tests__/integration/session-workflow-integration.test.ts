@@ -17,8 +17,7 @@ import {
 import { 
   navigateToReviewFromJsonImport,
   navigateToReviewFromProcessing,
-  navigateToConfig,
-  synchronizeWorkflowState
+  navigateToConfig
 } from '../../utils/workflow-navigation'
 
 // Mock stores with realistic state

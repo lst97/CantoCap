@@ -6,6 +6,7 @@
 import React, { createContext, useContext, useCallback, useEffect, useState, useMemo } from 'react'
 import { useWorkspaceStore } from '../stores/workspace-store'
 import { useSubtitlePersistence } from '../hooks/useSubtitlePersistence'
+import { debugInitialization, debugWorkspaceRestoration } from '../utils/workflow-debug'
 import type { 
   WorkflowStepId, 
   StepConfigMap,
@@ -61,21 +62,59 @@ interface WorkspaceConfigProviderProps {
 }
 
 export const WorkspaceConfigProvider: React.FC<WorkspaceConfigProviderProps> = ({ children }) => {
+  debugInitialization('WorkspaceConfigProvider', 'start')
   const store = useWorkspaceStore()
   const [isReady, setIsReady] = useState(false)
 
   // Initialize workspace system
   useEffect(() => {
+    console.log('🔧 [DEBUG] WorkspaceConfigProvider initialization effect triggered', {
+      storeIsInitialized: store.isInitialized,
+      isReady,
+      timestamp: new Date().toISOString(),
+      stackTrace: new Error().stack?.split('\n').slice(1, 4).join('\n')
+    })
+
     const initializeWorkspaces = async () => {
+      console.log('🔧 [DEBUG] initializeWorkspaces() called', {
+        storeIsInitialized: store.isInitialized,
+        timestamp: new Date().toISOString()
+      })
+
       if (!store.isInitialized) {
         try {
+          console.log('🔧 [DEBUG] Calling store.initializeWorkspaces()')
+          debugWorkspaceRestoration('before')
+          
           await store.initializeWorkspaces()
+          
+          debugWorkspaceRestoration('after', {
+            isInitialized: store.isInitialized,
+            currentWorkspace: store.currentWorkspace?.id,
+            availableWorkspaces: store.availableWorkspaces?.length
+          })
+          
+          console.log('🔧 [DEBUG] ✅ Workspace system initialized successfully', {
+            isInitialized: store.isInitialized,
+            currentWorkspace: store.currentWorkspace?.id,
+            availableWorkspaces: store.availableWorkspaces?.length,
+            timestamp: new Date().toISOString()
+          })
+          
           setIsReady(true)
         } catch (error) {
-          console.error('Failed to initialize workspace system:', error)
+          console.error('❌ [DEBUG] Failed to initialize workspace system:', error, {
+            timestamp: new Date().toISOString(),
+            stackTrace: error instanceof Error ? error.stack : 'No stack trace'
+          })
           setIsReady(false)
         }
       } else {
+        console.log('🔧 [DEBUG] Workspace system already initialized', {
+          currentWorkspace: store.currentWorkspace?.id,
+          availableWorkspaces: store.availableWorkspaces?.length,
+          timestamp: new Date().toISOString()
+        })
         setIsReady(true)
       }
     }

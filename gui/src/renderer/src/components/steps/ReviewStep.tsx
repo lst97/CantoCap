@@ -10,13 +10,94 @@ import { VideoPreviewSection } from './ReviewStep/VideoPreviewSection';
 import { SubtitleEditor } from './ReviewStep/SubtitleEditor';
 import { SubtitleListPanel } from './ReviewStep/SubtitleListPanel';
 import { ProcessingErrorBoundary } from '../common/ProcessingErrorBoundary';
-import { SubtitleAutoSaveIndicator } from '../common/SubtitleAutoSaveIndicator';
+// REMOVED: SubtitleAutoSaveIndicator - auto-save UI components deleted
 import { SessionRecoveryDialog } from '../dialogs/SessionRecoveryDialog';
 import { pulseKeyframes } from './ReviewStep/styles';
 import { PerformanceMonitor, debounce } from '../../utils/performance-utils';
 import { transformSubtitleData } from '../../utils/subtitle-transformation';
 import type { SubtitleFileContent } from '../../types/subtitle-persistence';
 import type { SubtitleEntry } from '../../types/subtitle';
+
+// Helper functions for quality calculations
+const calculateGaps = (subtitles: SubtitleEntry[]): number => {
+  if (subtitles.length < 2) return 0;
+  
+  let gapCount = 0;
+  const minGapThreshold = 0.1; // 100ms minimum gap
+  
+  for (let i = 0; i < subtitles.length - 1; i++) {
+    const current = subtitles[i];
+    const next = subtitles[i + 1];
+    
+    if (current.endTime && next.startTime) {
+      const gap = next.startTime - current.endTime;
+      if (gap > minGapThreshold) {
+        gapCount++;
+      }
+    }
+  }
+  
+  return gapCount;
+};
+
+const calculateOverlaps = (subtitles: SubtitleEntry[]): number => {
+  if (subtitles.length < 2) return 0;
+  
+  let overlapCount = 0;
+  
+  for (let i = 0; i < subtitles.length - 1; i++) {
+    const current = subtitles[i];
+    const next = subtitles[i + 1];
+    
+    if (current.endTime && next.startTime && current.endTime > next.startTime) {
+      overlapCount++;
+    }
+  }
+  
+  return overlapCount;
+};
+
+const calculateQualityScore = (subtitles: SubtitleEntry[]): number => {
+  if (subtitles.length === 0) return 0;
+  
+  let totalScore = 0;
+  let validSubtitles = 0;
+  
+  for (const subtitle of subtitles) {
+    let score = 1.0; // Start with perfect score
+    
+    // Confidence penalty - lower confidence reduces score
+    if (subtitle.confidence !== undefined) {
+      score *= subtitle.confidence;
+    }
+    
+    // Duration penalty - very short or very long subtitles get penalized
+    if (subtitle.duration !== undefined) {
+      const duration = subtitle.duration;
+      if (duration < 0.5) {
+        score *= 0.7; // Penalty for very short subtitles
+      } else if (duration > 10) {
+        score *= 0.8; // Penalty for very long subtitles
+      }
+    }
+    
+    // Text quality penalties
+    if (subtitle.text) {
+      const text = subtitle.text.trim();
+      if (text.length < 2) {
+        score *= 0.5; // Penalty for very short text
+      }
+      if (text.length > 200) {
+        score *= 0.9; // Minor penalty for very long text
+      }
+    }
+    
+    totalScore += score;
+    validSubtitles++;
+  }
+  
+  return validSubtitles > 0 ? totalScore / validSubtitles : 0;
+};
 
 const ReviewStepComponent: React.FC = () => {
   const { config } = useAppStore();
@@ -103,8 +184,17 @@ const ReviewStepComponent: React.FC = () => {
         clearInterval(saveIntervalRef.current);
         saveIntervalRef.current = null;
       }
+      
+      // CRITICAL: Clear initialization tracking on unmount
+      initializationCompleteRef.current.clear();
     };
   }, []);
+
+  // CRITICAL: Reset initialization tracking when workspace or input file changes
+  useEffect(() => {
+    initializationCompleteRef.current.clear();
+    console.log('🔄 Cleared initialization tracking due to workspace/file change');
+  }, [currentWorkspaceId, config.inputFile]);
 
   // Create stable reference to prevent infinite re-renders
   const lastInitDataRef = useRef<{
@@ -121,7 +211,7 @@ const ReviewStepComponent: React.FC = () => {
     originalPath: null,
   });
 
-  // Content fingerprint to detect NEW source content (not user edits)
+  // STABLE: Content fingerprint to detect NEW source content (not user edits)
   const createContentFingerprint = useCallback(
     (data: {
       inputFile: string | null;
@@ -135,7 +225,7 @@ const ReviewStepComponent: React.FC = () => {
       // Use file paths and timestamps, NOT subtitle content (which changes with user edits)
       return `${workspaceId}:${inputFile}:${outputFile}:${importedJsonFile}:${hasSubtitleData}`;
     },
-    []
+    [] // STABLE: Empty deps to prevent recreation
   );
 
   const lastContentFingerprintRef = useRef<string>('');
@@ -180,7 +270,7 @@ const ReviewStepComponent: React.FC = () => {
   // Performance monitor instance
   const performanceMonitor = PerformanceMonitor.getInstance();
 
-  // PERFORMANCE-OPTIMIZED: Memoized subtitle data preparation with stable references
+  // CRITICAL FIX: Stable subtitle data preparation to prevent infinite re-renders
   const preparedSubtitleData = useMemo(() => {
     // Reduced debug logging to prevent performance impact
     const hasInputFile = !!config.inputFile;
@@ -191,10 +281,13 @@ const ReviewStepComponent: React.FC = () => {
 
     // Fast path: JSON imports (highest priority)
     if (hasInputFile && hasSubtitle && (hasImportedJson || isImported)) {
+      // CRITICAL: Return stable reference to prevent infinite loops
       return {
         data: config.subtitle,
         type: 'JSON_IMPORT' as const,
         source: config.importedJsonFile || 'imported-json',
+        // Add stable identity to prevent object recreation
+        __stable_id: `json_import_${config.inputFile}_${config.subtitle.length}_${config.importedJsonFile}`,
       };
     }
 
@@ -307,8 +400,8 @@ const ReviewStepComponent: React.FC = () => {
               session.currentSubtitles.length,
             minDuration: Math.min(...session.currentSubtitles.map((sub) => sub.duration || 0)),
             maxDuration: Math.max(...session.currentSubtitles.map((sub) => sub.duration || 0)),
-            gapCount: 0, // TODO: Calculate gaps
-            overlapCount: 0, // TODO: Calculate overlaps
+            gapCount: calculateGaps(session.currentSubtitles),
+            overlapCount: calculateOverlaps(session.currentSubtitles)
           },
         },
         editHistory: session.modifications.map((mod) => ({
@@ -335,7 +428,7 @@ const ReviewStepComponent: React.FC = () => {
           isValid: true,
           warnings: [],
           errors: [],
-          qualityScore: 0.8, // TODO: Calculate quality score
+          qualityScore: calculateQualityScore(session.currentSubtitles)
         },
       };
 
@@ -583,6 +676,9 @@ const ReviewStepComponent: React.FC = () => {
     lastFailure: 0,
   });
 
+  // CRITICAL FIX: Track initialization completion to prevent loops
+  const initializationCompleteRef = useRef<Set<string>>(new Set());
+  
   // Effect 1: Handle JSON import data initialization (highest priority)
   useEffect(() => {
     if (!preparedSubtitleData || typeof preparedSubtitleData !== 'object' || preparedSubtitleData.type !== 'JSON_IMPORT') {
@@ -590,6 +686,12 @@ const ReviewStepComponent: React.FC = () => {
     }
 
     if (session || isLoading || initializationMutex || !currentWorkspaceId || !isReady) {
+      return;
+    }
+
+    // CRITICAL: Check if this exact import has already been initialized
+    const importId = preparedSubtitleData.__stable_id || `json_${config.inputFile}_${preparedSubtitleData.data.length}`;
+    if (initializationCompleteRef.current.has(importId)) {
       return;
     }
 
@@ -606,6 +708,8 @@ const ReviewStepComponent: React.FC = () => {
           config.inputFile,
           preparedSubtitleData.data
         );
+        // Mark this import as completed
+        initializationCompleteRef.current.add(importId);
         initializationCircuitBreakerRef.current.failures = 0;
       } catch (error) {
         console.error('❌ JSON import initialization failed:', error);
@@ -621,7 +725,7 @@ const ReviewStepComponent: React.FC = () => {
     return () => clearTimeout(timeoutId);
   }, [
     preparedSubtitleData,
-    session?.sessionId,
+    // INFINITE LOOP FIX: Remove session?.sessionId from deps - checked in effect body instead
     isLoading,
     currentWorkspaceId,
     isReady,
@@ -639,6 +743,12 @@ const ReviewStepComponent: React.FC = () => {
       return;
     }
 
+    // CRITICAL: Check if this exact array import has already been initialized
+    const arrayImportId = `array_${config.inputFile}_${preparedSubtitleData.length}_${config.importedJsonFile}`;
+    if (initializationCompleteRef.current.has(arrayImportId)) {
+      return;
+    }
+
     const initializeArrayImport = async () => {
       setInitializationMutex(true);
       try {
@@ -647,6 +757,8 @@ const ReviewStepComponent: React.FC = () => {
           config.inputFile,
           preparedSubtitleData
         );
+        // Mark this array import as completed
+        initializationCompleteRef.current.add(arrayImportId);
         initializationCircuitBreakerRef.current.failures = 0;
       } catch (error) {
         console.error('❌ Array import initialization failed:', error);
@@ -663,7 +775,7 @@ const ReviewStepComponent: React.FC = () => {
     preparedSubtitleData,
     config.importedJsonFile,
     config.inputFile,
-    session?.sessionId,
+    // INFINITE LOOP FIX: Remove session?.sessionId from deps - checked in effect body instead
     isLoading,
     currentWorkspaceId,
     isReady,
@@ -941,14 +1053,7 @@ const ReviewStepComponent: React.FC = () => {
           position: 'relative',
         }}
       >
-          {/* Enhanced Auto-save Status Indicator with Temp Storage Integration */}
-          <SubtitleAutoSaveIndicator
-            persistenceData={persistenceData}
-            position='top-right'
-            showDetails={true}
-            showPerformance={false}
-            compact={false}
-          />
+          {/* REMOVED: SubtitleAutoSaveIndicator - auto-save UI components deleted */}
 
           {/* DISABLED FOR PERFORMANCE: Enhanced Auto-Save Status */}
           {/* Auto-save UI indicators disabled to reduce re-renders */}
@@ -1278,9 +1383,10 @@ const ReviewStepComponent: React.FC = () => {
   );
 };
 
-// PERFORMANCE: Memoized component to prevent unnecessary re-renders
+// PERFORMANCE: Memoized component to prevent unnecessary re-renders during JSON import
 const MemoizedReviewStepComponent = React.memo(ReviewStepComponent, (prevProps, nextProps) => {
-  // Custom comparison function - no props to compare, prevent unnecessary re-renders
+  // CRITICAL: Custom comparison function - no props to compare, prevent unnecessary re-renders
+  // This stops React from re-rendering during rapid JSON import state changes
   return true;
 });
 

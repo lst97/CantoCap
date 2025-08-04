@@ -1,12 +1,9 @@
 // Background Sync Worker - Non-blocking persistence and data processing
 // This would typically be a Web Worker file, but for compatibility we'll create a service that simulates worker behavior
 
-import type { 
-  WorkflowStepId,
-  StepConfigUpdate,
-  SaveOperation,
-  SaveBatch
-} from '../services/auto-save-engine'
+// REMOVED: auto-save-engine types - timer-based auto-save system deleted
+
+import { generateWorkerId, generateCoordinatorId } from '../utils/id-generator'
 
 // ============================================================================
 // BACKGROUND SYNC WORKER TYPES
@@ -509,7 +506,7 @@ class BackgroundSyncService {
   }
 
   private generateId(): string {
-    return `worker_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    return generateWorkerId()
   }
 
   private async simulateDatabaseOperation(operation: string, data: any): Promise<void> {
@@ -683,7 +680,7 @@ export class BackgroundSyncCoordinator {
   }
 
   private generateId(): string {
-    return `coord_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    return generateCoordinatorId()
   }
 }
 

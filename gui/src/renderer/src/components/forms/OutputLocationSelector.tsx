@@ -13,6 +13,7 @@ import {
 } from '@mui/icons-material'
 import { BaseButton, BaseAlert, BaseSelector } from '../elements'
 import { useAppStore } from '../../stores/app-store'
+import { triggerUserInteraction } from '../../services/workflow-config-bridge'
 
 export const OutputLocationSelector: React.FC = () => {
   const { config, updateConfig, showNotification } = useAppStore()
@@ -28,6 +29,9 @@ export const OutputLocationSelector: React.FC = () => {
           : 'output.srt'
         const outputPath = `${folderPath}/${fileName}`
         
+        // Trigger immediate config update through event system
+        triggerUserInteraction('setting-change', 'outputFile', outputPath);
+        
         updateConfig('outputFile', outputPath)
         showNotification('Output location selected', 'success')
       }
@@ -37,10 +41,16 @@ export const OutputLocationSelector: React.FC = () => {
   }, [config.inputFile, updateConfig, showNotification])
 
   const handleOutputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    // Trigger immediate config update through event system
+    triggerUserInteraction('setting-change', 'outputFile', e.target.value);
+    
     updateConfig('outputFile', e.target.value)
   }, [updateConfig])
 
   const handleClearOutput = useCallback(() => {
+    // Trigger immediate config update through event system
+    triggerUserInteraction('setting-change', 'outputFile', null);
+    
     updateConfig('outputFile', null)
   }, [updateConfig])
 

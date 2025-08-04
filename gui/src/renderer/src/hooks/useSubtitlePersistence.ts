@@ -164,7 +164,7 @@ const DEFAULT_OPTIONS: Omit<
   syncEnabled: true,
   mergeStrategy: 'merge',
   optimisticUpdates: true,
-  autoFileOperations: true,
+  autoFileOperations: false, // DISABLED: Timer-based auto-save replaced by event-driven system
   fileAutoSaveInterval: 30000, // 30 seconds
   validateOnLoad: true,
   enableFileCache: true,

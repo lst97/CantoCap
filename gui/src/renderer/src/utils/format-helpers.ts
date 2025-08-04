@@ -70,7 +70,7 @@ export const truncateText = (text: string, maxLength: number): string => {
  */
 export const capitalizeWords = (text: string): string => {
   return text.replace(/\w\S*/g, (txt) => 
-    txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase()
+    txt.charAt(0).toUpperCase() + txt.slice(1).toLowerCase()
   )
 }
 

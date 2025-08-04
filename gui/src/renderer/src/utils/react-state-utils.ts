@@ -2,10 +2,12 @@
  * React state management utilities for enhanced workflow integration
  */
 
-import { useCallback, useEffect, useRef } from 'react'
-import { useWorkflowStore } from '../stores/workflow-store'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useWorkflowState } from '../hooks/useWorkflowStateManager'
 import { useAppStore } from '../stores/app-store'
-import { synchronizeWorkflowState } from './workflow-navigation'
+import { workflowStateManager } from '../services/workflow-state-manager'
+import { StepState } from '../types/workflow-state'
+// Modern workflow state management using WorkflowStateManager
 
 export interface ReactStateOptions {
   autoSync?: boolean
@@ -26,7 +28,7 @@ export const useWorkflowIntegration = (options: ReactStateOptions = {}) => {
     errorRecovery = true
   } = options
 
-  const workflowStore = useWorkflowStore()
+  const { currentStepId, steps } = useWorkflowState()
   const appStore = useAppStore()
   const syncIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const lastSyncRef = useRef<number>(0)
@@ -40,17 +42,28 @@ export const useWorkflowIntegration = (options: ReactStateOptions = {}) => {
       if (now - lastSyncRef.current < syncInterval) return
 
       try {
-        await synchronizeWorkflowState()
+        console.log('🔧 [DEBUG] react-state-utils: Performing automatic workflow state sync', {
+          timestamp: new Date().toISOString(),
+          currentStepBefore: workflowStateManager.getCurrentStep(),
+          stackTrace: new Error().stack?.split('\n').slice(1, 4).join('\n')
+        })
+
+        await workflowStateManager.loadState()
         lastSyncRef.current = now
-        console.log('🔄 Automatic workflow state sync completed')
+        
+        console.log('🔄 [DEBUG] Automatic workflow state sync completed', {
+          timestamp: new Date().toISOString(),
+          currentStepAfter: workflowStateManager.getCurrentStep()
+        })
       } catch (error) {
-        console.warn('⚠️ Automatic sync failed:', error)
+        console.warn('⚠️ [DEBUG] Automatic sync failed:', error)
         if (errorRecovery) {
           // Attempt basic error recovery
           try {
-            workflowStore.initializeFromWorkspace()
+            console.log('🔧 [DEBUG] Attempting error recovery sync')
+            await workflowStateManager.loadState()
           } catch (recoveryError) {
-            console.error('❌ Error recovery failed:', recoveryError)
+            console.error('❌ [DEBUG] Error recovery failed:', recoveryError)
           }
         }
       }
@@ -67,7 +80,7 @@ export const useWorkflowIntegration = (options: ReactStateOptions = {}) => {
         clearInterval(syncIntervalRef.current)
       }
     }
-  }, [autoSync, syncInterval, errorRecovery, workflowStore])
+  }, [autoSync, syncInterval, errorRecovery])
 
   // Optimistic navigation helper
   const performOptimisticNavigation = useCallback(async (
@@ -98,7 +111,15 @@ export const useWorkflowIntegration = (options: ReactStateOptions = {}) => {
       }
       
       if (errorRecovery) {
-        await synchronizeWorkflowState()
+        console.log('🔧 [DEBUG] react-state-utils: Error recovery - performing loadState()', {
+          timestamp: new Date().toISOString(),
+          currentStepBefore: workflowStateManager.getCurrentStep()
+        })
+        await workflowStateManager.loadState()
+        console.log('🔧 [DEBUG] react-state-utils: Error recovery loadState() completed', {
+          timestamp: new Date().toISOString(),
+          currentStepAfter: workflowStateManager.getCurrentStep()
+        })
       }
       
       throw error
@@ -132,15 +153,16 @@ export const useWorkflowIntegration = (options: ReactStateOptions = {}) => {
   // State consistency checker
   const checkStateConsistency = useCallback((): boolean => {
     try {
-      const currentState = workflowStore.getState()
-      
-      // Basic consistency checks
-      const hasValidCurrentStep = currentState.steps.some(s => s.id === currentState.currentStep)
-      const hasValidStepProgression = currentState.steps.every((step, index) => {
-        if (index === 0) return step.isAccessible // First step should always be accessible
+      // Basic consistency checks using modern state
+      const hasValidCurrentStep = steps.some(s => s.id === currentStepId)
+      const hasValidStepProgression = steps.every((step, index) => {
+        if (index === 0) return step.stateMetadata.state === StepState.Ready || step.stateMetadata.state === StepState.Complete
         
-        const prevStep = currentState.steps[index - 1]
-        return !step.isAccessible || prevStep.isCompleted || prevStep.isSkipped
+        const prevStep = steps[index - 1]
+        const isAccessible = step.stateMetadata.state === StepState.Ready || step.stateMetadata.state === StepState.Complete
+        const prevCompleted = prevStep.stateMetadata.state === StepState.Complete || prevStep.stateMetadata.state === StepState.Skip
+        
+        return !isAccessible || prevCompleted
       })
       
       const isConsistent = hasValidCurrentStep && hasValidStepProgression
@@ -149,11 +171,11 @@ export const useWorkflowIntegration = (options: ReactStateOptions = {}) => {
         console.warn('⚠️ Workflow state inconsistency detected:', {
           hasValidCurrentStep,
           hasValidStepProgression,
-          currentStep: currentState.currentStep,
-          stepStates: currentState.steps.map(s => ({ 
+          currentStep: currentStepId,
+          stepStates: steps.map(s => ({ 
             id: s.id, 
-            isCompleted: s.isCompleted, 
-            isAccessible: s.isAccessible 
+            state: s.stateMetadata.state,
+            isAccessible: s.stateMetadata.state === StepState.Ready || s.stateMetadata.state === StepState.Complete
           }))
         })
       }
@@ -163,15 +185,23 @@ export const useWorkflowIntegration = (options: ReactStateOptions = {}) => {
       console.error('❌ State consistency check failed:', error)
       return false
     }
-  }, [workflowStore])
+  }, [steps, currentStepId])
 
   return {
-    workflowStore,
+    currentStepId,
+    steps,
     appStore,
     performOptimisticNavigation,
     showWorkflowNotification,
     checkStateConsistency,
-    synchronizeState: synchronizeWorkflowState
+    synchronizeState: () => {
+      console.log('🔧 [DEBUG] react-state-utils: synchronizeState() called', {
+        timestamp: new Date().toISOString(),
+        currentStepBefore: workflowStateManager.getCurrentStep(),
+        stackTrace: new Error().stack?.split('\n').slice(1, 4).join('\n')
+      })
+      return workflowStateManager.loadState()
+    }
   }
 }
 
@@ -207,6 +237,5 @@ export const useWorkflowLoading = () => {
   return { setLoading, isLoading, withLoading }
 }
 
-// Re-export useState for convenience
-import { useState } from 'react'
+// Export useState for convenience
 export { useState }

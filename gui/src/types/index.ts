@@ -1,7 +1,7 @@
 // Application Types and Interfaces
 
 export interface SubtitleData {
-  id: number
+  id: number | string
   startTime: number
   endTime: number
   text: string
@@ -84,6 +84,7 @@ export interface AppConfig {
   endTime: number | null
   importedJsonFile: string | null
   autoSaveApiKeys: boolean
+  isImportedFromJson?: boolean
 }
 
 export interface UIState {
@@ -343,6 +344,11 @@ export interface ElectronAPI {
   getSubtitlePerformanceMetrics: () => Promise<any[]>
   validateSubtitlePath: (workspaceId: string, path: string, operation: 'read' | 'write' | 'delete') => Promise<any>
   onSubtitleStreamProgress: (callback: (data: any) => void) => () => void
+  
+  // Temporary Subtitle Data Storage
+  storeTempSubtitleData: (data: any) => Promise<{ success: boolean, tempFilePath?: string, error?: string }>
+  loadTempSubtitleData: () => Promise<{ success: boolean, data?: any, error?: string }>
+  clearTempSubtitleData: () => Promise<{ success: boolean, error?: string }>
 }
 
 // Global Window Interface Extension

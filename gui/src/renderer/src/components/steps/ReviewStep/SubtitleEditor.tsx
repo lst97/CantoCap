@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Box,
   Typography,
@@ -11,7 +11,6 @@ import {
   Tooltip,
   CircularProgress,
   Alert,
-  Snackbar,
 } from "@mui/material";
 import {
   Edit as EditIcon,
@@ -25,7 +24,9 @@ import {
   FileDownload as ExportIcon,
 } from "@mui/icons-material";
 import { useSubtitleEditStore } from "../../../stores/subtitle-edit-store";
-import { useWorkflowStore } from "../../../stores/workflow-store";
+import { workflowStateManager } from "../../../services/workflow-state-manager";
+import { useWorkflowNavigation } from "../../../hooks/useWorkflowStateManager";
+import { StepState } from "../../../types/workflow-state";
 import { ReviewCard, ActionButton } from "./styles";
 import { formatTime, parseTime } from "./utils";
 import { SubtitleEditorProps } from "./types";
@@ -42,20 +43,26 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
     redo,
     undoStack,
     redoStack,
-    clearUndoRedo,
     manualSaveToIndexedDB,
     isSaving,
     saveError,
     clearSaveError,
   } = useSubtitleEditStore();
   
-  const { setCurrentStep, completeStep } = useWorkflowStore();
+  const { navigateToStep } = useWorkflowNavigation();
+  
+  // Modern workflow navigation using WorkflowStateManager directly
 
   const [editText, setEditText] = useState("");
   const [editTranslation, setEditTranslation] = useState("");
   const [editStartTime, setEditStartTime] = useState("");
   const [editEndTime, setEditEndTime] = useState("");
   const [hasChanges, setHasChanges] = useState(false);
+  
+  // Export state management to prevent infinite rerenders
+  const [isExporting, setIsExporting] = useState(false);
+  const exportInProgressRef = useRef(false);
+  const lastExportAttemptRef = useRef<number>(0);
 
   const editingSubtitle = session?.selectedSubtitleId && session.currentSubtitles && Array.isArray(session.currentSubtitles)
     ? session.currentSubtitles.find((s) => s.id === session.selectedSubtitleId)
@@ -79,14 +86,22 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
     }
   }, [editingSubtitle]);
 
+  // Cleanup export state on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      exportInProgressRef.current = false;
+      setIsExporting(false);
+    };
+  }, []);
+
   const handleTextChange = (value: string) => {
     setEditText(value);
-    setHasChanges(editingSubtitle?.text !== value || (editingSubtitle?.originalText || "") !== editTranslation);
+    setHasChanges(editingSubtitle?.text !== value || (editingSubtitle?.text || "") !== editTranslation);
   };
 
   const handleTranslationChange = (value: string) => {
     setEditTranslation(value);
-    setHasChanges(editingSubtitle?.text !== editText || (editingSubtitle?.originalText || "") !== value);
+    setHasChanges(editingSubtitle?.text !== editText || (editingSubtitle?.text || "") !== value);
   };
 
   const handleSave = async () => {
@@ -132,16 +147,78 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
     }
   };
 
-  const handleExport = () => {
-    // Complete the review step and enable export step
-    completeStep('review');
+  const handleExport = useCallback(async () => {
+    const now = Date.now();
     
-    // Explicitly enable export step to ensure it's accessible
-    const workflowStore = useWorkflowStore.getState();
-    workflowStore.enableStep('export');
+    // Prevent rapid successive clicks and concurrent exports
+    if (exportInProgressRef.current || isExporting) {
+      console.log('🚫 Export already in progress, ignoring request');
+      return;
+    }
     
-    setCurrentStep('export');
-  };
+    // Debounce rapid clicks (prevent calls within 1 second)
+    if (now - lastExportAttemptRef.current < 1000) {
+      console.log('🚫 Export throttled - too rapid successive clicks');
+      return;
+    }
+    
+    try {
+      // Set export state immediately to prevent concurrent calls
+      exportInProgressRef.current = true;
+      setIsExporting(true);
+      lastExportAttemptRef.current = now;
+      
+      console.log('🚀 Starting export navigation sequence');
+      
+      // Use a small delay to ensure the current render cycle completes
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Complete the review step first
+      const reviewTransition = await workflowStateManager.transitionState('review', StepState.Complete, {
+        reason: 'Review completed - user initiated export'
+      });
+      
+      if (!reviewTransition.success) {
+        throw new Error(`Review transition failed: ${reviewTransition.error}`);
+      }
+      
+      // Small delay between transitions to prevent observer flooding
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      // Enable export step
+      const exportTransition = await workflowStateManager.transitionState('export', StepState.Ready, {
+        reason: 'Review completed - export step now accessible'
+      });
+      
+      if (!exportTransition.success) {
+        throw new Error(`Export transition failed: ${exportTransition.error}`);
+      }
+      
+      // Final delay before navigation
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      // Navigate to export step using proper navigation hook
+      const navigationResult = await navigateToStep('export');
+      
+      if (!navigationResult.success) {
+        throw new Error(`Navigation to export step failed: ${navigationResult.error || 'Unknown error'}`);
+      }
+      
+      console.log('✅ Export navigation sequence completed successfully');
+      
+    } catch (error) {
+      console.error('❌ Export navigation failed:', error);
+      // Reset states on error to allow retry
+      exportInProgressRef.current = false;
+      setIsExporting(false);
+    } finally {
+      // Clear export state after a short delay
+      setTimeout(() => {
+        exportInProgressRef.current = false;
+        setIsExporting(false);
+      }, 500);
+    }
+  }, [isExporting, navigateToStep]);
 
   const handleSplit = async () => {
     if (editingSubtitle && session) {
@@ -429,7 +506,8 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
           size="large"
           fullWidth
           onClick={handleExport}
-          startIcon={<ExportIcon />}
+          disabled={isExporting}
+          startIcon={isExporting ? <CircularProgress size={20} color="inherit" /> : <ExportIcon />}
           sx={{
             py: 2,
             px: 3,
@@ -437,20 +515,32 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
             fontWeight: 700,
             borderRadius: 3,
             textTransform: 'none',
-            background: 'linear-gradient(45deg, #F59E0B 30%, #EAB308 90%)',
-            boxShadow: '0 4px 20px rgba(245, 158, 11, 0.3)',
+            background: isExporting 
+              ? 'linear-gradient(45deg, #9CA3AF 30%, #6B7280 90%)'
+              : 'linear-gradient(45deg, #F59E0B 30%, #EAB308 90%)',
+            boxShadow: isExporting 
+              ? '0 2px 10px rgba(156, 163, 175, 0.2)'
+              : '0 4px 20px rgba(245, 158, 11, 0.3)',
             '&:hover': {
-              background: 'linear-gradient(45deg, #D97706 30%, #F59E0B 90%)',
-              boxShadow: '0 6px 25px rgba(245, 158, 11, 0.4)',
-              transform: 'translateY(-2px)',
+              background: isExporting 
+                ? 'linear-gradient(45deg, #9CA3AF 30%, #6B7280 90%)'
+                : 'linear-gradient(45deg, #D97706 30%, #F59E0B 90%)',
+              boxShadow: isExporting 
+                ? '0 2px 10px rgba(156, 163, 175, 0.2)'
+                : '0 6px 25px rgba(245, 158, 11, 0.4)',
+              transform: isExporting ? 'none' : 'translateY(-2px)',
             },
             '&:active': {
-              transform: 'translateY(0px)',
+              transform: isExporting ? 'none' : 'translateY(0px)',
+            },
+            '&:disabled': {
+              color: 'rgba(255, 255, 255, 0.7)',
+              cursor: 'not-allowed',
             },
             transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
           }}
         >
-          Export Subtitles
+          {isExporting ? 'Navigating to Export...' : 'Export Subtitles'}
         </Button>
       </Box>
       </Box>

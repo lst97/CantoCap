@@ -5,7 +5,7 @@
 import { act, renderHook } from '@testing-library/react'
 import { useExportStore } from '../export-store'
 import { useSubtitleEditStore } from '../subtitle-edit-store'
-import { useWorkflowStore } from '../workflow-store'
+import { workflowStateManager } from '../../services/workflow-state-manager'
 import type { SubtitleEntry } from '../../types/subtitle'
 
 // Mock dependencies
@@ -16,8 +16,8 @@ jest.mock('../subtitle-edit-store', () => ({
   }
 }))
 
-jest.mock('../workflow-store', () => ({
-  useWorkflowStore: {
+jest.mock('../../services/workflow-state-manager', () => ({
+  workflowStateManager: {
     getState: jest.fn()
   }
 }))

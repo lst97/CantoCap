@@ -1,6 +1,7 @@
 import React from 'react'
 import { Box, Typography } from '@mui/material'
-import { useWorkflowStore } from '../../stores/workflow-store'
+import { workflowStateManager } from '../../services/workflow-state-manager'
+import { useWorkflowState } from '../../contexts/WorkflowStateContext'
 import { useWorkspaceRequirement } from '../../contexts/WorkspaceConfigContext'
 import { useWorkspacePanelIntegration } from '../workspace/hooks'
 import { useUIStore, selectSettingsUI } from '../../stores/ui-store'
@@ -18,16 +19,17 @@ import { WorkspaceStepLoadingOverlay } from '../ui/StepLoadingOverlay'
 import { ErrorBoundary } from '../common/ErrorBoundary'
 
 export const MainContentArea: React.FC = () => {
-  const { currentStep, steps } = useWorkflowStore()
+  const { currentStep, currentStepId } = useWorkflowState()
+  const allSteps = workflowStateManager.getAllSteps()
   const { isEmpty, isReady } = useWorkspaceRequirement()
   const { onCreateWorkspace, isLoading } = useWorkspacePanelIntegration()
   const settingsUI = useUIStore(selectSettingsUI)
   const { exitSettingsMode } = useUIStore()
   
-  const currentStepData = steps.find(step => step.id === currentStep)
+  const currentStepData = allSteps.get(currentStepId)
   
   // Use the comprehensive step loading state hook
-  const stepLoadingState = useStepLoadingState(currentStep)
+  const stepLoadingState = useStepLoadingState(currentStepId)
 
   // Show settings content area if in settings mode
   if (settingsUI.isSettingsMode) {
@@ -71,7 +73,7 @@ export const MainContentArea: React.FC = () => {
   }
 
   const renderStepContent = () => {
-    switch (currentStep) {
+    switch (currentStepId) {
       case 'input-file':
         return (
           <ErrorBoundary 
@@ -131,7 +133,7 @@ export const MainContentArea: React.FC = () => {
               Step not found
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              The requested step &quot;{currentStep}&quot; could not be loaded.
+              The requested step &quot;{currentStepId}&quot; could not be loaded.
             </Typography>
           </Box>
         )
@@ -155,11 +157,11 @@ export const MainContentArea: React.FC = () => {
           }}
         >
           <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-            {currentStepData?.title || currentStep}
+            {currentStepData?.definition?.title || (typeof currentStep?.title === 'string' ? currentStep.title : null) || currentStepId || 'Unknown Step'}
           </Typography>
-          {currentStepData?.description && (
+          {currentStepData?.definition?.description && (
             <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>
-              {currentStepData.description}
+              {String(currentStepData.definition.description)}
             </Typography>
           )}
         </Box>

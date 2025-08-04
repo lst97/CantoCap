@@ -4,6 +4,7 @@
  */
 
 import type { IPCMessage, ProcessedMessage } from '../../../types'
+import { generateLegacyId } from '../utils/id-generator'
 
 export class MessageProcessor {
   private static readonly NOTIFICATION_LEVELS = new Set(['error', 'critical'])
@@ -80,7 +81,7 @@ export class MessageProcessor {
     const level = this.mapLegacyLevel(data)
     
     return {
-      id: `legacy_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: generateLegacyId(),
       timestamp: data.timestamp || new Date().toISOString(),
       level,
       category: this.mapLegacyCategory(data),

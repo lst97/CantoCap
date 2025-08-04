@@ -7,16 +7,16 @@
 
 import { useSubtitleEditStore } from '../stores/subtitle-edit-store'
 import { useWorkspaceStore } from '../stores/workspace-store'
-import { useWorkflowStore } from '../stores/workflow-store'
+import { workflowStateManager } from '../services/workflow-state-manager'
+import { StepState } from '../types/workflow-state'
 import { 
   navigateToReviewFromJsonImport, 
   navigateToReviewFromProcessing,
   navigateToConfig,
-  synchronizeWorkflowState,
   type NavigationContext,
   type NavigationResult
 } from './workflow-navigation'
-import { atomicJsonNavigation, batchStateUpdates } from './step-state-controller'
+import { atomicJsonNavigation } from './step-state-controller'
 
 // Enhanced result type for integrated operations
 export interface IntegratedOperationResult extends NavigationResult {
@@ -102,29 +102,32 @@ export const handleJsonImportWithSessionReset = async (
       }
     }
     
-    // Step 4: Batch all navigation and workflow operations to prevent multiple re-renders
-    console.log('🚀 Step 4: Performing batched atomic navigation and state updates')
+    // Step 4: Perform atomic navigation and workflow operations
+    console.log('🚀 Step 4: Performing atomic navigation and state updates')
     
     let navigationResult: NavigationResult
     
-    await batchStateUpdates([
-      // Navigation operation
-      () => {
-        console.log('🔄 Executing atomic JSON navigation')
-        atomicJsonNavigation(context)
-      },
+    try {
+      // Execute atomic JSON navigation (already handles state coordination internally)
+      console.log('🔄 Executing atomic JSON navigation')
+      await atomicJsonNavigation(context)
       
-      // Workflow synchronization
-      () => {
-        console.log('🔄 Synchronizing workflow state')
-        synchronizeWorkflowState()
+      // Synchronize workflow state to ensure consistency
+      console.log('🔄 Synchronizing workflow state')
+      // WorkflowStateManager automatically handles workspace synchronization
+      
+      // Create successful navigation result since atomic operations succeeded
+      navigationResult = {
+        success: true,
+        metadata: context
       }
-    ])
-    
-    // Create successful navigation result since atomic operations succeeded
-    navigationResult = {
-      success: true,
-      metadata: context
+    } catch (error) {
+      console.error('❌ Atomic navigation failed:', error)
+      navigationResult = {
+        success: false,
+        error: error instanceof Error ? error.message : 'Navigation failed',
+        metadata: context
+      }
     }
     
     // Single verification delay instead of multiple delays
@@ -207,7 +210,7 @@ export const handleVideoRemovalWithCleanup = async (): Promise<IntegratedOperati
     
     // Step 5: Synchronize workflow state
     console.log('🔄 Step 5: Synchronizing workflow state')
-    await synchronizeWorkflowState()
+    // WorkflowStateManager automatically handles workspace synchronization
     
     console.log('✅ Atomic video removal operation completed successfully')
     
@@ -289,7 +292,7 @@ export const handleProcessingCompletionWithSessionSetup = async (
     
     // Step 3: Synchronize workflow state
     console.log('🔄 Step 3: Synchronizing workflow state')
-    await synchronizeWorkflowState()
+    // WorkflowStateManager automatically handles workspace synchronization
     
     console.log('✅ Atomic processing completion operation completed successfully')
     
@@ -339,7 +342,7 @@ export const performEnhancedSessionReset = async (
     
     // Step 3: Synchronize workflow state
     console.log('🔄 Synchronizing workflow state after reset')
-    await synchronizeWorkflowState()
+    // WorkflowStateManager automatically handles workspace synchronization
     
     console.log(`✅ Enhanced session reset completed for: ${reason}`)
     
@@ -392,13 +395,57 @@ export const handleWorkspaceChangeWithSessionCoordination = async (
     if (existingSessionId) {
       console.log('✅ Restored existing session from new workspace:', existingSessionId)
       sessionInitialized = true
+      
+      // CRITICAL FIX: Validate workflow step after session restoration
+      // Only allow navigation to review if there's actual subtitle data
+      const restoredSession = subtitleStore.session
+      const hasSubtitleData = restoredSession?.currentSubtitles && 
+                             restoredSession.currentSubtitles.length > 0
+      
+      const currentStep = workflowStateManager.getCurrentStep()
+      console.log('🔧 [SESSION DEBUG] Post-restoration workflow validation', {
+        currentStep,
+        hasSubtitleData,
+        sessionId: existingSessionId,
+        subtitleCount: restoredSession?.currentSubtitles?.length || 0,
+        timestamp: new Date().toISOString()
+      })
+      
+      // If session was restored but there's no subtitle data to justify review step,
+      // ensure we stay on a logical step (input-file unless there's a valid reason)
+      if (!hasSubtitleData && currentStep === 'review') {
+        console.log('🔧 [SESSION FIX] Session restored but no subtitle data - forcing step to input-file')
+        workflowStateManager.setCurrentStep('input-file')
+        
+        // Also ensure proper step states
+        await workflowStateManager.transitionState('review', StepState.Blocked, {
+          reason: 'No subtitle data - review not available'
+        })
+        await workflowStateManager.transitionState('export', StepState.Blocked, {
+          reason: 'No subtitle data - export not available'
+        })
+      } else if (hasSubtitleData) {
+        console.log('🔧 [SESSION FIX] Session has subtitle data - ensuring review step is ready')
+        // If there's subtitle data, ensure review step is ready
+        await workflowStateManager.transitionState('review', StepState.Ready, {
+          reason: 'Session restored with subtitle data'
+        })
+        
+        // For JSON imports or when subtitle data exists, navigate to review
+        // Only if we're not already on review step
+        if (currentStep !== 'review') {
+          console.log('🔧 [SESSION FIX] Navigating to review step due to subtitle data')
+          // The setCurrentStep method has its own initialization blocking logic
+          workflowStateManager.setCurrentStep('review')
+        }
+      }
     } else {
       console.log('ℹ️ No existing session found in new workspace')
     }
     
     // Step 3: Synchronize workflow state with new workspace
     console.log('🔄 Synchronizing workflow state with new workspace')
-    await synchronizeWorkflowState()
+    // WorkflowStateManager automatically handles workspace synchronization
     
     console.log('✅ Workspace change with session coordination completed successfully')
     

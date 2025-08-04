@@ -1,19 +1,20 @@
 import React from 'react'
 import { Box, Typography, Paper, Chip } from '@mui/material'
 import { useStepLoadingState } from '../../hooks/useStepLoadingState'
-import { useWorkflowStore } from '../../stores/workflow-store'
+import { useWorkflowState } from '../../hooks/useWorkflowStateManager'
 import { useWorkspaceRequirement } from '../../contexts/WorkspaceConfigContext'
 import { useWorkspaceStore } from '../../stores/workspace-store'
+import { WorkflowStepId } from '../../types/workspace'
 
 /**
  * Debug component to display step loading states
  * Use this to verify the loading overlay timing is working correctly
  */
 export const StepLoadingDebug: React.FC = () => {
-  const { currentStep } = useWorkflowStore()
+  const { currentStep, currentStepId } = useWorkflowState()
   const { isReady: isWorkspaceReady } = useWorkspaceRequirement()
   const { isLoading: isWorkspaceLoading, currentWorkspace } = useWorkspaceStore()
-  const stepLoadingState = useStepLoadingState(currentStep)
+  const stepLoadingState = useStepLoadingState(currentStepId as WorkflowStepId)
 
   return (
     <Paper 
@@ -36,7 +37,7 @@ export const StepLoadingDebug: React.FC = () => {
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Typography variant="body2" sx={{ minWidth: 120 }}>Current Step:</Typography>
-          <Chip label={currentStep} size="small" />
+          <Chip label={currentStep?.title || currentStepId} size="small" />
         </Box>
         
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

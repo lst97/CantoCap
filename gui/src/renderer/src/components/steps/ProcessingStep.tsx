@@ -4,12 +4,10 @@ import {
   Typography,
   LinearProgress,
   Alert,
-  Snackbar,
-  Chip
-} from "@mui/material";
-import { CheckCircle, Save, Error as ErrorIcon } from '@mui/icons-material'
+  Snackbar} from "@mui/material";
 import { useAppStore } from "../../stores/app-store";
-import { useWorkflowStore } from "../../stores/workflow-store";
+import { workflowStateManager } from "../../services/workflow-state-manager";
+import { StepState } from "../../types/workflow-state";
 import { useProcessingStepConfig, useWorkspaceConfig } from '../../contexts/WorkspaceConfigContext';
 import { ProcessingErrorBoundary } from "../common/ProcessingErrorBoundary";
 import { IdleState } from "./ProcessingStep/IdleState";
@@ -22,9 +20,9 @@ import { getStageInfo } from "./ProcessingStep/utils";
 
 export const ProcessingStep: React.FC = () => {
   const { processing, updateProcessing } = useAppStore();
-  const { completeStep } = useWorkflowStore();
+  // Modern workflow state management with WorkflowStateManager
   const [config, updateConfig, { isLoading, error, isReady }] = useProcessingStepConfig()
-  const { autoSaveStatus, isAutoSaving, lastError, clearError } = useWorkspaceConfig()
+  const { lastError, clearError } = useWorkspaceConfig()
   const [showErrorNotification, setShowErrorNotification] = useState(false)
 
 
@@ -57,9 +55,11 @@ export const ProcessingStep: React.FC = () => {
   // Complete the processing step when processing finishes successfully
   useEffect(() => {
     if (processing.stage === 'completed' && !processing.error) {
-      completeStep('processing');
+      workflowStateManager.transitionState('processing', StepState.Complete, {
+        reason: 'Processing completed successfully'
+      });
     }
-  }, [processing.stage, processing.error, completeStep]);
+  }, [processing.stage, processing.error]);
 
   // Real-time timer that updates elapsed time every second
   useEffect(() => {

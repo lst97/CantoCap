@@ -1,6 +1,8 @@
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useRef } from 'react'
 import { useAppStore } from '../stores/app-store'
-import { useWorkflowStore } from '../stores/workflow-store'
+import { workflowStateManager } from '../services/workflow-state-manager'
+import { useWorkflowState } from '../contexts/WorkflowStateContext'
+import { StepState } from '../types/workflow-state'
 import { useWorkflowValidationStore } from '../stores/workflow-validation-store'
 import { useUIStore } from '../stores/ui-store'
 import { useWorkspaceStore } from '../stores/workspace-store'
@@ -19,7 +21,8 @@ import { useLoadingOverlay } from '../components/ui/LoadingOverlay'
  */
 export const useWorkflowIntegration = () => {
   const appStore = useAppStore()
-  const workflowStore = useWorkflowStore()
+  const { currentStep } = useWorkflowState()
+  const allSteps = workflowStateManager.getAllSteps()
   const validationStore = useWorkflowValidationStore()
   const uiStore = useUIStore()
   const workspaceStore = useWorkspaceStore()
@@ -45,6 +48,9 @@ export const useWorkflowIntegration = () => {
     initialize()
   }, [])
 
+  // PERFORMANCE FIX: Add debouncing to media file validation
+  const validationTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  
   // Handle media file validation and step state updates
   useEffect(() => {
     const hasMediaFile = !!appStore.config.inputFile
@@ -55,14 +61,39 @@ export const useWorkflowIntegration = () => {
       timestamp: Date.now()
     })
     
-    // Update validation store (this already calls enforceStepAccess internally)
-    validationStore.updateMediaFile(appStore.config.inputFile)
+    // PERFORMANCE FIX: Check if validation is needed before calling updateMediaFile
+    const currentValidation = validationStore.mediaValidation
+    const sameFile = currentValidation.mediaPath === appStore.config.inputFile
+    const alreadyValidated = currentValidation.lastValidated !== null
     
-    // Update UI store
+    if (sameFile && alreadyValidated) {
+      console.log('🔧 [PERFORMANCE] useWorkflowIntegration: Skipping validation - file already validated')
+    } else {
+      // PERFORMANCE FIX: Debounce validation updates to prevent rapid-fire calls
+      if (validationTimeoutRef.current) {
+        clearTimeout(validationTimeoutRef.current)
+      }
+      
+      validationTimeoutRef.current = setTimeout(() => {
+        // Update validation store (this already calls enforceStepAccess internally)
+        validationStore.updateMediaFile(appStore.config.inputFile)
+        validationTimeoutRef.current = null
+      }, 100) // 100ms debounce
+    }
+    
+    // Update UI store immediately (no debounce needed for UI state)
     uiStore.updateMediaFileStatus(hasMediaFile)
     
     // Note: syncWithWorkflowStore is now called internally by updateMediaFile
     // to prevent race conditions
+    
+    // Cleanup timeout on unmount
+    return () => {
+      if (validationTimeoutRef.current) {
+        clearTimeout(validationTimeoutRef.current)
+        validationTimeoutRef.current = null
+      }
+    }
     
   }, [appStore.config.inputFile])
 
@@ -109,31 +140,40 @@ export const useWorkflowIntegration = () => {
 
   // Step validation integration
   const validateCurrentStep = useCallback(async () => {
-    const currentStep = workflowStore.currentStep
+    // Using modern currentStep from useWorkflowState hook
     const validation = await validationStore.validateStep(currentStep)
     
-    // Update workflow store with validation results
+    // Update workflow state with validation results using WorkflowStateManager
     // Special handling for input-file step - never mark as error (it's the entry point)
     if (currentStep === 'input-file') {
-      workflowStore.clearStepError(currentStep)
+      await workflowStateManager.transitionState('input-file', StepState.Ready, {
+        reason: 'Input step is entry point - always accessible'
+      })
     }
     // Special handling for config step - don't mark as error if accessible
     else if (currentStep === 'config' && validation.canAccess) {
       // Config step is accessible, don't show as error even if not fully configured
-      workflowStore.clearStepError(currentStep)
+      await workflowStateManager.transitionState('config', StepState.Ready, {
+        reason: 'Config step is accessible'
+      })
     } else if (validation.errors.length > 0) {
-      workflowStore.markStepAsError(currentStep, validation.errors.join(', '))
+      await workflowStateManager.transitionState(currentStep, StepState.Error, {
+        reason: 'Validation failed',
+        message: validation.errors.join(', ')
+      })
     } else {
-      workflowStore.clearStepError(currentStep)
+      await workflowStateManager.transitionState(currentStep, StepState.Ready, {
+        reason: 'Validation passed'
+      })
     }
     
     return validation.isValid
-  }, [workflowStore.currentStep])
+  }, [currentStep])
 
   // Enhanced step navigation with validation and session saving
   const navigateToStep = useCallback(async (stepId: string) => {
     // Save current session if we're leaving the review step and have unsaved changes
-    const currentStep = workflowStore.currentStep
+    // Using modern currentStep from useWorkflowState hook
     
     if (currentStep === 'review' && subtitleEditStore.session?.isDirty) {
       try {
@@ -146,18 +186,24 @@ export const useWorkflowIntegration = () => {
       }
     }
     
-    // Validate target step
+    // Always allow navigation to step 1 (input-file) - users should always be able to return to the beginning
+    if (stepId === 'input-file') {
+      workflowStateManager.setCurrentStep(stepId)
+      return true
+    }
+    
+    // Validate other steps
     const validation = await validationStore.validateStep(stepId)
     
     if (validation.canAccess) {
-      workflowStore.setCurrentStep(stepId)
+      workflowStateManager.setCurrentStep(stepId)
       return true
     } else {
       // Show validation errors
       console.warn(`Cannot navigate to step ${stepId}:`, validation.errors)
       return false
     }
-  }, [workflowStore, validationStore, subtitleEditStore])
+  }, [currentStep, validationStore, subtitleEditStore])
 
   // Settings mode integration
   const enterSettingsMode = useCallback((initialTab?: string) => {
@@ -214,8 +260,8 @@ export const useWorkflowIntegration = () => {
     // Step navigation
     navigateToStep,
     validateCurrentStep,
-    currentStep: workflowStore.currentStep,
-    steps: workflowStore.steps,
+    currentStep: currentStep,
+    steps: Array.from(allSteps.values()),
     
     // Settings integration
     enterSettingsMode,

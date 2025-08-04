@@ -11,6 +11,7 @@ import {
 import { Chip } from "@mui/material";
 import { useAppStore } from "../../stores/app-store";
 import { AppConfig } from "@/types";
+import { triggerUserInteraction } from '../../services/workflow-config-bridge';
 
 interface QuickOption {
   key: keyof AppConfig;
@@ -36,6 +37,9 @@ export const QuickOptionsSelector: React.FC = () => {
         // If no Gemini key, written style cannot be disabled (always enabled)
         return;
       }
+      // Trigger immediate config update through event system
+      triggerUserInteraction('setting-change', key, !config[key]);
+      
       updateConfig(key, !config[key]);
     },
     [config, updateConfig, hasGeminiKey]

@@ -20,6 +20,7 @@ import {
 } from '@mui/icons-material'
 import { useAppStore } from '../../stores/app-store'
 import { useUnifiedConfig } from '../../contexts/EnhancedWorkspaceConfigContext'
+import { triggerUserInteraction } from '../../services/workflow-config-bridge'
 
 interface KeyValidation {
   valid: boolean
@@ -43,6 +44,9 @@ export const APIKeyInput: React.FC = () => {
     }
     
     try {
+      // Trigger immediate config update through event system
+      triggerUserInteraction('api-key-update', 'geminiKey', value);
+      
       await setValue('geminiKey', value)
       
       if (value) {
@@ -71,6 +75,9 @@ export const APIKeyInput: React.FC = () => {
     }
     
     try {
+      // Trigger immediate config update through event system
+      triggerUserInteraction('api-key-update', 'hfToken', value);
+      
       await setValue('hfToken', value)
       
       if (value) {
@@ -99,12 +106,16 @@ export const APIKeyInput: React.FC = () => {
     }
     
     try {
+      // Trigger immediate config update through event system
+      triggerUserInteraction('setting-change', 'noGeminiRefinement', !enabled);
+      
       await setValue('noGeminiRefinement', !enabled)
       
       // If disabling Gemini refinement, also disable AI-dependent features
       if (!enabled) {
         // Reset subtitle translation since it depends on Gemini
         if (config.subtitle && typeof config.subtitle === 'string') {
+          triggerUserInteraction('setting-change', 'subtitle', null);
           await setValue('subtitle', null)
         }
       }
@@ -128,6 +139,9 @@ export const APIKeyInput: React.FC = () => {
     }
     
     try {
+      // Trigger immediate config update through event system
+      triggerUserInteraction('api-key-update', 'geminiKey', '');
+      
       await setValue('geminiKey', '')
       setGeminiKeyValidation(null)
     } catch (err) {
@@ -142,6 +156,9 @@ export const APIKeyInput: React.FC = () => {
     }
     
     try {
+      // Trigger immediate config update through event system
+      triggerUserInteraction('api-key-update', 'hfToken', '');
+      
       await setValue('hfToken', '')
       setHfTokenValidation({ valid: false, message: 'HuggingFace token is required for Whisper model downloads' })
     } catch (err) {
@@ -166,6 +183,9 @@ export const APIKeyInput: React.FC = () => {
     }
     
     try {
+      // Trigger immediate config update through event system
+      triggerUserInteraction('setting-change', 'autoSaveApiKeys', enabled);
+      
       await setValue('autoSaveApiKeys', enabled)
     } catch (err) {
       console.error('Failed to update auto-save setting:', err)

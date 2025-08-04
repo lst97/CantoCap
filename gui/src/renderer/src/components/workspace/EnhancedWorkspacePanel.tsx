@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo } from 'react'
+import { generateGroupId } from '../../utils/id-generator'
 import { Box, IconButton, Tooltip, Divider, Typography, CircularProgress, Alert } from '@mui/material'
 import { 
   Add as AddIcon, 
@@ -198,10 +199,10 @@ export const EnhancedWorkspacePanel: React.FC<EnhancedWorkspacePanelProps> = ({
   }, [onSwitchWorkspace])
 
   // Drag and Drop Helper Functions
-  const generateGroupId = () => `group-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+  const createGroupId = () => generateGroupId()
   
   const createNewGroup = useCallback((name: string, workspaceIds: string[], color: WorkspaceGroupColor = 'default'): WorkspaceGroupType => {
-    const groupId = generateGroupId()
+    const groupId = createGroupId()
     return {
       id: groupId,
       name,

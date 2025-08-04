@@ -1,5 +1,6 @@
-import { useWorkflowStore } from '../stores/workflow-store'
 import { useExportStore } from '../stores/export-store'
+import { workflowStateManager } from '../services/workflow-state-manager'
+import { StepState } from '../types/workflow-state'
 
 /**
  * Integration utilities for connecting export operations with the workflow
@@ -8,29 +9,26 @@ import { useExportStore } from '../stores/export-store'
 /**
  * Mark the export step as completed when a successful export is done
  */
-export const completeExportStep = () => {
-  const workflowStore = useWorkflowStore.getState()
-  workflowStore.completeStep('export')
+export const completeExportStep = async () => {
+  await workflowStateManager.transitionState('export', StepState.Complete, {
+    reason: 'Export completed successfully'
+  })
 }
 
 /**
  * Check if export step should be accessible based on processing completion
  */
 export const checkExportAccessibility = () => {
-  const workflowStore = useWorkflowStore.getState()
-  const processingStep = workflowStore.steps.find(s => s.id === 'processing')
-  
-  return processingStep?.isCompleted || false
+  const processingStepState = workflowStateManager.getStepState('processing')
+  return processingStepState === StepState.Complete
 }
 
 /**
  * Navigate to export step when subtitles are ready
  */
 export const navigateToExport = () => {
-  const workflowStore = useWorkflowStore.getState()
-  
   if (checkExportAccessibility()) {
-    workflowStore.setCurrentStep('export')
+    workflowStateManager.setCurrentStep('export')
   }
 }
 

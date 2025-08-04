@@ -45,7 +45,12 @@
       "Bash(node:*)",
       "Bash(npm run lint:*)",
       "Bash(pnpm type-check:*)",
-      "WebFetch(domain:react.dev)"
+      "WebFetch(domain:react.dev)",
+      "Bash(npm run type-check:*)",
+      "Bash(npx eslint:*)",
+      "Bash(npm run typecheck:*)",
+      "Bash(npx ts-prune:*)",
+      "Bash(sed:*)"
     ],
     "deny": []
   }

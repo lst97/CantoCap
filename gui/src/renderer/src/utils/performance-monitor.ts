@@ -1,9 +1,7 @@
 // Performance Monitor - Real-time performance tracking and optimization
-import type { 
-  WorkflowStepId,
-  AutoSavePerformanceMetrics,
-  OptimizationSuggestion
-} from '../services/auto-save-engine'
+// REMOVED: auto-save-engine types - timer-based auto-save system deleted
+
+import { generateAlertId } from './id-generator'
 
 // ============================================================================
 // PERFORMANCE MONITORING TYPES
@@ -409,7 +407,7 @@ class PerformanceAlertManager {
   }
 
   private generateAlertId(): string {
-    return `alert_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    return generateAlertId()
   }
 }
 

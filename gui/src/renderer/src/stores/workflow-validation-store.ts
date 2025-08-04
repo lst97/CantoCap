@@ -1,24 +1,21 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import { useAppStore } from './app-store'
-import { useWorkflowStore } from './workflow-store'
-import { stepStateController, atomicStepReset } from '../utils/step-state-controller'
+import { workflowStateManager } from '../services/workflow-state-manager'
+import { StepState, type StepId } from '../types/workflow-state'
 
 /**
- * Workflow Validation Store - Simplified User Experience Flow
+ * Modern Workflow Validation Store - Business Logic Layer
  * 
- * Implements the correct workflow panel logic:
+ * This store provides business logic validation that coordinates with
+ * WorkflowStateManager for state management. It focuses purely on
+ * validation rules and user experience flow without duplicating
+ * state management functionality.
  * 
  * User Experience Flow:
- * 1. App loads → Step 1 active (ready), Step 2-5 blocked 
+ * 1. App loads → Step 1 ready, Step 2-5 blocked 
  * 2. User uploads video → Step 1 completed, Step 2 ready 
- * 3. User removes video → Step 1 active (reset), Step 2-5 blocked 
- *
- * Clear Visual Hierarchy:
- * - Active Step: Blue color, step number, ready for interaction
- * - Completed Step: Green color, checkmark icon
- * - Blocked Steps: Grey color, blocked icon, clear prerequisite messaging
- * - No Error Confusion: Step 1 never shows errors for normal empty state
+ * 3. User removes video → Step 1 ready, Step 2-5 blocked 
  */
 
 // Workflow Validation Types
@@ -89,18 +86,17 @@ export interface WorkflowValidationActions {
 
 type WorkflowValidationStore = WorkflowValidationState & WorkflowValidationActions
 
-// Simplified Validation Rules Factory - Aligns with User Experience Flow
+// Modern Validation Rules Factory - Uses WorkflowStateManager
 const createStepValidationRules = (stepId: string): StepValidationRule[] => {
   const rules: StepValidationRule[] = []
   
   switch (stepId) {
     case 'input-file':
-      // Step 1 never has validation rules - it's always ready and never shows errors
-      // This is the entry point of the application
+      // Step 1 is always ready - no validation rules needed
       break
       
     case 'config':
-      // Step 2 only requires media file to be accessible
+      // Step 2 requires media file
       rules.push({
         id: 'media-file-prerequisite',
         name: 'Media File Required',
@@ -119,9 +115,7 @@ const createStepValidationRules = (stepId: string): StepValidationRule[] => {
         id: 'config-completed',
         name: 'Configuration Completed', 
         validate: async () => {
-          const workflowStore = useWorkflowStore.getState()
-          const configStep = workflowStore.steps.find(s => s.id === 'config')
-          return configStep?.isCompleted || false
+          return workflowStateManager.isStepComplete('config')
         },
         errorMessage: 'Complete configuration first',
         isRequired: true
@@ -129,50 +123,40 @@ const createStepValidationRules = (stepId: string): StepValidationRule[] => {
       break
       
     case 'review':
-      // Step 4 requires processing to be completed OR skipped (for JSON import flow)
-      // OR if export step is accessible (user has progressed beyond review)
-      // OR if we have JSON import context
+      // Step 4 requires processing completed OR skipped (JSON import)
       rules.push({
         id: 'processing-completed-or-skipped-or-json-import',
         name: 'Processing Completed or Skipped or JSON Import',
         validate: async () => {
-          const workflowStore = useWorkflowStore.getState()
           const appStore = useAppStore.getState()
-          const processingStep = workflowStore.steps.find(s => s.id === 'processing')
-          const exportStep = workflowStore.steps.find(s => s.id === 'export')
-          const configStep = workflowStore.steps.find(s => s.id === 'config')
+          const processingComplete = workflowStateManager.isStepComplete('processing')
+          const processingSkipped = workflowStateManager.isStepSkipped('processing')
+          const configSkipped = workflowStateManager.isStepSkipped('config')
+          const exportAccessible = workflowStateManager.isStepAccessible('export')
           
-          // ENHANCED: Check for JSON import context with multiple indicators
+          // Check for JSON import context
           const isJsonImport = appStore.config.importedJsonFile || 
                               appStore.config.isImportedFromJson ||
-                              (configStep?.isSkipped && processingStep?.isSkipped) // Enhanced: Both config and processing skipped = JSON import
+                              (configSkipped && processingSkipped)
           const hasSubtitleData = Array.isArray(appStore.config.subtitle) && appStore.config.subtitle.length > 0
           
           console.log('🔍 Review step validation check:', {
-            processingCompleted: processingStep?.isCompleted,
-            processingSkipped: processingStep?.isSkipped,
-            configSkipped: configStep?.isSkipped,
-            exportAccessible: exportStep?.isAccessible,
+            processingComplete,
+            processingSkipped,
+            configSkipped,
+            exportAccessible,
             isJsonImport,
-            hasSubtitleData,
-            importedJsonFile: appStore.config.importedJsonFile,
-            isImportedFromJson: appStore.config.isImportedFromJson
-          });
+            hasSubtitleData
+          })
           
-          // Allow access if:
-          // 1. Processing is completed OR skipped (JSON import flow)
-          // 2. OR export step is accessible (user has progressed beyond review)
-          // 3. OR we have a JSON import with subtitle data (immediate access)
-          // 4. ENHANCED: Both config and processing are skipped (definitive JSON import flow)
-          const canAccess = processingStep?.isCompleted || 
-                           processingStep?.isSkipped || 
-                           exportStep?.isAccessible || 
+          const canAccess = processingComplete || 
+                           processingSkipped || 
+                           exportAccessible || 
                            (isJsonImport && hasSubtitleData) ||
-                           (configStep?.isSkipped && processingStep?.isSkipped) || // Enhanced condition
-                           false;
+                           (configSkipped && processingSkipped)
                            
-          console.log('🔍 Review step validation result:', canAccess);
-          return canAccess;
+          console.log('🔍 Review step validation result:', canAccess)
+          return canAccess
         },
         errorMessage: 'Complete processing first',
         isRequired: true
@@ -185,9 +169,7 @@ const createStepValidationRules = (stepId: string): StepValidationRule[] => {
         id: 'review-accessible',
         name: 'Review Step Accessible',
         validate: async () => {
-          const workflowStore = useWorkflowStore.getState()
-          const reviewStep = workflowStore.steps.find(s => s.id === 'review')
-          return reviewStep?.isAccessible || false
+          return workflowStateManager.isStepAccessible('review')
         },
         errorMessage: 'Complete processing first',
         isRequired: true
@@ -247,29 +229,70 @@ export const useWorkflowValidationStore = create<WorkflowValidationStore>()(
     },
 
     updateMediaFile: async (filePath) => {
+      const currentState = get()
+      const currentFilePath = useAppStore.getState().config.inputFile
+      
       console.log('🔧 updateMediaFile called:', {
         filePath,
-        timestamp: Date.now()
+        currentFilePath,
+        timestamp: Date.now(),
+        shouldSkip: currentFilePath === filePath && currentState.mediaValidation.lastValidation
       })
+      
+      // PERFORMANCE FIX: Skip if same file path and already validated
+      if (currentFilePath === filePath && currentState.mediaValidation.lastValidation) {
+        console.log('🔧 [PERFORMANCE] updateMediaFile: Skipping - same file already validated')
+        return
+      }
       
       // Validate media file first and get result
       const result = await get().validateMediaFile()
       
       // Apply the user experience flow immediately after media validation
       if (result) {
-        // First enforce step access to set correct step states
-        await get().enforceStepAccess()
+        // Check if step access enforcement is needed
+        const hasMediaFile = !!filePath
+        const inputStepState = workflowStateManager.getStepState('input-file')
+        const configStepState = workflowStateManager.getStepState('config')
+        
+        // RACE CONDITION FIX: Don't interfere if step-state-controller already set correct states
+        // For video uploads: input=Complete + config=Ready is the correct end state
+        const isCorrectVideoUploadState = hasMediaFile && 
+          inputStepState === StepState.Complete && 
+          configStepState === StepState.Ready
+          
+        if (isCorrectVideoUploadState) {
+          console.log('🔧 [RACE CONDITION FIX] Step states already correctly set by step-state-controller - skipping enforcement')
+          return // Don't interfere with correct state
+        }
+        
+        const shouldEnforceAccess = hasMediaFile && 
+          (inputStepState !== StepState.Complete || configStepState !== StepState.Ready)
+        
+        if (shouldEnforceAccess) {
+          console.log('🔧 [VALIDATION] Enforcing step access - states need update')
+          await get().enforceStepAccess()
+        } else {
+          console.log('🔧 [PERFORMANCE] Skipping step access enforcement - states already correct')
+        }
         
         // Only validate steps that are accessible to avoid error states on blocked steps
-        const workflowStore = useWorkflowStore.getState()
-        const accessibleSteps = workflowStore.steps.filter(s => s.isAccessible).map(s => s.id)
+        const allSteps = workflowStateManager.getAllSteps()
+        const accessibleSteps = Array.from(allSteps.values())
+          .filter(step => step.stateMetadata.state === StepState.Ready || step.stateMetadata.state === StepState.Complete)
+          .map(step => step.id)
         
         for (const stepId of accessibleSteps) {
           await get().validateStep(stepId)
         }
         
-        // Sync workflow store to ensure consistency
-        await get().syncWithWorkflowStore()
+        // Only sync if we actually made changes
+        if (shouldEnforceAccess) {
+          console.log('🔧 [VALIDATION] Syncing workflow store after changes')
+          await get().syncWithWorkflowStore()
+        } else {
+          console.log('🔧 [PERFORMANCE] Skipping workflow sync - no changes made')
+        }
       }
     },
 
@@ -374,25 +397,32 @@ export const useWorkflowValidationStore = create<WorkflowValidationStore>()(
       })
     },
 
-    // Simplified Workflow State Management - Implements User Experience Flow
+    // Modern Step Access Enforcement - Works with WorkflowStateManager
     enforceStepAccess: async () => {
       const appStore = useAppStore.getState()
-      const workflowStore = useWorkflowStore.getState()
       const hasMediaFile = !!appStore.config.inputFile
       
-      console.log('🔧 enforceStepAccess - Simplified Flow:', {
+      // PERFORMANCE FIX: Check current states to avoid unnecessary transitions
+      const inputStepState = workflowStateManager.getStepState('input-file')
+      const configStepState = workflowStateManager.getStepState('config')
+      
+      console.log('🔧 Modern enforceStepAccess:', {
         hasMediaFile,
+        inputStepState,
+        configStepState,
         timestamp: Date.now()
       })
       
       if (!hasMediaFile) {
-        // User Experience Flow: App loads OR User removes video
-        // → Step 1 active (ready), Step 2-5 blocked
+        // No media file: Step 1 ready, Steps 2-5 blocked
+        if (inputStepState !== StepState.Ready || configStepState !== StepState.Blocked) {
+          console.log('🔧 No media file - resetting workflow')
+        } else {
+          console.log('🔧 [PERFORMANCE] Workflow already in correct state for no media file')
+          return
+        }
         
-        // Use atomic step reset to prevent race conditions
-        console.log('🔧 Using atomic step reset for validation store')
-        
-        // Clear validation states for steps 2-5 to prevent showing errors
+        // Clear validation states for blocked steps
         const state = get()
         const clearedValidations = { ...state.stepValidations }
         const blockedSteps = ['config', 'processing', 'review', 'export']
@@ -403,104 +433,91 @@ export const useWorkflowValidationStore = create<WorkflowValidationStore>()(
         
         set({ stepValidations: clearedValidations })
         
-        // Use atomic step reset instead of direct workflow store calls
-        await atomicStepReset('config', 'export', true)
-        
-        // Force update workflow store to ensure Step 2 is properly blocked
-        const workflowStoreState = useWorkflowStore.getState()
-        useWorkflowStore.setState({
-          steps: workflowStoreState.steps.map(step => {
-            if (step.id === 'input-file') {
-              // Step 1 should be active and ready
-              return {
-                ...step,
-                isAccessible: true,
-                isCompleted: false,
-                hasError: false,
-                errorMessage: undefined
-              }
-            } else if (['config', 'processing', 'review', 'export'].includes(step.id)) {
-              // Steps 2-5 should be completely blocked
-              return {
-                ...step,
-                isAccessible: false,
-                isCompleted: false,
-                hasError: false,
-                errorMessage: undefined
-              }
-            }
-            return step
-          }),
-          currentStep: 'input-file'
-        })
+        // Use atomic video removal from step state controller
+        const { atomicVideoRemoval } = await import('../utils/step-state-controller')
+        await atomicVideoRemoval()
         
       } else {
-        // User Experience Flow: User uploads video  
-        // → Step 1 completed, Step 2 ready
-        
-        // Complete Step 1 and make Step 2 ready
-        const inputFileStep = workflowStore.steps.find(s => s.id === 'input-file')
-        const configStep = workflowStore.steps.find(s => s.id === 'config')
-        
-        if (inputFileStep && !inputFileStep.isCompleted) {
-          // Use atomic operation to mark Step 1 as completed
-          await stepStateController.executeAtomicStepOperation(() => {
-            workflowStore.completeStep('input-file')
-          }, { operation: 'complete-input-step', source: 'validation-store' })
+        // Media file present: Step 1 completed, Step 2 ready
+        // PERFORMANCE FIX: Check if states are already correct to avoid unnecessary transitions
+        if (inputStepState === StepState.Complete && configStepState === StepState.Ready) {
+          console.log('🔧 [PERFORMANCE] Media file states already correct - skipping transitions')
+          return
         }
         
-        if (configStep) {
-          // Ensure Step 2 is accessible and ready
-          configStep.isAccessible = true
-          configStep.hasError = false
-          configStep.errorMessage = undefined
+        console.log('🔧 Media file present - enabling config step')
+        
+        const inputFileComplete = workflowStateManager.isStepComplete('input-file')
+        
+        if (!inputFileComplete) {
+          await workflowStateManager.transitionState('input-file', StepState.Complete, {
+            reason: 'Media file uploaded - validation enforcement'
+          })
         }
         
-        // Navigate to Step 2 if still on Step 1 using atomic operation
-        if (workflowStore.currentStep === 'input-file') {
-          await stepStateController.executeAtomicStepOperation(() => {
-            workflowStore.setCurrentStep('config')
-          }, { operation: 'navigate-to-config', source: 'validation-store' })
+        if (configStepState !== StepState.Ready) {
+          await workflowStateManager.transitionState('config', StepState.Ready, {
+            reason: 'Media uploaded - config step ready'
+          })
+        }
+        
+        // AUTOMATIC NAVIGATION: After video upload, automatically navigate to config step
+        // This provides a smooth user experience and matches user expectations
+        // The step-state-controller handles this navigation automatically
+      }
+    },
+
+    updateWorkflowFromValidation: async () => {
+      const state = get()
+      console.log('🔄 Updating workflow from validation results')
+      
+      // Process validation results and update WorkflowStateManager accordingly
+      for (const [stepId, validation] of Object.entries(state.stepValidations)) {
+        if (validation) {
+          try {
+            // Determine target state based on validation results
+            let targetState: StepState
+            
+            if (stepId === 'input-file') {
+              // Step 1 is always ready when accessible
+              targetState = StepState.Ready
+            } else if (validation.errors.length > 0) {
+              // Steps with validation errors go to Error state
+              targetState = StepState.Error
+            } else if (validation.warnings.length > 0) {
+              // Steps with warnings go to Warning state
+              targetState = StepState.Warning
+            } else if (!validation.canAccess) {
+              // Steps that can't be accessed are blocked
+              targetState = StepState.Blocked
+            } else {
+              // Valid steps are ready
+              targetState = StepState.Ready
+            }
+            
+            // Update state through WorkflowStateManager
+            await workflowStateManager.transitionState(stepId as StepId, targetState, {
+              reason: 'Validation result update',
+              message: validation.errors.length > 0 ? validation.errors[0] : undefined,
+              context: {
+                validationErrors: validation.errors,
+                validationWarnings: validation.warnings,
+                lastValidated: validation.lastValidated
+              }
+            })
+            
+          } catch (error) {
+            console.error(`Failed to update state for step ${stepId}:`, error)
+          }
         }
       }
     },
 
-    updateWorkflowFromValidation: () => {
-      const state = get()
-      const workflowStore = useWorkflowStore.getState()
-      
-      // Update workflow store based on validation results
-      Object.entries(state.stepValidations).forEach(([stepId, validation]) => {
-        if (validation) {
-          const step = workflowStore.steps.find(s => s.id === stepId)
-          if (step) {
-            // Step 1 (input-file) never shows errors - it's always ready
-            if (stepId === 'input-file') {
-              step.hasError = false
-              step.errorMessage = undefined
-              // Step 1 is always accessible
-              step.isAccessible = true
-            } else {
-              // For steps 2-5, show errors only if step is accessible but validation fails
-              const hasActualError = validation.errors.length > 0 && step.isAccessible
-              step.hasError = hasActualError
-              step.errorMessage = hasActualError ? validation.errors.join(', ') : undefined
-              
-              // Update accessibility based on validation
-              if (!validation.canAccess) {
-                step.isAccessible = false
-              }
-            }
-          }
-        }
-      })
-    },
-
-    // Integration with workflow store - Simplified
+    // Modern workflow synchronization
     syncWithWorkflowStore: async () => {
-      // Apply the simplified user experience flow
+      console.log('🔄 Syncing validation with WorkflowStateManager')
       await get().enforceStepAccess()
-      get().updateWorkflowFromValidation()
+      await get().updateWorkflowFromValidation()
     },
 
     // Utility
@@ -535,7 +552,8 @@ const initializeSubscriptions = () => {
     useAppStore.subscribe(
       (state) => state.config.inputFile,
       (inputFile, prevInputFile) => {
-        if (inputFile !== prevInputFile) {
+        // PERFORMANCE FIX: Additional null/undefined comparison to prevent excessive calls
+        if (inputFile !== prevInputFile && !(inputFile === null && prevInputFile === undefined)) {
           console.log('🔧 App store inputFile subscription triggered:', {
             inputFile,
             prevInputFile,
@@ -549,6 +567,14 @@ const initializeSubscriptions = () => {
           
           updateTimeout = setTimeout(async () => {
             const validationStore = useWorkflowValidationStore.getState()
+            // PERFORMANCE FIX: Check if we already have this file validated before updating
+            const currentValidation = validationStore.mediaValidation
+            if (currentValidation.mediaPath === inputFile && currentValidation.lastValidated) {
+              console.log('🔧 [PERFORMANCE] Subscription: File already validated, skipping update')
+              updateTimeout = null
+              return
+            }
+            
             await validationStore.updateMediaFile(inputFile)
             updateTimeout = null
           }, 50) // 50ms debounce

@@ -13,7 +13,7 @@ import FDBFactory from 'fake-indexeddb/lib/FDBFactory'
 import FDBKeyRange from 'fake-indexeddb/lib/FDBKeyRange'
 import { workspaceDatabase } from '../../services/workspace-database'
 import { useWorkspaceStore } from '../../stores/workspace-store'
-import { autoSaveEngine } from '../../services/auto-save-engine'
+// REMOVED: auto-save-engine import - timer-based auto-save system deleted
 import type { 
   WorkspaceGroup, 
   WorkspaceWithGrouping,

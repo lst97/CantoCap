@@ -16,6 +16,7 @@ import {
   Warning as WarningIcon
 } from '@mui/icons-material'
 import { useAppStore } from '../../stores/app-store'
+import { triggerUserInteraction } from '../../services/workflow-config-bridge'
 
 interface TranslationOption {
   value: string
@@ -28,6 +29,11 @@ export const TranslationSelector: React.FC = () => {
 
   const handleTranslationChange = useCallback((event: any) => {
     const value = event.target.value
+    const newValue = value === 'none' ? null : value;
+    
+    // Trigger immediate config update through event system
+    triggerUserInteraction('setting-change', 'subtitle', newValue);
+    
     if (value === 'none') {
       updateConfig('subtitle', null)
     } else {

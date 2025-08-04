@@ -1,13 +1,9 @@
 // Performance Optimization Hooks - React hooks for performance-aware interactions
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { autoSaveEngine } from '../services/auto-save-engine'
+// REMOVED: auto-save-engine - timer-based auto-save system deleted
 import { backgroundSyncCoordinator } from '../workers/background-sync'
 import { performanceMonitor } from '../utils/performance-monitor'
-import type { 
-  AutoSavePerformanceMetrics,
-  OptimizationSuggestion,
-  SaveOperation
-} from '../services/auto-save-engine'
+// REMOVED: auto-save-engine types - timer-based auto-save system deleted
 import type { 
   PerformanceSnapshot,
   PerformanceAlert,
@@ -70,7 +66,8 @@ export function usePerformanceOptimization() {
   // Apply optimization suggestion
   const applyOptimization = useCallback(async (suggestionId: string) => {
     try {
-      await autoSaveEngine.applyOptimizationSuggestion(suggestionId)
+      // REMOVED: auto-save-engine - timer-based auto-save system deleted
+      console.log('Apply optimization suggestion (no-op):', suggestionId)
       // Refresh snapshot after applying optimization
       setTimeout(() => {
         setSnapshot(performanceMonitor.getCurrentSnapshot())
@@ -133,9 +130,9 @@ export function useAutoSavePerformance() {
   // Update metrics periodically
   useEffect(() => {
     const updateMetrics = () => {
-      const status = autoSaveEngine.getStatus()
-      setMetrics(status.performanceMetrics)
-      setSuggestions(autoSaveEngine.getOptimizationSuggestions())
+      // REMOVED: auto-save-engine performance metrics
+      setMetrics(null)
+      setSuggestions([])
     }
 
     updateMetrics()
@@ -151,7 +148,7 @@ export function useAutoSavePerformance() {
     batchSize?: number
     maxRetries?: number
   }) => {
-    autoSaveEngine.configure(config)
+    // REMOVED: autoSaveEngine.configure(config)
     if (config.enabled !== undefined) {
       setIsEnabled(config.enabled)
     }
@@ -160,7 +157,7 @@ export function useAutoSavePerformance() {
   // Force flush pending saves
   const flush = useCallback(async () => {
     try {
-      await autoSaveEngine.flush()
+      // REMOVED: auto-save-engine flush (no-op)
     } catch (error) {
       console.error('Failed to flush auto-save queue:', error)
     }
@@ -169,7 +166,8 @@ export function useAutoSavePerformance() {
   // Apply optimization suggestion
   const applyOptimization = useCallback(async (suggestionId: string) => {
     try {
-      await autoSaveEngine.applyOptimizationSuggestion(suggestionId)
+      // REMOVED: auto-save-engine - timer-based auto-save system deleted
+      console.log('Apply optimization suggestion (no-op):', suggestionId)
     } catch (error) {
       console.error('Failed to apply auto-save optimization:', error)
     }
@@ -199,7 +197,8 @@ export function usePerformantStepConfig(workspaceId: string, stepId: WorkflowSte
     const startTime = Date.now()
     
     try {
-      await autoSaveEngine.scheduleStepConfigSave(workspaceId, stepId, config, priority)
+      // REMOVED: auto-save-engine step config save (using event-driven system instead)
+      console.log('Schedule step config save (no-op):', workspaceId, stepId)
       
       const latency = Date.now() - startTime
       setSaveLatency(latency)
@@ -404,10 +403,10 @@ export function useAdaptivePerformance() {
     const settings = getOptimizedSettings
     
     // Configure auto-save engine
-    autoSaveEngine.configure({
-      debounceMs: settings.debounceMs,
-      batchSize: settings.batchSize
-    })
+    // REMOVED: autoSaveEngine.configure({
+    //   debounceMs: settings.debounceMs,
+    //   batchSize: settings.batchSize
+    // })
     
     // Configure performance monitor
     performanceMonitor.configure({

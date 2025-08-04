@@ -1,28 +1,57 @@
-import React, { useEffect, useState } from 'react'
-import { Box, Alert, Snackbar, LinearProgress, Typography, Chip } from '@mui/material'
-import { CheckCircle, Save, Error as ErrorIcon } from '@mui/icons-material'
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react'
+import { Box, Alert, Snackbar, LinearProgress, Typography } from '@mui/material'
 import { InputPanel } from '../ui/InputPanel'
 import { ErrorBoundary } from '../common/ErrorBoundary'
 import { useInputFileConfig, useWorkspaceConfig } from '../../contexts/WorkspaceConfigContext'
-
-interface InputFileConfig {
-  inputFile?: string | null
-  selectedRange?: {
-    start: number
-    end: number
-  }
-  mediaMetadata?: {
-    duration: number
-    format: string
-    size: number
-  }
-  lastModified?: number
-}
+import { useAppStore } from '../../stores/app-store'
+import { triggerUserInteraction } from '../../services/workflow-config-bridge'
+import { VideoMetadata } from '../../types/workspace'
 
 export const InputFileStep: React.FC = () => {
   const [config, updateConfig, { isLoading, error, isReady }] = useInputFileConfig()
-  const { autoSaveStatus, isAutoSaving, lastError, clearError } = useWorkspaceConfig()
+  const { lastError, clearError } = useWorkspaceConfig()
   const [showErrorNotification, setShowErrorNotification] = useState(false)
+  
+  // CRITICAL DEBUG: Log workspace vs app store config mismatch
+  const { config: appConfig, updateConfig: updateAppConfig } = useAppStore()
+  
+  // Debounced logging to prevent excessive debug output
+  const debugLogRef = useRef<{ lastLog: number; lastHash: string }>({ lastLog: 0, lastHash: '' })
+  
+  // React 19 Optimization: Memoize debug data to prevent unnecessary re-renders
+  const debugData = useMemo(() => ({
+    workspaceConfig: {
+      selectedFile: config?.selectedFile,
+      hasConfig: !!config,
+      isReady,
+      isLoading
+    },
+    appStoreConfig: {
+      inputFile: appConfig.inputFile,
+      hasInputFile: !!appConfig.inputFile
+    },
+    mismatch: {
+      workspaceVsAppStore: config?.selectedFile !== appConfig.inputFile,
+      workspaceFile: config?.selectedFile,
+      appStoreFile: appConfig.inputFile
+    }
+  }), [config, isReady, isLoading, appConfig.inputFile]);
+  
+  useEffect(() => {
+    // Throttle debug logging to prevent render cascade spam
+    const now = Date.now()
+    const dataHash = JSON.stringify(debugData)
+    const shouldLog = process.env.NODE_ENV === 'development' && 
+      (now - debugLogRef.current.lastLog > 1000 || debugLogRef.current.lastHash !== dataHash)
+    
+    if (shouldLog) {
+      console.log('🔧 [VIDEO DEBUG] InputFileStep: Config state comparison:', {
+        timestamp: new Date().toISOString(),
+        ...debugData
+      })
+      debugLogRef.current = { lastLog: now, lastHash: dataHash }
+    }
+  }, [debugData]);
 
 
   // Handle errors
@@ -32,47 +61,150 @@ export const InputFileStep: React.FC = () => {
     }
   }, [lastError, error])
 
-  // Handle input file selection
-  const handleFileSelect = async (file: string) => {
-    try {
-      await updateConfig({
-        selectedFile: file,
-        lastModified: Date.now()
-      })
-    } catch (error) {
-      console.error('Failed to save input file selection:', error)
-      // Error will be handled by error notification system
+  // Debounced update to prevent rapid successive changes
+  const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const lastUpdateRef = useRef<{ workspace: string | undefined; appStore: string | undefined }>({
+    workspace: undefined,
+    appStore: undefined
+  })
+  
+  // React 19 Optimization: Memoize file selection handler with debouncing
+  const handleFileSelect = useCallback(async (file: string) => {
+    // Clear any pending updates
+    if (updateTimeoutRef.current) {
+      clearTimeout(updateTimeoutRef.current)
     }
-  }
-
-  // Handle JSON file selection
-  const handleJsonFileSelect = async (file: string | null) => {
-    try {
-      await updateConfig({
-        importedJsonFile: file,
-        lastModified: Date.now()
+    
+    const logOnce = process.env.NODE_ENV === 'development'
+    if (logOnce) {
+      console.log('🔧 [VIDEO DEBUG] InputFileStep: handleFileSelect called:', {
+        timestamp: new Date().toISOString(),
+        file,
+        currentConfigBefore: config?.selectedFile,
+        currentAppConfigBefore: appConfig.inputFile
       })
-    } catch (error) {
-      console.error('Failed to save JSON file selection:', error)
-      // Error will be handled by error notification system
     }
-  }
+    
+    // Enhanced duplicate detection with last update tracking
+    const workspaceChanged = config?.selectedFile !== file && lastUpdateRef.current.workspace !== file
+    const appStoreChanged = appConfig.inputFile !== file && lastUpdateRef.current.appStore !== file
+    
+    if (!workspaceChanged && !appStoreChanged) {
+      if (logOnce) {
+        console.log('🔧 [PERFORMANCE] InputFileStep: Skipping duplicate update - values already match')
+      }
+      return
+    }
+    
+    // Debounced update to prevent race conditions
+    updateTimeoutRef.current = setTimeout(async () => {
+      try {
+        // Update tracking before making changes
+        lastUpdateRef.current = { workspace: file, appStore: file }
+        
+        // Batch updates to prevent cascading re-renders
+        const updates: Promise<any>[] = []
+        
+        if (workspaceChanged) {
+          if (logOnce) console.log('🔧 [VIDEO DEBUG] InputFileStep: Updating workspace config')
+          
+          triggerUserInteraction('file-selection', 'inputFile', file)
+          updates.push(updateConfig({
+            selectedFile: file,
+            lastModified: Date.now()
+          }))
+        }
+        
+        if (appStoreChanged) {
+          if (logOnce) console.log('🔧 [VIDEO DEBUG] InputFileStep: Updating app store for UI sync')
+          updateAppConfig('inputFile', file)
+        }
+        
+        // Wait for all updates to complete
+        await Promise.all(updates)
+        
+        if (logOnce) {
+          console.log('✅ [VIDEO DEBUG] InputFileStep: Config updates completed (batched)')
+        }
+      } catch (error) {
+        console.error('❌ [VIDEO DEBUG] InputFileStep: Failed to save input file selection:', error)
+        // Reset tracking on error
+        lastUpdateRef.current = { workspace: undefined, appStore: undefined }
+      }
+    }, 50) // 50ms debounce
+  }, [config?.selectedFile, appConfig.inputFile, updateConfig, updateAppConfig]);
 
-  // Handle range selection
-  const handleRangeSelect = async (start: number, end: number) => {
+  // React 19 Optimization: Memoize JSON file selection handler with debouncing
+  const handleJsonFileSelect = useCallback(async (file: string | null) => {
+    // Skip if no actual change
+    if (config?.importedJsonFile === file) {
+      return
+    }
+    
+    const logOnce = process.env.NODE_ENV === 'development'
+    if (logOnce) {
+      console.log('🔧 [VIDEO DEBUG] InputFileStep: handleJsonFileSelect called:', {
+        timestamp: new Date().toISOString(),
+        file,
+        currentJsonFile: config?.importedJsonFile
+      })
+    }
+    
     try {
+      // Batch updates
+      triggerUserInteraction('file-selection', 'importedJsonFile', file)
+      
+      const updates: Promise<any>[] = [
+        updateConfig({
+          importedJsonFile: file || undefined,
+          lastModified: Date.now()
+        })
+      ]
+      
+      await Promise.all(updates)
+      
+      // Update app store after workspace config is saved
+      updateAppConfig('importedJsonFile', file)
+      
+      if (logOnce) {
+        console.log('✅ [VIDEO DEBUG] InputFileStep: Both JSON configs updated successfully')
+      }
+    } catch (error) {
+      console.error('❌ [VIDEO DEBUG] InputFileStep: Failed to save JSON file selection:', error)
+    }
+  }, [config?.importedJsonFile, updateConfig, updateAppConfig])
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (updateTimeoutRef.current) {
+        clearTimeout(updateTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  // React 19 Optimization: Memoize range selection handler
+  const handleRangeSelect = useCallback(async (start: number, end: number) => {
+    try {
+      const duration = end - start;
+      // Trigger immediate config update through event system
+      triggerUserInteraction('setting-change', 'selectedRange', { start, end, duration });
+      
       await updateConfig({
-        selectedRange: { start, end },
+        selectedRange: { start, end, duration },
         lastModified: Date.now()
       })
     } catch (error) {
       console.error('Failed to save range selection:', error)
     }
-  }
+  }, [updateConfig]);
 
-  // Handle media metadata updates
-  const handleMetadataUpdate = async (metadata: any) => {
+  // React 19 Optimization: Memoize metadata update handler
+  const handleMetadataUpdate = useCallback(async (metadata: VideoMetadata) => {
     try {
+      // Trigger immediate config update through event system
+      triggerUserInteraction('setting-change', 'mediaMetadata', metadata);
+      
       await updateConfig({
         mediaMetadata: metadata,
         lastModified: Date.now()
@@ -80,7 +212,7 @@ export const InputFileStep: React.FC = () => {
     } catch (error) {
       console.error('Failed to save media metadata:', error)
     }
-  }
+  }, [updateConfig]);
 
   // Show loading state while workspace is initializing
   if (!isReady) {

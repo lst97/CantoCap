@@ -4,7 +4,8 @@
  * and seamless integration with the step configuration system
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useRestorationSafeEffect, isInGlobalRestorationMode } from '../utils/restoration-guards'
 import { useWorkspaceStore } from '../stores/workspace-store'
 import { useStepConfig, useBatchStepConfig } from './useStepConfig'
 import { validateBatchStepConfigs } from '../utils/stepConfigValidation'
@@ -46,9 +47,10 @@ interface WorkspaceRequirement {
 export function useWorkspaceRequirement(): WorkspaceRequirement {
   const store = useWorkspaceStore()
   const [stepConfigsEnabled, setStepConfigsEnabled] = useState(false)
+  const hasMountedRef = useRef(false)
   
   // Check if step configs are enabled for current workspace
-  useEffect(() => {
+  useRestorationSafeEffect(() => {
     const checkStepConfigs = async () => {
       if (store.currentWorkspace) {
         try {
@@ -64,7 +66,11 @@ export function useWorkspaceRequirement(): WorkspaceRequirement {
     }
     
     checkStepConfigs()
-  }, [store.currentWorkspace?.id, store])
+  }, [store.currentWorkspace?.id], {
+    skipInitialMount: true,
+    skipDuringRestore: true,
+    description: 'workspace step config check'
+  })
   
   return {
     hasAnyWorkspace: store.hasAnyWorkspace(),
@@ -246,12 +252,32 @@ export function useWorkspaceStepIntegration(
     return result
   }, [workspaceId, batchConfig.configs, steps])
   
-  // Auto-validate when configurations change
-  useEffect(() => {
-    if (autoValidate && Object.keys(batchConfig.configs).length > 0) {
-      validateAll()
+  // Auto-validate when configurations change (with restoration guard)
+  useRestorationSafeEffect(() => {
+    // Skip validation if workspace is being restored or configs are empty
+    if (!autoValidate || Object.keys(batchConfig.configs).length === 0) {
+      return
     }
-  }, [autoValidate, batchConfig.configs, validateAll])
+    
+    // Additional check for global restoration mode
+    if (isInGlobalRestorationMode()) {
+      console.log('🛡️ Skipping auto-validation during global restoration mode')
+      return
+    }
+    
+    // Debounce validation to prevent excessive calls
+    const timeoutId = setTimeout(() => {
+      validateAll().catch(error => {
+        console.warn('Auto-validation failed:', error)
+      })
+    }, 300)
+    
+    return () => clearTimeout(timeoutId)
+  }, [autoValidate, batchConfig.configs], {
+    skipInitialMount: true,
+    skipDuringRestore: true,
+    description: 'batch config auto-validation'
+  })
   
   // Update step configuration
   const updateStepConfig = useCallback(async <K extends WorkflowStepId>(
@@ -509,7 +535,7 @@ export function useMigrationStatus(): MigrationStatus {
   const [migrationNeeded, setMigrationNeeded] = useState(false)
   
   // Check if migration is needed for current workspace
-  useEffect(() => {
+  useRestorationSafeEffect(() => {
     const checkMigrationStatus = async () => {
       if (requirement.activeWorkspaceId) {
         try {
@@ -523,7 +549,11 @@ export function useMigrationStatus(): MigrationStatus {
     }
     
     checkMigrationStatus()
-  }, [requirement.activeWorkspaceId, store])
+  }, [requirement.activeWorkspaceId], {
+    skipInitialMount: true,
+    skipDuringRestore: true,
+    description: 'migration status check'
+  })
   
   return {
     migrationNeeded,

@@ -61,7 +61,8 @@ export default defineConfig({
       devSourcemap: true // CSS sourcemaps for debugging
     },
     define: {
-      global: 'globalThis'
+      global: 'globalThis',
+      'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development')
     },
     // Development server optimizations
     server: {

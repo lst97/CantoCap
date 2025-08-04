@@ -16,9 +16,35 @@ export interface WorkflowStep {
   }
 }
 
+/**
+ * Restoration context interface for workflow store
+ */
+export interface WorkflowRestorationContext {
+  /** Whether the app is currently in restoration mode (reload scenario) */
+  isRestoring: boolean
+  /** Whether to preserve current step during restoration */
+  preserveCurrentStep: boolean
+  /** Whether to prevent workflow navigation during restoration */
+  preventNavigationTriggers: boolean
+  /** Restoration timeout in milliseconds */
+  restorationTimeoutMs?: number
+  /** Custom restoration completion handler */
+  onRestorationComplete?: () => void
+  /** Source of the restoration request */
+  restorationSource?: 'app-reload' | 'workspace-switch' | 'manual'
+}
+
 export interface WorkflowState {
   currentStep: string
   steps: WorkflowStep[]
+  /** Restoration metadata */
+  isRestoring: boolean
+  restorationMetadata: {
+    lastKnownStep: string | null
+    restorationTimestamp: number | null
+    restorationSource: string | null
+    preservedState: boolean
+  }
   canProgress: (stepId: string) => boolean
   setCurrentStep: (stepId: string) => void
   completeStep: (stepId: string) => void
@@ -33,7 +59,8 @@ export interface WorkflowState {
   resetStepsFromRange: (fromStepId: string, toStepId?: string) => void
   markStepAsError: (stepId: string, errorMessage?: string) => void
   clearStepError: (stepId: string) => void
-  initializeFromWorkspace: () => Promise<void>
+  initializeFromWorkspace: (restorationContext?: WorkflowRestorationContext) => Promise<void>
+  completeRestoration: () => void
   // Enhanced atomic operations
   executeAtomicOperation: (operation: () => void) => { success: boolean; error?: string; rollback?: () => void }
   setStepImportContext: (stepId: string, context: WorkflowStep['importContext']) => void

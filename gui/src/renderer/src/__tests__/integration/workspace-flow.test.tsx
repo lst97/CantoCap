@@ -17,7 +17,7 @@ import React from 'react'
 // Import system components
 import { useWorkspaceStore } from '../../stores/workspace-store'
 import { useAppStore } from '../../stores/app-store'
-import { useWorkflowStore } from '../../stores/workflow-store'
+// Legacy workflow store removed - using WorkflowStateManager directly
 import { WorkspacePanel } from '../../components/layout/WorkspacePanel'
 import { ReviewStep } from '../../components/steps/ReviewStep'
 

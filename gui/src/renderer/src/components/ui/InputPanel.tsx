@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { 
   Typography, 
   Box, 
@@ -18,44 +18,80 @@ import { FileSelector } from '../forms/FileSelector'
 import { VideoPlayer } from './VideoPlayer'
 import { useAppStore } from '../../stores/app-store'
 import { useUnifiedConfig } from '../../contexts/EnhancedWorkspaceConfigContext'
+import { VideoMetadata } from '../../types/workspace'
+
+// Type definitions
+interface TimeRange {
+  start: number
+  end: number
+}
+
+interface WindowSize {
+  width: number
+  height: number
+}
 
 interface InputPanelProps {
   initialFile?: string | null
-  initialRange?: { start: number; end: number } | null
+  initialRange?: TimeRange | null
   initialJsonFile?: string | null
   onFileSelect?: (file: string) => void
   onJsonFileSelect?: (file: string | null) => void
   onRangeSelect?: (start: number, end: number) => void
-  onMetadataUpdate?: (metadata: any) => void
+  onMetadataUpdate?: (metadata: VideoMetadata) => void
 }
 
-export const InputPanel: React.FC<InputPanelProps> = ({
+export const InputPanel: React.FC<InputPanelProps> = React.memo(({
   initialFile,
-  initialRange,
   initialJsonFile,
   onFileSelect,
-  onJsonFileSelect,
-  onRangeSelect,
-  onMetadataUpdate
-}) => {
+  onJsonFileSelect}) => {
   // Use app store for fallback, but prioritize passed props
   const { config: appConfig } = useAppStore()
-  const { setValue, isReady, error, clearError } = useUnifiedConfig()
+  const { setValue, isReady } = useUnifiedConfig()
   
-  // Prioritize workspace config passed via props
-  const config = {
+  // Optimized config derivation with stable reference and memoization
+  const config = useMemo(() => ({
     ...appConfig,
-    inputFile: initialFile !== undefined ? initialFile : appConfig.inputFile,
-    importedJsonFile: initialJsonFile !== undefined ? initialJsonFile : appConfig.importedJsonFile
-  }
-  const [timeRange, setTimeRange] = useState(null)
-  const [isRangeValid, setIsRangeValid] = useState(false)
-  const [videoDuration, setVideoDuration] = useState(0)
-  const [windowSize, setWindowSize] = useState({ width: window.innerWidth, height: window.innerHeight })
+    inputFile: appConfig.inputFile,  // Always use app config - don't fall back to props
+    importedJsonFile: appConfig.importedJsonFile  // Always use app config - don't fall back to props
+  }), [appConfig.inputFile, appConfig.importedJsonFile, appConfig.startTime, appConfig.endTime, appConfig.duration]);
 
-  const handleTimeRangeChange = useCallback(async (range) => {
+  // Throttled debug logging
+  const debugLogRef = useRef<{ lastLog: number; lastInputFile: string | undefined }>({ lastLog: 0, lastInputFile: undefined })
+  
+  useEffect(() => {
+    const now = Date.now()
+    const shouldLog = process.env.NODE_ENV === 'development' && 
+      (now - debugLogRef.current.lastLog > 2000 || debugLogRef.current.lastInputFile !== config.inputFile)
+    
+    if (shouldLog) {
+      console.log('🔧 [VIDEO DEBUG] InputPanel State Change:', {
+        timestamp: new Date().toISOString(),
+        props: { initialFile, initialJsonFile },
+        appConfig: { 
+          inputFile: appConfig.inputFile, 
+          importedJsonFile: appConfig.importedJsonFile 
+        },
+        finalConfig: { 
+          inputFile: config.inputFile, 
+          importedJsonFile: config.importedJsonFile 
+        },
+        hasVideoFile: !!config.inputFile,
+        videoPath: config.inputFile,
+        willShowVideo: !!config.inputFile
+      })
+      debugLogRef.current = { lastLog: now, lastInputFile: config.inputFile }
+    }
+  }, [initialFile, initialJsonFile, appConfig.inputFile, appConfig.importedJsonFile, config.inputFile, config.importedJsonFile]);
+  const [timeRange, setTimeRange] = useState<TimeRange | null>(null)
+  const [isRangeValid, setIsRangeValid] = useState<boolean>(false)
+  const [videoDuration, setVideoDuration] = useState<number>(0)
+  const [windowSize, setWindowSize] = useState<WindowSize>({ width: window.innerWidth, height: window.innerHeight })
+
+  const handleTimeRangeChange = useCallback(async (range: TimeRange | null) => {
     setTimeRange(range)
-    setIsRangeValid(range && range.end > range.start && (range.end - range.start) >= 1)
+    setIsRangeValid(Boolean(range && range.end > range.start && (range.end - range.start) >= 1))
     
     if (!isReady) {
       console.warn('Configuration manager not ready, skipping time range update')
@@ -80,7 +116,7 @@ export const InputPanel: React.FC<InputPanelProps> = ({
     }
   }, [setValue, isReady])
 
-  const handleVideoDurationChange = useCallback((duration) => {
+  const handleVideoDurationChange = useCallback((duration: number) => {
     setVideoDuration(duration)
   }, [])
 
@@ -93,7 +129,7 @@ export const InputPanel: React.FC<InputPanelProps> = ({
       }
       console.log('Restoring time range from config:', restoredRange)
       setTimeRange(restoredRange)
-      setIsRangeValid(restoredRange.end > restoredRange.start && (restoredRange.end - restoredRange.start) >= 1)
+      setIsRangeValid(Boolean(restoredRange.end > restoredRange.start && (restoredRange.end - restoredRange.start) >= 1))
     } else {
       setTimeRange(null)
       setIsRangeValid(false)
@@ -121,7 +157,7 @@ export const InputPanel: React.FC<InputPanelProps> = ({
   }, [setValue, isReady])
 
   // Helper function to determine if the range represents the full video (i.e., no real selection)
-  const isFullRangeSelected = useCallback((range) => {
+  const isFullRangeSelected = useCallback((range: TimeRange | null) => {
     if (!range || !videoDuration) return false
     // Consider it a full range if start is 0 and end is within 1 second of duration
     return range.start === 0 && Math.abs(range.end - videoDuration) < 1
@@ -135,7 +171,7 @@ export const InputPanel: React.FC<InputPanelProps> = ({
         end: config.endTime
       }
       setTimeRange(existingRange)
-      setIsRangeValid(existingRange.end > existingRange.start && (existingRange.end - existingRange.start) >= 1)
+      setIsRangeValid(Boolean(existingRange.end > existingRange.start && (existingRange.end - existingRange.start) >= 1))
     }
   }, [config.startTime, config.endTime])
 
@@ -283,7 +319,7 @@ export const InputPanel: React.FC<InputPanelProps> = ({
                 src={config.inputFile}
                 onTimeRangeChange={handleTimeRangeChange}
                 onDurationChange={handleVideoDurationChange}
-                initialRange={timeRange}
+                initialRange={timeRange || undefined}
               />
             </Box>
           </Box>
@@ -301,24 +337,28 @@ export const InputPanel: React.FC<InputPanelProps> = ({
                 {isRangeValid ? "Processing Range Selected" : "Range Selection"}
               </AlertTitle>
               <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap', mt: 1 }}>
-                <Chip 
-                  label={`Start: ${Math.floor(timeRange.start / 60)}:${(Math.floor(timeRange.start) % 60).toString().padStart(2, '0')}`}
-                  size="small"
-                  color={isRangeValid ? "success" : "warning"}
-                  variant="outlined"
-                />
-                <Chip 
-                  label={`End: ${Math.floor(timeRange.end / 60)}:${(Math.floor(timeRange.end) % 60).toString().padStart(2, '0')}`}
-                  size="small"
-                  color={isRangeValid ? "success" : "warning"}
-                  variant="outlined"
-                />
-                <Chip 
-                  label={`Duration: ${Math.floor((timeRange.end - timeRange.start) / 60)}:${(Math.floor(timeRange.end - timeRange.start) % 60).toString().padStart(2, '0')}`}
-                  size="small"
-                  color={isRangeValid ? "success" : "default"}
-                  icon={<TimeIcon />}
-                />
+                {timeRange && (
+                  <>
+                    <Chip 
+                      label={`Start: ${Math.floor(timeRange.start / 60)}:${(Math.floor(timeRange.start) % 60).toString().padStart(2, '0')}`}
+                      size="small"
+                      color={isRangeValid ? "success" : "warning"}
+                      variant="outlined"
+                    />
+                    <Chip 
+                      label={`End: ${Math.floor(timeRange.end / 60)}:${(Math.floor(timeRange.end) % 60).toString().padStart(2, '0')}`}
+                      size="small"
+                      color={isRangeValid ? "success" : "warning"}
+                      variant="outlined"
+                    />
+                    <Chip 
+                      label={`Duration: ${Math.floor((timeRange.end - timeRange.start) / 60)}:${(Math.floor(timeRange.end - timeRange.start) % 60).toString().padStart(2, '0')}`}
+                      size="small"
+                      color={isRangeValid ? "success" : "default"}
+                      icon={<TimeIcon />}
+                    />
+                  </>
+                )}
               </Box>
               {!isRangeValid && (
                 <Typography variant="body2" sx={{ mt: 1, color: 'warning.main' }}>
@@ -339,4 +379,6 @@ export const InputPanel: React.FC<InputPanelProps> = ({
       </Box>
     </Box>
   )
-}
+})
+
+InputPanel.displayName = "InputPanel"

@@ -125,8 +125,8 @@ export function useStepConfig<K extends WorkflowStepId>(
   })
   
   // Refs for managing async operations
-  const debounceRef = useRef<NodeJS.Timeout>()
-  const validationRef = useRef<NodeJS.Timeout>()
+  const debounceRef = useRef<NodeJS.Timeout | undefined>(undefined)
+  const validationRef = useRef<NodeJS.Timeout | undefined>(undefined)
   const originalConfigRef = useRef<StepConfigType | null>(null)
   const mountedRef = useRef(true)
   
@@ -186,6 +186,7 @@ export function useStepConfig<K extends WorkflowStepId>(
       // Store original for revert functionality
       originalConfigRef.current = config ? { ...config } : null
       
+      // Trigger validation callbacks
       if (validationResult?.isValid) {
         onValidationSuccess?.()
       } else if (validationResult && !validationResult.isValid) {
@@ -220,13 +221,13 @@ export function useStepConfig<K extends WorkflowStepId>(
         stepId,
         isValid: result.isValid,
         errors: result.errors.map(error => ({
-          field: 'unknown',
+          field: 'unknown' as keyof StepConfigMap[K],
           message: error,
           value: null,
           severity: 'error' as const
         })),
         warnings: result.warnings.map(warning => ({
-          field: 'unknown',
+          field: 'unknown' as keyof StepConfigMap[K],
           message: warning,
           value: null
         })),
@@ -253,7 +254,7 @@ export function useStepConfig<K extends WorkflowStepId>(
       if (!mountedRef.current) return {
         stepId,
         isValid: false,
-        errors: [{ field: 'validation', message: 'Validation failed', value: null, severity: 'error' }],
+        errors: [{ field: 'validation' as keyof StepConfigMap[K], message: 'Validation failed', value: null, severity: 'error' as const }],
         warnings: [],
         suggestions: []
       }
@@ -395,7 +396,7 @@ export function useStepConfig<K extends WorkflowStepId>(
       const emptyResult: StepConfigValidationResult<K> = {
         stepId,
         isValid: false,
-        errors: [{ field: 'config', message: 'No configuration to validate', value: null, severity: 'error' }],
+        errors: [{ field: 'config' as keyof StepConfigMap[K], message: 'No configuration to validate', value: null, severity: 'error' as const }],
         warnings: [],
         suggestions: []
       }
@@ -484,6 +485,7 @@ export function useStepConfig<K extends WorkflowStepId>(
   }
 }
 
+
 // ============================================================================
 // SPECIALIZED HOOKS FOR EACH STEP
 // ============================================================================
@@ -523,103 +525,3 @@ export function useExportConfig(workspaceId: string, options?: UseStepConfigOpti
   return useStepConfig('export', workspaceId, options)
 }
 
-// ============================================================================
-// BATCH OPERATIONS HOOK
-// ============================================================================
-
-interface UseBatchStepConfigOptions {
-  /** Steps to include in batch operations */
-  steps?: WorkflowStepId[]
-  /** Enable automatic validation */
-  autoValidate?: boolean
-  /** Error handler */
-  onError?: (error: WorkspaceError) => void
-}
-
-interface BatchStepConfigState {
-  configs: Partial<StepConfigMap>
-  isLoading: boolean
-  isSaving: boolean
-  errors: Record<WorkflowStepId, WorkspaceError | null>
-}
-
-/**
- * Hook for managing multiple step configurations in batch
- */
-export function useBatchStepConfig(
-  workspaceId: string,
-  options: UseBatchStepConfigOptions = {}
-) {
-  const {
-    steps = ['input-file', 'config', 'processing', 'review', 'export'],
-    autoValidate = true,
-    onError
-  } = options
-  
-  const store = useWorkspaceStore()
-  const [state, setState] = useState<BatchStepConfigState>({
-    configs: {},
-    isLoading: true,
-    isSaving: false,
-    errors: {} as Record<WorkflowStepId, WorkspaceError | null>
-  })
-  
-  // Load all configurations
-  const loadConfigs = useCallback(async (): Promise<void> => {
-    try {
-      setState(prev => ({ ...prev, isLoading: true }))
-      
-      const configs = await store.getMultipleStepConfigs(workspaceId, steps)
-      
-      setState(prev => ({
-        ...prev,
-        configs,
-        isLoading: false,
-        errors: {} as Record<WorkflowStepId, WorkspaceError | null>
-      }))
-      
-    } catch (error) {
-      setState(prev => ({ ...prev, isLoading: false }))
-      onError?.(error as WorkspaceError)
-    }
-  }, [workspaceId, steps, store, onError])
-  
-  // Initial load
-  useEffect(() => {
-    loadConfigs()
-  }, [loadConfigs])
-  
-  // Batch update configurations
-  const batchUpdate = useCallback(async (
-    updates: Partial<Record<WorkflowStepId, any>>
-  ): Promise<void> => {
-    try {
-      setState(prev => ({ ...prev, isSaving: true }))
-      
-      const updateArray = Object.entries(updates).map(([stepId, config]) => ({
-        stepId: stepId as WorkflowStepId,
-        config,
-        merge: true
-      }))
-      
-      await store.batchUpdateStepConfigs(workspaceId, updateArray)
-      
-      setState(prev => ({
-        ...prev,
-        configs: { ...prev.configs, ...updates },
-        isSaving: false
-      }))
-      
-    } catch (error) {
-      setState(prev => ({ ...prev, isSaving: false }))
-      onError?.(error as WorkspaceError)
-    }
-  }, [workspaceId, store, onError])
-  
-  return {
-    ...state,
-    loadConfigs,
-    batchUpdate,
-    refresh: loadConfigs
-  }
-}

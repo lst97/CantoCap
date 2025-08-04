@@ -235,8 +235,8 @@ export function useOptimizedSubtitleTempStorage(
   
   // Merge options with performance-optimized defaults
   const config: Required<UseOptimizedSubtitleTempStorageOptions> = {
-    autoSaveEnabled: true,
-    autoSaveInterval: 15000, // 15 seconds (more frequent for better UX)
+    autoSaveEnabled: false, // DISABLED: Timer-based auto-save replaced by event-driven system
+    autoSaveInterval: 15000, // 15 seconds (kept for compatibility)
     saveOnIdle: true,
     idleTimeout: 60000, // 1 minute (shorter for better responsiveness)
     maxBackups: 20, // More backups for better recovery

@@ -5,6 +5,8 @@
  * real-time metrics, bottleneck detection, and optimization recommendations.
  */
 
+import { generateOperationId } from './id-generator'
+
 // ============================================================================
 // TYPES AND INTERFACES
 // ============================================================================
@@ -121,7 +123,7 @@ export class IndexedDBPerformanceMonitor {
   ): string {
     if (!this.isEnabled) return ''
 
-    const operationId = `${operation}-${tableName}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
+    const operationId = generateOperationId(operation, tableName)
     
     const operationRecord: IndexedDBOperation = {
       id: operationId,

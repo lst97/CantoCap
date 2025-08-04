@@ -1,14 +1,16 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import { navigateToProcessing, navigateToConfig } from '../utils/workflow-navigation'
+import { generateDebugId } from '../utils/id-generator'
 import { 
   handleVideoRemovalWithCleanup, 
   performEnhancedSessionReset,
   handleWorkspaceChangeWithSessionCoordination 
 } from '../utils/session-workflow-integration'
-import { useWorkflowStore } from '../stores/workflow-store'
 import { useWorkspaceStore } from '../stores/workspace-store'
 import { useSubtitleEditStore } from '../stores/subtitle-edit-store'
+import { workflowStateManager } from '../services/workflow-state-manager'
+import { StepState } from '../types/workflow-state'
 import type { 
   AppState, 
   AppConfig, 
@@ -32,8 +34,8 @@ interface AppActions {
   // Processing
   updateProcessing: (update: Partial<ProcessingState>) => void
   resetProcessing: () => void
-  startTranscription: () => void
-  cancelTranscription: () => void
+  startTranscription: () => Promise<void>
+  cancelTranscription: () => Promise<void>
   addDebugMessage: (stage: string, message: string, level?: 'debug' | 'info' | 'warning' | 'error', source?: string) => void
 
   // Hardware
@@ -140,7 +142,8 @@ export const useAppStore = create<AppStore>()(
       startTime: null,
       endTime: null,
       importedJsonFile: null,
-      autoSaveApiKeys: true
+      autoSaveApiKeys: true,
+      isImportedFromJson: false
     },
     
     // UI State
@@ -160,6 +163,9 @@ export const useAppStore = create<AppStore>()(
       checking: false,
       error: null
     },
+
+    // Performance optimization state
+    lastConfigLogTime: {} as Record<string, number>,
 
     // Actions
     initializeApp: async () => {
@@ -330,7 +336,7 @@ export const useAppStore = create<AppStore>()(
     addDebugMessage: (stage: string, message: string, level: 'debug' | 'info' | 'warning' | 'error' = 'info', source?: string) => {
       set((state: AppStore) => {
         const debugMessage = {
-          id: `debug_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          id: generateDebugId(),
           timestamp: Date.now(),
           stage,
           message,
@@ -372,19 +378,56 @@ export const useAppStore = create<AppStore>()(
     updateConfig: async <K extends keyof AppConfig>(key: K, value: AppConfig[K]) => {
       const previousConfig = get().config
       
-      // Log all config updates for debugging
-      console.log('🔧 Config Update:', {
-        key,
-        previousValue: previousConfig[key],
-        newValue: value,
-        isChanged: previousConfig[key] !== value,
-        timestamp: new Date().toISOString()
-      })
+      // Skip update if value hasn't changed
+      if (previousConfig[key] === value) {
+        return
+      }
+      
+      // Throttled logging to prevent spam
+      const now = Date.now()
+      const state = get()
+      if (!state.lastConfigLogTime) {
+        state.lastConfigLogTime = {}
+      }
+      
+      const shouldLog = process.env.NODE_ENV === 'development' && 
+        (!state.lastConfigLogTime[key] || now - state.lastConfigLogTime[key] > 1000)
+      
+      if (shouldLog) {
+        if (key === 'inputFile') {
+          console.log('🔧 [VIDEO DEBUG] App Store: inputFile update:', {
+            key,
+            previousValue: previousConfig[key],
+            newValue: value,
+            timestamp: new Date().toISOString()
+          })
+        } else {
+          console.log('🔧 Config Update:', {
+            key,
+            previousValue: previousConfig[key],
+            newValue: value,
+            timestamp: new Date().toISOString()
+          })
+        }
+        state.lastConfigLogTime[key] = now
+      }
       
       // Update app store state immediately for UI responsiveness
       set((state: AppStore) => ({
         config: { ...state.config, [key]: value }
       }))
+      
+      // Verify the state update took effect (especially important for inputFile)
+      const immediateConfig = get().config
+      if (key === 'inputFile') {
+        console.log('🔧 [VIDEO DEBUG] App Store: State update verification:', {
+          timestamp: new Date().toISOString(),
+          requestedValue: value,
+          actualStateValue: immediateConfig[key],
+          updateSuccessful: immediateConfig[key] === value,
+          stateKeys: Object.keys(immediateConfig)
+        });
+      }
       
       // Get updated config for persistence
       const currentConfig = get().config
@@ -398,6 +441,10 @@ export const useAppStore = create<AppStore>()(
         // Video file change (upload/remove) - Enhanced with workspace rebinding
         if (key === 'inputFile' && previousConfig.inputFile !== value) {
           console.log('🎬 Config: Video file changed via updateConfig, triggering enhanced session reset')
+          
+          // PERFORMANCE FIX: Check if session is already in correct state
+          const currentSession = subtitleStore.session
+          const hasExistingContent = currentSession && (currentSession.subtitles?.length > 0 || currentSession.isDirty)
           
           // If removing video file, trigger comprehensive integrated cleanup
           if (!value && previousConfig.inputFile) {
@@ -413,8 +460,9 @@ export const useAppStore = create<AppStore>()(
                 // Fallback to standard session reset
                 subtitleStore.resetSessionForNewContent('step1_video_change')
               })
-          } else {
-            // For video upload/change, use enhanced session reset
+          } else if (hasExistingContent) {
+            // Only reset if we have existing content that needs to be cleared
+            console.log('🔄 Video upload with existing content, performing enhanced session reset')
             performEnhancedSessionReset('step1_video_change', workspaceStore.currentWorkspace?.id)
               .then(result => {
                 console.log('✅ Enhanced session reset completed for video change:', result)
@@ -424,12 +472,14 @@ export const useAppStore = create<AppStore>()(
                 // Fallback to standard session reset
                 subtitleStore.resetSessionForNewContent('step1_video_change')
               })
+          } else {
+            console.log('🔧 [PERFORMANCE] Video file change but no existing content - skipping session reset')
           }
         }
         
         // JSON import file change (upload/remove) - Enhanced with atomic navigation
         if (key === 'importedJsonFile' && previousConfig.importedJsonFile !== value) {
-          console.log('📄 Config: JSON file changed via updateConfig, triggering enhanced session reset', {
+          console.log('📄 Config: JSON file changed via updateConfig', {
             previousValue: previousConfig.importedJsonFile,
             newValue: value,
             changeType: value ? 'upload' : 'remove',
@@ -437,33 +487,44 @@ export const useAppStore = create<AppStore>()(
             timestamp: new Date().toISOString()
           })
           
-          // Use enhanced session reset for better coordination
-          performEnhancedSessionReset('step1_import', workspaceStore.currentWorkspace?.id)
-            .then(result => {
-              console.log('✅ Enhanced session reset completed for JSON import:', result)
-              
-              // If adding JSON file, prepare for atomic navigation to review
-              if (value && !previousConfig.importedJsonFile) {
-                console.log('📄 Session prepared for atomic navigation after JSON import')
-                // Navigation will be handled by the component that processes subtitle data
-                // This ensures session reset happens before navigation
-              }
-              
-              // If removing JSON file, ensure proper workflow navigation
-              if (!value && previousConfig.importedJsonFile) {
-                console.log('🔄 JSON file removed, navigating to config')
-                try {
-                  navigateToConfig()
-                } catch (navError) {
-                  console.warn('Failed to navigate to config after JSON removal:', navError)
+          // PERFORMANCE FIX: Only trigger session reset for significant changes
+          const currentSession = subtitleStore.session
+          const hasExistingContent = currentSession && (currentSession.subtitles?.length > 0 || currentSession.isDirty)
+          const isSignificantChange = (value && !previousConfig.importedJsonFile) || (!value && previousConfig.importedJsonFile)
+          
+          if (isSignificantChange && (hasExistingContent || value)) {
+            console.log('📄 Significant JSON file change, triggering enhanced session reset')
+            
+            // Use enhanced session reset for better coordination
+            performEnhancedSessionReset('step1_import', workspaceStore.currentWorkspace?.id)
+              .then(result => {
+                console.log('✅ Enhanced session reset completed for JSON import:', result)
+                
+                // If adding JSON file, prepare for atomic navigation to review
+                if (value && !previousConfig.importedJsonFile) {
+                  console.log('📄 Session prepared for atomic navigation after JSON import')
+                  // Navigation will be handled by the component that processes subtitle data
+                  // This ensures session reset happens before navigation
                 }
-              }
-            })
-            .catch(error => {
-              console.warn('⚠️ Enhanced session reset failed for JSON import, using fallback:', error)
-              // Fallback to standard session reset
-              subtitleStore.resetSessionForNewContent('step1_import')
-            })
+                
+                // If removing JSON file, ensure proper workflow navigation
+                if (!value && previousConfig.importedJsonFile) {
+                  console.log('🔄 JSON file removed, navigating to config')
+                  try {
+                    navigateToConfig()
+                  } catch (navError) {
+                    console.warn('Failed to navigate to config after JSON removal:', navError)
+                  }
+                }
+              })
+              .catch(error => {
+                console.warn('⚠️ Enhanced session reset failed for JSON import, using fallback:', error)
+                // Fallback to standard session reset
+                subtitleStore.resetSessionForNewContent('step1_import')
+              })
+          } else {
+            console.log('🔧 [PERFORMANCE] JSON file change but no reset needed - skipping session reset')
+          }
         }
         
         // Output file change from subtitle generation - Enhanced cleanup
@@ -500,31 +561,6 @@ export const useAppStore = create<AppStore>()(
             timestamp: new Date().toISOString()
           })
           
-          // CRITICAL FIX: Use batch manager to handle batch import mode
-          try {
-            const batchManager = await import('../utils/json-import-batch-manager');
-            if (batchManager.isJsonImportBatchActive()) {
-              console.log('📋 JSON batch import in progress - deferring session integration');
-              batchManager.deferJsonIntegration({
-                subtitleData: value,
-                config: updatedConfig,
-                timestamp: Date.now()
-              });
-              return; // Skip session integration during batch updates
-            }
-          } catch (error) {
-            // Fallback to legacy check if batch manager fails to load
-            if ((window as any).__JSON_IMPORT_IN_PROGRESS) {
-              console.log('📋 JSON batch import in progress (fallback check) - deferring session integration');
-              (window as any).__DEFERRED_JSON_INTEGRATION = {
-                subtitleData: value,
-                config: updatedConfig,
-                timestamp: Date.now()
-              };
-              return;
-            }
-          }
-          
           // If we have subtitle data from JSON import and an input file, trigger session integration
           if (value && Array.isArray(value) && value.length > 0 && 
               (updatedConfig.importedJsonFile || updatedConfig.isImportedFromJson) && 
@@ -532,7 +568,7 @@ export const useAppStore = create<AppStore>()(
             
             console.log('📥 JSON import subtitle data detected, triggering session integration')
             
-            // Add debouncing to prevent multiple rapid integrations
+            // Simple debouncing to prevent multiple rapid integrations
             const integrationKey = 'json-import-integration';
             if ((window as any).__INTEGRATION_TIMEOUTS) {
               clearTimeout((window as any).__INTEGRATION_TIMEOUTS[integrationKey]);
@@ -541,21 +577,6 @@ export const useAppStore = create<AppStore>()(
             }
             
             (window as any).__INTEGRATION_TIMEOUTS[integrationKey] = setTimeout(async () => {
-              // Double-check that batch import is not in progress using manager
-              try {
-                const batchManager = await import('../utils/json-import-batch-manager');
-                if (batchManager.isJsonImportBatchActive()) {
-                  console.log('📋 Delaying integration - batch still in progress');
-                  return;
-                }
-              } catch (error) {
-                // Fallback check
-                if ((window as any).__JSON_IMPORT_IN_PROGRESS) {
-                  console.log('📋 Delaying integration - batch still in progress (fallback)');
-                  return;
-                }
-              }
-              
               // Trigger session integration using the enhanced integration utilities
               try {
                 import('../utils/session-workflow-integration')
@@ -585,7 +606,7 @@ export const useAppStore = create<AppStore>()(
               } catch (error) {
                 console.warn('⚠️ Could not load session integration module:', error)
               }
-            }, 300); // Increased debounce to 300ms for better batch protection
+            }, 300);
           }
           
           // If subtitle data is being cleared, ensure session cleanup
@@ -931,7 +952,7 @@ export const useAppStore = create<AppStore>()(
         }
       })),
 
-    startTranscription: () => {
+    startTranscription: async () => {
       const { config, dependencies } = get()
       
       if (!config.inputFile) {
@@ -984,15 +1005,23 @@ export const useAppStore = create<AppStore>()(
         }
       }))
 
-      // Reset steps 4-5 when generate subtitle button is clicked
-      const workflowStore = useWorkflowStore.getState()
-      workflowStore.resetStepsFromRange('review', 'export')
+      // Reset steps 4-5 when generate subtitle button is clicked and clear processing errors
+      await workflowStateManager.transitionState('review', StepState.Blocked, {
+        reason: 'Resetting for new processing'
+      })
+      await workflowStateManager.transitionState('export', StepState.Blocked, {
+        reason: 'Resetting for new processing'
+      })
       
       // Clear any error state from processing step when starting new transcription
-      workflowStore.clearStepError('processing')
+      await workflowStateManager.transitionState('processing', StepState.Ready, {
+        reason: 'Starting new transcription'
+      })
       
       // Ensure processing step is accessible and navigate to it
-      workflowStore.completeStep('config') // This enables processing step
+      await workflowStateManager.transitionState('config', StepState.Complete, {
+        reason: 'Configuration completed - processing started'
+      })
       navigateToProcessing()
 
       // Add to processing history
@@ -1001,7 +1030,7 @@ export const useAppStore = create<AppStore>()(
       window.cantocapAPI.startTranscription(config)
     },
 
-    cancelTranscription: () => {
+    cancelTranscription: async () => {
       window.cantocapAPI.cancelProcess()
       set((state: AppStore) => ({
         processing: {
@@ -1013,9 +1042,15 @@ export const useAppStore = create<AppStore>()(
       }))
       
       // Disable processing step and reset workflow from config step
-      const workflowStore = useWorkflowStore.getState()
-      workflowStore.disableStep('processing')
-      workflowStore.resetWorkflowFromStep('config')
+      await workflowStateManager.transitionState('processing', StepState.Blocked, {
+        reason: 'Processing cancelled by user'
+      })
+      await workflowStateManager.transitionState('review', StepState.Blocked, {
+        reason: 'Processing cancelled - resetting downstream steps'
+      })
+      await workflowStateManager.transitionState('export', StepState.Blocked, {
+        reason: 'Processing cancelled - resetting downstream steps'
+      })
       
       // Navigate back to config step when cancelled
       navigateToConfig()
@@ -1161,7 +1196,7 @@ export const useAppStore = create<AppStore>()(
     },
 
     // Testing and workspace integration methods
-    loadFromWorkspace: async (workspace: any) => {
+    loadFromWorkspace: async (workspace: unknown) => {
       if (workspace && workspace.appConfig) {
         set((state: AppStore) => ({
           config: {
@@ -1209,14 +1244,6 @@ export const useAppStore = create<AppStore>()(
   }))
 )
 
-// Persist config changes
-useAppStore.subscribe(
-  (state) => state.config,
-  (config) => {
-    localStorage.setItem('cantocap-config', JSON.stringify(config))
-  },
-  { equalityFn: (a, b) => JSON.stringify(a) === JSON.stringify(b) }
-)
 
 // Listen for workspace changes and reload configuration
 useWorkspaceStore.subscribe(
@@ -1257,76 +1284,28 @@ useWorkspaceStore.subscribe(
         }
       }
       
+      // Reset workflow state for new workspace
+      try {
+        workflowStateManager.reset()
+      } catch (error) {
+        console.error('Failed to reset workflow for new workspace:', error)
+      }
+      
       // Get the app store instance
       const appStore = useAppStore.getState()
       
-      // Create a clean base config with only system-wide settings
-      const systemConfig = {
-        geminiKey: appStore.config.geminiKey, // Keep API keys
-        hfToken: appStore.config.hfToken, // Keep API keys
-        ffmpegPath: appStore.config.ffmpegPath, // Keep system paths
-      }
-      
-      // Use workspace config as the primary source, only fallback to base defaults for missing values
+      // Simple workspace config loading
       const workspaceConfig = currentWorkspace.config || {}
       
-      // Create the final config with workspace-specific values taking priority
-      const finalConfig = {
-        // Base defaults
-        inputFile: null,
-        outputFile: null,
-        language: 'zh',
-        model: null,
-        priority: 'balanced',
-        speakers: false,
-        written: true,
-        music: false,
-        charset: 'traditional',
-        noGeminiRefinement: false,
-        maxChunkDuration: 15,
-        videoQuality: '360p',
-        terminologyConfig: null,
-        subtitle: null,
-        duration: 10.0,
-        verbose: false,
-        startTime: null,
-        endTime: null,
-        importedJsonFile: null,
-        // Override with system-wide settings
-        ...systemConfig,
-        // Override with workspace-specific config (this should be the primary source)
-        ...workspaceConfig
-      }
-      
-      console.log('🔧 Config isolation details:', {
-        systemConfigKeys: Object.keys(systemConfig),
-        workspaceConfigKeys: Object.keys(workspaceConfig),
-        finalConfigKeys: Object.keys(finalConfig),
-        inputFile: { 
-          workspace: workspaceConfig.inputFile,
-          final: finalConfig.inputFile 
-        },
-        importedJsonFile: {
-          workspace: workspaceConfig.importedJsonFile,
-          final: finalConfig.importedJsonFile,
-          systemConfig: systemConfig.importedJsonFile
-        }
-      })
-      
-      // Update app store config atomically - completely replace, don't merge
+      // Update app store config with workspace data, preserving system settings
       useAppStore.setState((state) => ({
-        config: finalConfig
+        config: {
+          ...state.config,
+          ...workspaceConfig
+        }
       }))
       
-      // Also trigger workflow store to reload from the new workspace
-      const workflowStore = useWorkflowStore.getState()
-      if (workflowStore.initializeFromWorkspace) {
-        workflowStore.initializeFromWorkspace().catch(error => {
-          console.error('Failed to reload workflow from new workspace:', error)
-        })
-      }
-      
-      console.log('✅ Configuration isolated for workspace:', currentWorkspace.name, finalConfig)
+      console.log('✅ Configuration loaded for workspace:', currentWorkspace.name)
     }
   },
   { 

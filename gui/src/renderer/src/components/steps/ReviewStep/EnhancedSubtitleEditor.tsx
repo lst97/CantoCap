@@ -39,12 +39,13 @@ import {
   CheckCircle as CheckCircleIcon
 } from '@mui/icons-material'
 import { useSubtitleEditStore } from '../../../stores/subtitle-edit-store'
-import { useWorkflowStore } from '../../../stores/workflow-store'
+import { workflowStateManager } from '../../../services/workflow-state-manager'
+import { StepState } from '../../../types/workflow-state'
 import { useSubtitleTempStorage } from '../../../hooks/useSubtitleTempStorage'
 import { ReviewCard, ActionButton } from './styles'
 import { formatTime, parseTime } from './utils'
 import { SubtitleEditorProps } from './types'
-import { SubtitleAutoSaveIndicator } from '../../common/SubtitleAutoSaveIndicator'
+// REMOVED: SubtitleAutoSaveIndicator - auto-save UI components deleted
 import { SessionRecoveryDialog } from '../../dialogs/SessionRecoveryDialog'
 import { OriginalModifiedViewer } from '../../ui/OriginalModifiedViewer'
 import type { SubtitleData } from '../../../../types'
@@ -72,7 +73,7 @@ export const EnhancedSubtitleEditor: React.FC<SubtitleEditorProps> = () => {
     clearUndoRedo,
   } = useSubtitleEditStore()
   
-  const { setCurrentStep, completeStep } = useWorkflowStore()
+  // Modern workflow navigation using WorkflowStateManager
 
   // Enhanced temp storage integration
   const tempStorage = useSubtitleTempStorage({
@@ -279,11 +280,14 @@ export const EnhancedSubtitleEditor: React.FC<SubtitleEditorProps> = () => {
     }
   }
 
-  const handleExport = () => {
-    completeStep('review')
-    const workflowStore = useWorkflowStore.getState()
-    workflowStore.enableStep('export')
-    setCurrentStep('export')
+  const handleExport = async () => {
+    await workflowStateManager.transitionState('review', StepState.Complete, {
+      reason: 'Review completed - user initiated export'
+    })
+    await workflowStateManager.transitionState('export', StepState.Ready, {
+      reason: 'Review completed - export step now accessible'
+    })
+    workflowStateManager.setCurrentStep('export')
   }
 
   const handleSplit = () => {
@@ -372,14 +376,7 @@ export const EnhancedSubtitleEditor: React.FC<SubtitleEditorProps> = () => {
 
           {/* Enhanced Header Controls */}
           <Stack direction="row" spacing={1} alignItems="center">
-            {/* Auto-save Indicator */}
-            <SubtitleAutoSaveIndicator
-              tempStorageData={tempStorage}
-              variant="compact"
-              onManualSave={tempStorage.forceSave}
-              onRetry={tempStorage.retryLastOperation}
-              onClearError={tempStorage.clearError}
-            />
+            {/* REMOVED: SubtitleAutoSaveIndicator - auto-save UI components deleted */}
 
             {/* Comparison Toggle */}
             {originalContent && currentModifiedContent && (

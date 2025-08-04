@@ -7,6 +7,7 @@
 import { create } from 'zustand'
 import { persist, subscribeWithSelector } from 'zustand/middleware'
 import { TempSubtitleSession, SubtitleEntry, SubtitleModification } from '../types/subtitle'
+import { generateSessionId, generateContentId } from '../utils/id-generator'
 import type { SubtitleData } from '../../../types'
 import { 
   saveOriginalSubtitles, 
@@ -244,7 +245,7 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
           }))
       
       // Create workspace-bound session ID for persistence across navigation
-      const sessionId = `${workspaceId}-session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      const sessionId = `${workspaceId}-session-${Date.now()}-${generateSessionId(9)}`
       
       // FIXED: Set currentTime to -1 for imported data to prevent "PLAYING" state on import
       const isImportedData = importedData && importedData.length > 0;
@@ -1106,7 +1107,7 @@ export const useSubtitleEditStore = create<SubtitleEditStore>()(subscribeWithSel
 
     return {
       metadata: {
-        contentId: `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        contentId: generateContentId(),
         workspaceId: state.sessionRecovery.lastSessionWorkspaceId || 'unknown',
         sessionId: state.session.sessionId,
         contentType: 'subtitle_session',

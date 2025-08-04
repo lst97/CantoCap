@@ -7,7 +7,7 @@ const generateUUID = (): string => {
 }
 import { workspaceDatabase } from '../services/workspace-database'
 import { migrationService } from '../services/migration-service'
-import { autoSaveEngine } from '../services/auto-save-engine'
+// REMOVED: auto-save-engine - timer-based auto-save system deleted
 import { performanceMonitor } from '../utils/performance-monitor'
 import type { 
   Workspace, 
@@ -16,7 +16,6 @@ import type {
   WorkspaceSession,
   SessionType,
   MigrationStatus,
-  WorkspaceStore,
   WorkspaceStoreState,
   WorkspaceStoreActions,
   WorkspaceError,
@@ -409,14 +408,17 @@ class PerformanceOptimizedAutoSaveManager {
   }
 
   configure(config: Partial<AutoSaveConfig>): void {
-    autoSaveEngine.configure(config)
+    // REMOVED: auto-save-engine - timer-based auto-save system deleted
+    console.log('Auto-save configure called (no-op)')
   }
 
   getStatus(): AutoSaveStatus & { performanceMetrics?: any } {
-    const engineStatus = autoSaveEngine.getStatus()
+    // REMOVED: auto-save-engine - timer-based auto-save system deleted
     return {
-      ...engineStatus,
-      performanceMetrics: engineStatus.performanceMetrics
+      isEnabled: false,
+      pendingSaves: 0,
+      failedSaves: 0,
+      performanceMetrics: null
     }
   }
 
@@ -439,16 +441,44 @@ class PerformanceOptimizedAutoSaveManager {
     // Mark cache as dirty for immediate UI responsiveness
     await this.stepConfigCacheManager.markDirty(workspaceId, stepId)
     
-    // Use the performance-optimized auto-save engine
-    return autoSaveEngine.scheduleStepConfigSave(workspaceId, stepId, config, priority)
+    // REMOVED: auto-save-engine - now using event-driven config system
+    console.log('Step config save scheduled (no-op - using event-driven system)')
+    return Promise.resolve()
   }
 
+  // PERFORMANCE FIX: Memoize workspace save calls to prevent duplicate logs
+  private lastWorkspaceSaveCall = new Map<string, { timestamp: number, data: string }>()
+  private lastLogTime = 0
+  
   async scheduleWorkspaceSave(
     workspaceId: string,
     data: any,
     priority: 'critical' | 'normal' | 'low' = 'normal'
   ): Promise<void> {
-    return autoSaveEngine.scheduleWorkspaceSave(workspaceId, data, priority)
+    // PERFORMANCE FIX: Skip duplicate save calls within 100ms window
+    const dataString = JSON.stringify(data)
+    const now = Date.now()
+    const lastCall = this.lastWorkspaceSaveCall.get(workspaceId)
+    
+    if (lastCall && now - lastCall.timestamp < 100 && lastCall.data === dataString) {
+      // Skip duplicate save call
+      return Promise.resolve()
+    }
+    
+    this.lastWorkspaceSaveCall.set(workspaceId, { timestamp: now, data: dataString })
+    
+    // REMOVED: auto-save-engine - now using event-driven config system
+    // Only log in development and with throttling
+    if (process.env.NODE_ENV === 'development' && now - (this.lastLogTime || 0) > 5000) {
+      console.log('🔧 [PERFORMANCE] Workspace save scheduled (no-op - using event-driven system)', {
+        workspaceId,
+        priority,
+        dataSize: dataString.length,
+        timestamp: new Date().toISOString()
+      })
+      this.lastLogTime = now
+    }
+    return Promise.resolve()
   }
 
   async flushDirtyStepConfigs(): Promise<void> {
@@ -485,26 +515,29 @@ class PerformanceOptimizedAutoSaveManager {
   }
 
   async flush(): Promise<void> {
-    await autoSaveEngine.flush()
+    // REMOVED: auto-save-engine - now using event-driven config system
     await this.flushDirtyStepConfigs()
   }
 
   disable(): void {
-    autoSaveEngine.disable()
+    // REMOVED: auto-save-engine - now using event-driven config system
+    console.log('Auto-save disable called (no-op)')
   }
 
   // Get performance metrics and optimization suggestions
   getPerformanceMetrics() {
     return {
-      autoSave: autoSaveEngine.getStatus().performanceMetrics,
+      autoSave: null, // REMOVED: auto-save-engine performance metrics
       performance: performanceMonitor.getCurrentSnapshot(),
-      optimizations: autoSaveEngine.getOptimizationSuggestions()
+      optimizations: [] // REMOVED: auto-save-engine optimizations
     }
   }
 
   // Apply performance optimization
   async applyOptimization(suggestionId: string): Promise<void> {
-    return autoSaveEngine.applyOptimizationSuggestion(suggestionId)
+    // REMOVED: auto-save-engine - now using event-driven config system
+    console.log('Apply optimization called (no-op):', suggestionId)
+    return Promise.resolve()
   }
 }
 
@@ -1599,8 +1632,74 @@ export const useWorkspaceStore = create<EnhancedWorkspaceStoreWithGrouping>()(
                 continue
               }
 
-              // TODO: Implement actual migration logic
-              // This would involve mapping legacy config to step configs
+              // Implement actual migration logic - map legacy config to step configs
+              const stepConfigs: Partial<StepConfigMap> = {
+                'input-file': {
+                  filePreferences: {
+                    autoValidate: true,
+                    extractMetadata: true,
+                    suggestOptimalSettings: true
+                  },
+                  lastInputDirectory: workspace.config.lastInputDirectory
+                },
+                'config': {
+                  language: workspace.config.language || 'zh',
+                  model: workspace.config.model,
+                  priority: workspace.config.priority || 'balanced',
+                  speakers: workspace.config.speakers || false,
+                  written: workspace.config.written || true,
+                  music: workspace.config.music || false,
+                  charset: workspace.config.charset || 'traditional',
+                  geminiKey: workspace.config.geminiKey,
+                  hfToken: workspace.config.hfToken,
+                  noGeminiRefinement: workspace.config.noGeminiRefinement || false,
+                  maxChunkDuration: workspace.config.maxChunkDuration || 15,
+                  videoQuality: workspace.config.videoQuality || '360p',
+                  terminologyConfig: workspace.config.terminologyConfig,
+                  ffmpegPath: workspace.config.ffmpegPath
+                },
+                'processing': {
+                  verbose: workspace.config.verbose || false,
+                  qualitySettings: {
+                    targetAccuracy: 0.9,
+                    minimumConfidence: 0.7,
+                    enableQualityChecks: true
+                  },
+                  monitoring: {
+                    enableDetailedLogging: false,
+                    trackPerformanceMetrics: true,
+                    saveDebugInfo: false
+                  }
+                },
+                'review': createDefaultStepConfig('review'),
+                'export': {
+                  outputFile: workspace.config.outputFile,
+                  formatSettings: {
+                    format: 'srt',
+                    encoding: 'utf8',
+                    includeMetadata: false,
+                    includeConfidenceScores: false
+                  },
+                  postProcessing: {
+                    removeEmptyLines: true,
+                    normalizeWhitespace: true,
+                    applyTextFormatting: false,
+                    generateSummary: false
+                  },
+                  qualityAssurance: {
+                    finalValidation: true,
+                    exportChecklist: [],
+                    backupOriginal: true
+                  }
+                }
+              }
+
+              // Save step configurations to database
+              for (const [stepId, config] of Object.entries(stepConfigs) as Array<[WorkflowStepId, any]>) {
+                if (config) {
+                  await workspaceDatabase.setStepConfig(workspace.id, stepId, config)
+                }
+              }
               
               // Mark as migrated
               workspace.config._stepConfigsEnabled = true
@@ -1662,8 +1761,54 @@ export const useWorkspaceStore = create<EnhancedWorkspaceStoreWithGrouping>()(
         workspaceId: string,
         rollbackData: MigrationResult['rollbackData']
       ): Promise<void> => {
-        // TODO: Implement rollback logic
-        throw new Error('Rollback not yet implemented')
+        if (!rollbackData?.workspaceConfigs?.[workspaceId]) {
+          throw new Error(`No rollback data available for workspace ${workspaceId}`)
+        }
+
+        try {
+          // Restore original workspace configuration
+          const originalConfig = rollbackData.workspaceConfigs[workspaceId]
+          const workspace = await workspaceDatabase.getWorkspace(workspaceId)
+          
+          if (!workspace) {
+            throw new Error(`Workspace ${workspaceId} not found`)
+          }
+
+          // Restore legacy configuration
+          workspace.config = { ...originalConfig, _stepConfigsEnabled: false }
+          await workspaceDatabase.updateWorkspace(workspace)
+
+          // Remove step configurations
+          const stepIds: WorkflowStepId[] = ['input-file', 'config', 'processing', 'review', 'export']
+          for (const stepId of stepIds) {
+            try {
+              await workspaceDatabase.deleteStepConfig(workspaceId, stepId)
+            } catch (error) {
+              // Continue even if step config doesn't exist
+              console.warn(`Failed to delete step config ${stepId} for workspace ${workspaceId}:`, error)
+            }
+          }
+
+          // Clear step config cache
+          const cacheKeys = stepIds.map(stepId => generateStepConfigCacheKey(workspaceId, stepId))
+          cacheKeys.forEach(key => {
+            delete get().stepConfigCache[key]
+          })
+
+          set(state => ({
+            stepConfigMigrationStatus: {
+              ...state.stepConfigMigrationStatus,
+              completedWorkspaces: state.stepConfigMigrationStatus.completedWorkspaces.filter(id => id !== workspaceId),
+              failedWorkspaces: state.stepConfigMigrationStatus.failedWorkspaces.filter(id => id !== workspaceId)
+            }
+          }))
+
+          console.log(`Successfully rolled back migration for workspace ${workspaceId}`)
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown rollback error'
+          console.error(`Failed to rollback migration for workspace ${workspaceId}:`, errorMessage)
+          throw new Error(`Rollback failed: ${errorMessage}`)
+        }
       },
 
       // ============================================================================

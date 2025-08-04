@@ -8,7 +8,7 @@ import { jest } from '@jest/globals'
 import { act, renderHook } from '@testing-library/react'
 import { useWorkspaceStore } from '../workspace-store'
 import { workspaceDatabase } from '../../services/workspace-database'
-import { autoSaveEngine } from '../../services/auto-save-engine'
+// REMOVED: auto-save-engine import - timer-based auto-save system deleted
 import type { 
   WorkspaceGroup, 
   WorkspaceWithGrouping,
@@ -36,16 +36,9 @@ jest.mock('../../services/workspace-database', () => ({
   }
 }))
 
-jest.mock('../../services/auto-save-engine', () => ({
-  autoSaveEngine: {
-    scheduleWorkspaceUpdate: jest.fn(),
-    scheduleGroupUpdate: jest.fn(),
-    isEnabled: jest.fn(() => true)
-  }
-}))
+// REMOVED: auto-save-engine mock - timer-based auto-save system deleted
 
 const mockDatabase = workspaceDatabase as jest.Mocked<typeof workspaceDatabase>
-const mockAutoSave = autoSaveEngine as jest.Mocked<typeof autoSaveEngine>
 
 describe('Workspace Store Grouping', () => {
   let store: any

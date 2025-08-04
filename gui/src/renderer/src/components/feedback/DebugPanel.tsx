@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react'
 import { useAppStore } from '../../stores/app-store'
 import { MessageProcessor } from '../../services/message-processor'
 import type { IPCMessage, ProcessedMessage } from '../../../../types'
+import { ElectronDebugPanel } from '../debug/ElectronDebugPanel'
+import { ElectronStateBridge } from '../../services/electron-state-bridge'
 
 interface DebugLog {
   id: string
@@ -26,6 +28,7 @@ export function DebugPanel() {
     args: any[]
   }>>([])
   const [filter, setFilter] = useState<string>('all')
+  const [showElectronDebug, setShowElectronDebug] = useState(false)
   const { processing, config } = useAppStore()
 
   // Only show in development or when localStorage flag is set
@@ -53,9 +56,16 @@ export function DebugPanel() {
           id: `console_${Date.now()}_${Math.random()}`,
           timestamp: new Date().toLocaleTimeString(),
           level,
-          args: args.map(arg => 
-            typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
-          )
+          args: args.map(arg => {
+            if (typeof arg === 'object' && arg !== null) {
+              try {
+                return JSON.stringify(arg, null, 2)
+              } catch (error) {
+                return '[Circular or Non-serializable Object]'
+              }
+            }
+            return String(arg)
+          })
         }
         
         setConsoleLogs(prev => [logEntry, ...prev].slice(0, 50)) // Keep last 50 console logs
@@ -280,6 +290,13 @@ export function DebugPanel() {
             <option value="model">Model</option>
           </select>
           <button onClick={clearLogs} className="debug-btn">Clear</button>
+          <button 
+            onClick={() => setShowElectronDebug(true)} 
+            className="debug-btn"
+            title="Open Electron Debug Panel"
+          >
+            🔧 Electron
+          </button>
           <button 
             onClick={() => {
               const enabled = localStorage.getItem('debug-panel') === 'true'
@@ -831,6 +848,15 @@ export function DebugPanel() {
           color: white;
         }
       `}</style>
+
+      {/* Electron Debug Panel */}
+      {showElectronDebug && (
+        <ElectronDebugPanel 
+          isVisible={showElectronDebug}
+          onClose={() => setShowElectronDebug(false)}
+          position="floating"
+        />
+      )}
     </div>
   )
 }

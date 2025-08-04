@@ -26,7 +26,7 @@ import {
   PowerSettingsNew as PowerIcon,
 } from "@mui/icons-material";
 import { useAppStore } from "../../../stores/app-store";
-import { useWorkflowStore } from "../../../stores/workflow-store";
+import { workflowStateManager } from "../../../services/workflow-state-manager";
 import { ErrorCategory } from "../../../types/error";
 import { errorHandler } from "../../../utils/errorHandler";
 import { ErrorCard, InfoSection } from "./styles";
@@ -37,7 +37,7 @@ interface ProcessingErrorProps {
 
 export const ProcessingError: React.FC<ProcessingErrorProps> = ({ error }) => {
   const { processing, resetProcessing } = useAppStore();
-  const { setCurrentStep } = useWorkflowStore();
+  // Modern workflow navigation using WorkflowStateManager
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
   const [recoveryAttempts, setRecoveryAttempts] = useState(0);
 
@@ -271,7 +271,7 @@ export const ProcessingError: React.FC<ProcessingErrorProps> = ({ error }) => {
     setRecoveryAttempts((prev) => prev + 1);
     resetProcessing();
     setTimeout(() => {
-      setCurrentStep("config");
+      workflowStateManager.setCurrentStep("config");
     }, 500);
   };
 
@@ -286,7 +286,7 @@ export const ProcessingError: React.FC<ProcessingErrorProps> = ({ error }) => {
       if (window.cantocapAPI?.runEngineSetup) {
         await window.cantocapAPI.runEngineSetup();
         resetProcessing();
-        setCurrentStep("config");
+        workflowStateManager.setCurrentStep("config");
       }
     } catch (setupError) {
       console.error("Engine setup failed:", setupError);

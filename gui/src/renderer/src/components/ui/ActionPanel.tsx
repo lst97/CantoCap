@@ -37,7 +37,7 @@ export const ActionPanel = () => {
     showNotification
   } = useAppStore()
 
-  const handleStartTranscription = useCallback(() => {
+  const handleStartTranscription = useCallback(async () => {
     if (!canStartTranscription()) {
       if (!config.inputFile) {
         showNotification('Please select an input file first', 'error')
@@ -51,11 +51,11 @@ export const ActionPanel = () => {
       return
     }
     
-    startTranscription()
+    await startTranscription()
   }, [canStartTranscription, startTranscription, config.inputFile, config.hfToken, dependencies, showNotification])
 
-  const handleCancelTranscription = useCallback(() => {
-    cancelTranscription()
+  const handleCancelTranscription = useCallback(async () => {
+    await cancelTranscription()
   }, [cancelTranscription])
 
   const getButtonState = () => {

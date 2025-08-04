@@ -136,8 +136,8 @@ export function useSubtitleTempStorage(
   
   // Merge options with defaults
   const config: Required<UseSubtitleTempStorageOptions> = {
-    autoSaveEnabled: true,
-    autoSaveInterval: 30000, // 30 seconds
+    autoSaveEnabled: false, // DISABLED: Timer-based auto-save replaced by event-driven system
+    autoSaveInterval: 30000, // 30 seconds (kept for compatibility)
     saveOnIdle: true,
     idleTimeout: 300000, // 5 minutes
     maxBackups: 10,

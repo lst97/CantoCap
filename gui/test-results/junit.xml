@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="jest tests" tests="4" failures="3" errors="0" time="26.95">
+  <testsuite name="ReviewStep Infinite Re-render Fixes" errors="0" failures="3" skipped="0" timestamp="2025-08-04T13:41:48" time="26.292" tests="4">
+    <testcase classname="ReviewStep Infinite Re-render Fixes" name="should render without infinite re-renders during JSON import scenario" time="10.014">
+      <failure>Error: IndexedDB is not supported in this browser
+    at WorkspaceDatabase.createError (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/services/workspace-database.ts:308:19)
+    at /Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/services/workspace-database.ts:148:21
+    at new Promise (&lt;anonymous&gt;)
+    at WorkspaceDatabase.initializeDatabase (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/services/workspace-database.ts:146:34)
+    at new WorkspaceDatabase (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/services/workspace-database.ts:137:10)
+    at Object.&lt;anonymous&gt; (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/services/workspace-database.ts:2061:34)
+    at Runtime._execModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1439:24)
+    at Runtime._loadModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1022:12)
+    at Runtime.requireModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:882:12)
+    at Runtime.requireModuleOrMock (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1048:21)
+    at Object.&lt;anonymous&gt; (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/stores/workspace-store.ts:8:1)
+    at Runtime._execModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1439:24)
+    at Runtime._loadModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1022:12)
+    at Runtime.requireModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:882:12)
+    at Runtime.requireModuleOrMock (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1048:21)
+    at Object.&lt;anonymous&gt; (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/session-workflow-integration.ts:9:1)
+    at Runtime._execModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1439:24)
+    at Runtime._loadModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1022:12)
+    at Runtime.requireModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:882:12)
+    at Runtime.requireModuleOrMock (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1048:21)
+    at Object.&lt;anonymous&gt; (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/stores/app-store.ts:5:1)
+    at Runtime._execModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1439:24)
+    at Runtime._loadModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1022:12)
+    at Runtime.requireModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:882:12)
+    at Runtime._generateMock (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1690:34)
+    at Runtime.requireMock (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:996:39)
+    at Runtime.requireModuleOrMock (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1046:21)
+    at Object.&lt;anonymous&gt; (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/components/steps/ReviewStep.tsx:4:1)
+    at Runtime._execModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1439:24)
+    at Runtime._loadModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1022:12)
+    at Runtime.requireModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:882:12)
+    at Runtime.requireModuleOrMock (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1048:21)
+    at Object.&lt;anonymous&gt; (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/__tests__/infinite-rerender-validation.test.tsx:10:1)
+    at Runtime._execModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1439:24)
+    at Runtime._loadModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1022:12)
+    at Runtime.requireModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:882:12)
+    at jestAdapter (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-circus@29.7.0_babel-plugin-macros@3.1.0/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapter.js:77:13)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at runTestInternal (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runner@29.7.0/node_modules/jest-runner/build/runTest.js:367:16)
+    at runTest (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runner@29.7.0/node_modules/jest-runner/build/runTest.js:444:34)</failure>
+      <failure>Error: IndexedDB is not supported in this browser
+    at WorkspaceDatabase.createError (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/services/workspace-database.ts:308:19)
+    at /Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/services/workspace-database.ts:148:21
+    at new Promise (&lt;anonymous&gt;)
+    at WorkspaceDatabase.initializeDatabase (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/services/workspace-database.ts:146:34)
+    at new WorkspaceDatabase (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/services/workspace-database.ts:137:10)
+    at Object.&lt;anonymous&gt; (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/services/workspace-database.ts:2061:34)
+    at Runtime._execModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1439:24)
+    at Runtime._loadModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1022:12)
+    at Runtime.requireModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:882:12)
+    at Runtime.requireModuleOrMock (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1048:21)
+    at Object.&lt;anonymous&gt; (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/stores/workspace-store.ts:8:1)
+    at Runtime._execModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1439:24)
+    at Runtime._loadModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1022:12)
+    at Runtime.requireModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:882:12)
+    at Runtime.requireModuleOrMock (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1048:21)
+    at Object.&lt;anonymous&gt; (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/contexts/WorkspaceConfigContext.tsx:7:1)
+    at Runtime._execModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1439:24)
+    at Runtime._loadModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1022:12)
+    at Runtime.requireModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:882:12)
+    at Runtime._generateMock (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1690:34)
+    at Runtime.requireMock (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:996:39)
+    at Runtime.requireModuleOrMock (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1046:21)
+    at Object.&lt;anonymous&gt; (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/components/steps/ReviewStep.tsx:6:1)
+    at Runtime._execModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1439:24)
+    at Runtime._loadModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1022:12)
+    at Runtime.requireModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:882:12)
+    at Runtime.requireModuleOrMock (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1048:21)
+    at Object.&lt;anonymous&gt; (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/__tests__/infinite-rerender-validation.test.tsx:10:1)
+    at Runtime._execModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1439:24)
+    at Runtime._loadModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1022:12)
+    at Runtime.requireModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:882:12)
+    at jestAdapter (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-circus@29.7.0_babel-plugin-macros@3.1.0/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapter.js:77:13)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at runTestInternal (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runner@29.7.0/node_modules/jest-runner/build/runTest.js:367:16)
+    at runTest (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runner@29.7.0/node_modules/jest-runner/build/runTest.js:444:34)</failure>
+      <failure>TypeError: performance.getEntriesByType is not a function
+    at PerformanceMetricsCollector.collectMetrics (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:135:38)
+    at /Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:91:12
+    at Timeout.task [as _onTimeout] (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jsdom@20.0.3/node_modules/jsdom/lib/jsdom/browser/Window.js:520:19)
+    at listOnTimeout (node:internal/timers:588:17)
+    at processTimers (node:internal/timers:523:7)</failure>
+      <failure>TypeError: performance.getEntriesByType is not a function
+    at PerformanceMetricsCollector.collectMetrics (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:135:38)
+    at /Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:91:12
+    at Timeout.task [as _onTimeout] (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jsdom@20.0.3/node_modules/jsdom/lib/jsdom/browser/Window.js:520:19)
+    at listOnTimeout (node:internal/timers:588:17)
+    at processTimers (node:internal/timers:523:7)</failure>
+      <failure>TypeError: performance.getEntriesByType is not a function
+    at PerformanceMetricsCollector.collectMetrics (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:135:38)
+    at /Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:91:12
+    at Timeout.task [as _onTimeout] (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jsdom@20.0.3/node_modules/jsdom/lib/jsdom/browser/Window.js:520:19)
+    at listOnTimeout (node:internal/timers:588:17)
+    at processTimers (node:internal/timers:523:7)</failure>
+      <failure>TypeError: performance.getEntriesByType is not a function
+    at PerformanceMetricsCollector.collectMetrics (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:135:38)
+    at /Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:91:12
+    at Timeout.task [as _onTimeout] (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jsdom@20.0.3/node_modules/jsdom/lib/jsdom/browser/Window.js:520:19)
+    at listOnTimeout (node:internal/timers:588:17)
+    at processTimers (node:internal/timers:523:7)</failure>
+      <failure>TypeError: performance.getEntriesByType is not a function
+    at PerformanceMetricsCollector.collectMetrics (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:135:38)
+    at /Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:91:12
+    at Timeout.task [as _onTimeout] (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jsdom@20.0.3/node_modules/jsdom/lib/jsdom/browser/Window.js:520:19)
+    at listOnTimeout (node:internal/timers:588:17)
+    at processTimers (node:internal/timers:523:7)</failure>
+      <failure>TypeError: performance.getEntriesByType is not a function
+    at PerformanceMetricsCollector.collectMetrics (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:135:38)
+    at /Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:91:12
+    at Timeout.task [as _onTimeout] (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jsdom@20.0.3/node_modules/jsdom/lib/jsdom/browser/Window.js:520:19)
+    at listOnTimeout (node:internal/timers:588:17)
+    at processTimers (node:internal/timers:523:7)</failure>
+      <failure>TypeError: performance.getEntriesByType is not a function
+    at PerformanceMetricsCollector.collectMetrics (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:135:38)
+    at /Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:91:12
+    at Timeout.task [as _onTimeout] (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jsdom@20.0.3/node_modules/jsdom/lib/jsdom/browser/Window.js:520:19)
+    at listOnTimeout (node:internal/timers:588:17)
+    at processTimers (node:internal/timers:523:7)</failure>
+      <failure>TypeError: performance.getEntriesByType is not a function
+    at PerformanceMetricsCollector.collectMetrics (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:135:38)
+    at /Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:91:12
+    at Timeout.task [as _onTimeout] (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jsdom@20.0.3/node_modules/jsdom/lib/jsdom/browser/Window.js:520:19)
+    at listOnTimeout (node:internal/timers:588:17)
+    at processTimers (node:internal/timers:523:7)</failure>
+      <failure>TypeError: performance.getEntriesByType is not a function
+    at PerformanceMetricsCollector.collectMetrics (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:135:38)
+    at /Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:91:12
+    at Timeout.task [as _onTimeout] (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jsdom@20.0.3/node_modules/jsdom/lib/jsdom/browser/Window.js:520:19)
+    at listOnTimeout (node:internal/timers:588:17)
+    at processTimers (node:internal/timers:523:7)</failure>
+      <failure>TypeError: performance.getEntriesByType is not a function
+    at PerformanceMetricsCollector.collectMetrics (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:135:38)
+    at /Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:91:12
+    at Timeout.task [as _onTimeout] (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jsdom@20.0.3/node_modules/jsdom/lib/jsdom/browser/Window.js:520:19)
+    at listOnTimeout (node:internal/timers:588:17)
+    at processTimers (node:internal/timers:523:7)</failure>
+      <failure>Error: thrown: &quot;Exceeded timeout of 10000 ms for a test.
+Add a timeout value to this test to increase the timeout, if this is a long-running test. See https://jestjs.io/docs/api#testname-fn-timeout.&quot;
+    at /Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/__tests__/infinite-rerender-validation.test.tsx:132:3
+    at _dispatchDescribe (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-circus@29.7.0_babel-plugin-macros@3.1.0/node_modules/jest-circus/build/index.js:91:26)
+    at describe (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-circus@29.7.0_babel-plugin-macros@3.1.0/node_modules/jest-circus/build/index.js:55:5)
+    at Object.&lt;anonymous&gt; (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/__tests__/infinite-rerender-validation.test.tsx:49:1)
+    at Runtime._execModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1439:24)
+    at Runtime._loadModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1022:12)
+    at Runtime.requireModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:882:12)
+    at jestAdapter (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-circus@29.7.0_babel-plugin-macros@3.1.0/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapter.js:77:13)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at runTestInternal (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runner@29.7.0/node_modules/jest-runner/build/runTest.js:367:16)
+    at runTest (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runner@29.7.0/node_modules/jest-runner/build/runTest.js:444:34)</failure>
+    </testcase>
+    <testcase classname="ReviewStep Infinite Re-render Fixes" name="should handle rapid state changes without cascading re-renders" time="10.008">
+      <failure>TypeError: performance.getEntriesByType is not a function
+    at PerformanceMetricsCollector.collectMetrics (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:135:38)
+    at /Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:91:12
+    at Timeout.task [as _onTimeout] (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jsdom@20.0.3/node_modules/jsdom/lib/jsdom/browser/Window.js:520:19)
+    at listOnTimeout (node:internal/timers:588:17)
+    at processTimers (node:internal/timers:523:7)</failure>
+      <failure>TypeError: performance.getEntriesByType is not a function
+    at PerformanceMetricsCollector.collectMetrics (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:135:38)
+    at /Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:91:12
+    at Timeout.task [as _onTimeout] (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jsdom@20.0.3/node_modules/jsdom/lib/jsdom/browser/Window.js:520:19)
+    at listOnTimeout (node:internal/timers:588:17)
+    at processTimers (node:internal/timers:523:7)</failure>
+      <failure>TypeError: performance.getEntriesByType is not a function
+    at PerformanceMetricsCollector.collectMetrics (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:135:38)
+    at /Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:91:12
+    at Timeout.task [as _onTimeout] (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jsdom@20.0.3/node_modules/jsdom/lib/jsdom/browser/Window.js:520:19)
+    at listOnTimeout (node:internal/timers:588:17)
+    at processTimers (node:internal/timers:523:7)</failure>
+      <failure>TypeError: performance.getEntriesByType is not a function
+    at PerformanceMetricsCollector.collectMetrics (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:135:38)
+    at /Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:91:12
+    at Timeout.task [as _onTimeout] (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jsdom@20.0.3/node_modules/jsdom/lib/jsdom/browser/Window.js:520:19)
+    at listOnTimeout (node:internal/timers:588:17)
+    at processTimers (node:internal/timers:523:7)</failure>
+      <failure>TypeError: performance.getEntriesByType is not a function
+    at PerformanceMetricsCollector.collectMetrics (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:135:38)
+    at /Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:91:12
+    at Timeout.task [as _onTimeout] (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jsdom@20.0.3/node_modules/jsdom/lib/jsdom/browser/Window.js:520:19)
+    at listOnTimeout (node:internal/timers:588:17)
+    at processTimers (node:internal/timers:523:7)</failure>
+      <failure>TypeError: performance.getEntriesByType is not a function
+    at PerformanceMetricsCollector.collectMetrics (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:135:38)
+    at /Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:91:12
+    at Timeout.task [as _onTimeout] (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jsdom@20.0.3/node_modules/jsdom/lib/jsdom/browser/Window.js:520:19)
+    at listOnTimeout (node:internal/timers:588:17)
+    at processTimers (node:internal/timers:523:7)</failure>
+      <failure>TypeError: performance.getEntriesByType is not a function
+    at PerformanceMetricsCollector.collectMetrics (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:135:38)
+    at /Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:91:12
+    at Timeout.task [as _onTimeout] (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jsdom@20.0.3/node_modules/jsdom/lib/jsdom/browser/Window.js:520:19)
+    at listOnTimeout (node:internal/timers:588:17)
+    at processTimers (node:internal/timers:523:7)</failure>
+      <failure>TypeError: performance.getEntriesByType is not a function
+    at PerformanceMetricsCollector.collectMetrics (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:135:38)
+    at /Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:91:12
+    at Timeout.task [as _onTimeout] (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jsdom@20.0.3/node_modules/jsdom/lib/jsdom/browser/Window.js:520:19)
+    at listOnTimeout (node:internal/timers:588:17)
+    at processTimers (node:internal/timers:523:7)</failure>
+      <failure>TypeError: performance.getEntriesByType is not a function
+    at PerformanceMetricsCollector.collectMetrics (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:135:38)
+    at /Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:91:12
+    at Timeout.task [as _onTimeout] (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jsdom@20.0.3/node_modules/jsdom/lib/jsdom/browser/Window.js:520:19)
+    at listOnTimeout (node:internal/timers:588:17)
+    at processTimers (node:internal/timers:523:7)</failure>
+      <failure>TypeError: performance.getEntriesByType is not a function
+    at PerformanceMetricsCollector.collectMetrics (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:135:38)
+    at /Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/utils/performance-monitor.ts:91:12
+    at Timeout.task [as _onTimeout] (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jsdom@20.0.3/node_modules/jsdom/lib/jsdom/browser/Window.js:520:19)
+    at listOnTimeout (node:internal/timers:588:17)
+    at processTimers (node:internal/timers:523:7)</failure>
+      <failure>Error: thrown: &quot;Exceeded timeout of 10000 ms for a test.
+Add a timeout value to this test to increase the timeout, if this is a long-running test. See https://jestjs.io/docs/api#testname-fn-timeout.&quot;
+    at /Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/__tests__/infinite-rerender-validation.test.tsx:165:3
+    at _dispatchDescribe (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-circus@29.7.0_babel-plugin-macros@3.1.0/node_modules/jest-circus/build/index.js:91:26)
+    at describe (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-circus@29.7.0_babel-plugin-macros@3.1.0/node_modules/jest-circus/build/index.js:55:5)
+    at Object.&lt;anonymous&gt; (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/__tests__/infinite-rerender-validation.test.tsx:49:1)
+    at Runtime._execModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1439:24)
+    at Runtime._loadModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:1022:12)
+    at Runtime.requireModule (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runtime@29.7.0/node_modules/jest-runtime/build/index.js:882:12)
+    at jestAdapter (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-circus@29.7.0_babel-plugin-macros@3.1.0/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapter.js:77:13)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at runTestInternal (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runner@29.7.0/node_modules/jest-runner/build/runTest.js:367:16)
+    at runTest (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runner@29.7.0/node_modules/jest-runner/build/runTest.js:444:34)</failure>
+    </testcase>
+    <testcase classname="ReviewStep Infinite Re-render Fixes" name="should have stable React.memo implementation" time="0.003">
+      <failure>Error: expect(received).toBeDefined()
+
+Received: undefined
+    at Object.&lt;anonymous&gt; (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/src/renderer/src/__tests__/infinite-rerender-validation.test.tsx:218:44)
+    at Promise.then.completed (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-circus@29.7.0_babel-plugin-macros@3.1.0/node_modules/jest-circus/build/utils.js:298:28)
+    at new Promise (&lt;anonymous&gt;)
+    at callAsyncCircusFn (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-circus@29.7.0_babel-plugin-macros@3.1.0/node_modules/jest-circus/build/utils.js:231:10)
+    at _callCircusTest (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-circus@29.7.0_babel-plugin-macros@3.1.0/node_modules/jest-circus/build/run.js:316:40)
+    at _runTest (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-circus@29.7.0_babel-plugin-macros@3.1.0/node_modules/jest-circus/build/run.js:252:3)
+    at _runTestsForDescribeBlock (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-circus@29.7.0_babel-plugin-macros@3.1.0/node_modules/jest-circus/build/run.js:126:9)
+    at _runTestsForDescribeBlock (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-circus@29.7.0_babel-plugin-macros@3.1.0/node_modules/jest-circus/build/run.js:121:9)
+    at run (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-circus@29.7.0_babel-plugin-macros@3.1.0/node_modules/jest-circus/build/run.js:71:3)
+    at runAndTransformResultsToJestFormat (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-circus@29.7.0_babel-plugin-macros@3.1.0/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapterInit.js:122:21)
+    at jestAdapter (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-circus@29.7.0_babel-plugin-macros@3.1.0/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapter.js:79:19)
+    at runTestInternal (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runner@29.7.0/node_modules/jest-runner/build/runTest.js:367:16)
+    at runTest (/Users/lst97/Desktop/Work/Code/Projects/canton-cap/gui/node_modules/.pnpm/jest-runner@29.7.0/node_modules/jest-runner/build/runTest.js:444:34)</failure>
+    </testcase>
+    <testcase classname="ReviewStep Infinite Re-render Fixes" name="should cleanup resources on unmount" time="0.019">
+    </testcase>
+  </testsuite>
+</testsuites>

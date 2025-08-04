@@ -54,8 +54,19 @@ export interface FileValidationResult {
 /**
  * Step 1: Input File Configuration
  * Handles file selection, validation, and metadata extraction
+ * 
+ * @example
+ * ```typescript
+ * const inputConfig: InputFileStepConfig = {
+ *   selectedFile: '/path/to/video.mp4',
+ *   videoMetadata: { duration: 120, hasAudio: true },
+ *   filePreferences: { autoValidate: true }
+ * }
+ * ```
  */
 export interface InputFileStepConfig {
+  /** Index signature for extensibility and dynamic properties */
+  [key: string]: unknown
   /** Selected input file path */
   selectedFile?: string
   /** Imported JSON subtitle file path */
@@ -78,6 +89,15 @@ export interface InputFileStepConfig {
     extractMetadata: boolean
     suggestOptimalSettings: boolean
   }
+  /** Last modification timestamp */
+  lastModified?: number
+  /** Media metadata for the selected file */
+  mediaMetadata?: {
+    duration: number
+    format: string
+    fileSize: number
+    [key: string]: unknown
+  }
 }
 
 /**
@@ -85,6 +105,8 @@ export interface InputFileStepConfig {
  * Core processing configuration and API settings
  */
 export interface ConfigStepConfig {
+  /** Index signature for extensibility */
+  [key: string]: unknown
   /** Processing language */
   language?: string
   /** AI model selection */
@@ -130,6 +152,8 @@ export interface ConfigStepConfig {
  * Runtime processing settings and monitoring
  */
 export interface ProcessingStepConfig {
+  /** Index signature for extensibility */
+  [key: string]: unknown
   /** Enable verbose logging */
   verbose?: boolean
   /** Hardware acceleration preferences */
@@ -170,6 +194,8 @@ export interface ProcessingStepConfig {
  * Subtitle review and editing preferences with enhanced file persistence
  */
 export interface ReviewStepConfig {
+  /** Index signature for extensibility */
+  [key: string]: unknown
   /** Current subtitle data */
   subtitleData?: SubtitleData[]
   /** Subtitle file persistence integration */
@@ -264,6 +290,8 @@ export interface ReviewStepConfig {
  * Output file settings and post-processing
  */
 export interface ExportStepConfig {
+  /** Index signature for extensibility */
+  [key: string]: unknown
   /** Output file path */
   outputFile?: string | null
   /** Export format settings */
@@ -313,7 +341,7 @@ export type StepConfigMap = {
 /**
  * Generic step configuration container with metadata
  */
-export interface StepConfiguration<T = any> {
+export interface StepConfiguration<T = Record<string, unknown>> {
   /** Step identifier */
   stepId: WorkflowStepId
   /** Associated workspace ID */
@@ -375,17 +403,6 @@ export interface BatchResult {
 // LEGACY COMPATIBILITY TYPES
 // ============================================================================
 
-/**
- * Legacy workspace configuration (backward compatibility)
- * @deprecated Use step-specific configurations instead
- */
-export interface LegacyWorkspaceConfig extends AppConfig {
-  workspaceId?: string
-  lastModified?: number
-  version?: number
-  /** Flag indicating this is a legacy configuration */
-  _isLegacy?: boolean
-}
 
 /**
  * Current workspace configuration - maintains compatibility
@@ -426,11 +443,53 @@ export interface Workspace {
 // Session Management Types
 export type SessionType = 'subtitle_edit' | 'processing' | 'export' | 'workflow' | 'ui_state'
 
+/**
+ * Union type for all possible session data types
+ * 
+ * Provides type safety for workspace session data while maintaining
+ * flexibility for different session types. Each session type has its
+ * own specific interface with proper validation.
+ * 
+ * @example
+ * ```typescript
+ * // Type-safe subtitle editing session
+ * const subtitleSession: SubtitleEditSession = {
+ *   currentEditIndex: 5,
+ *   selectedSubtitles: [1, 2, 3],
+ *   searchState: { query: 'hello', results: [1, 3], currentIndex: 0 }
+ * }
+ * 
+ * // Generic session data for custom use cases
+ * const customSession: Record<string, unknown> = {
+ *   customProperty: 'value',
+ *   numericValue: 42
+ * }
+ * ```
+ */
+export type SessionDataUnion = 
+  | SubtitleEditSession
+  | ProcessingSession
+  | ExportSession
+  | WorkflowSession
+  | Record<string, unknown> // Fallback for ui_state and unknown session types
+
+/**
+ * Type mapping for session types to their corresponding data interfaces
+ * Enables type-safe session data access based on session type
+ */
+export type SessionTypeMap = {
+  'subtitle_edit': SubtitleEditSession
+  'processing': ProcessingSession
+  'export': ExportSession
+  'workflow': WorkflowSession
+  'ui_state': Record<string, unknown>
+}
+
 export interface WorkspaceSession {
   id: string                          // UUID v4
   workspaceId: string                 // Foreign key to workspace
   sessionType: SessionType
-  sessionData: any                    // JSON blob for session state
+  sessionData: SessionDataUnion // Type-safe session data
   createdAt: number
   updatedAt: number
   isActive: boolean
@@ -440,7 +499,14 @@ export interface WorkspaceSession {
 export interface SubtitleEditSession {
   currentEditIndex?: number
   selectedSubtitles?: number[]
-  editHistory?: any[]
+  editHistory?: Array<{
+    timestamp: number
+    operation: 'create' | 'update' | 'delete' | 'move'
+    subtitleId?: number
+    previousValue?: unknown
+    newValue?: unknown
+    userId?: string
+  }>
   searchState?: {
     query: string
     results: number[]
@@ -456,7 +522,15 @@ export interface SubtitleEditSession {
 export interface ProcessingSession {
   currentProcessingConfig?: WorkspaceConfig
   processingHistory?: ProcessingHistoryEntry[]
-  lastProcessingResult?: any
+  lastProcessingResult?: {
+    success: boolean
+    processedCount: number
+    errorCount: number
+    duration: number
+    outputFormat?: string
+    warnings?: string[]
+    timestamp: number
+  }
   processingMetrics?: {
     averageProcessingTime: number
     successRate: number
@@ -465,7 +539,13 @@ export interface ProcessingSession {
 }
 
 export interface ExportSession {
-  lastExportConfig?: any
+  lastExportConfig?: {
+    format: string
+    encoding: string
+    includeMetadata: boolean
+    outputPath?: string
+    timestamp: number
+  }
   exportHistory?: Array<{
     format: string
     filePath: string
@@ -474,7 +554,7 @@ export interface ExportSession {
   }>
   exportPresets?: Array<{
     name: string
-    config: any
+    config: Record<string, unknown>
   }>
 }
 
@@ -497,7 +577,7 @@ export interface WorkflowSession {
 /**
  * Cached step configuration with metadata
  */
-export interface CachedStepConfig<T = any> {
+export interface CachedStepConfig<T = Record<string, unknown>> {
   /** Cached configuration data */
   data: T
   /** Cache expiry timestamp */
@@ -573,7 +653,7 @@ export interface MigrationResult {
   migratedWorkspaces: string[]
   errors: MigrationError[]
   rollbackData?: {
-    workspaceConfigs: Record<string, LegacyWorkspaceConfig>
+    workspaceConfigs: Record<string, WorkspaceConfig>
     backupPath: string
   }
   statistics: {
@@ -743,7 +823,7 @@ export interface StepConfigError extends Error {
     | 'STEP_CONFIG_CORRUPTED'
   workspaceId?: string
   stepId?: WorkflowStepId
-  configData?: any
+  configData?: Record<string, unknown>
   validationErrors?: string[]
   recoveryAction?: string
 }
@@ -763,16 +843,35 @@ export interface WorkspaceError extends Error {
     | 'BATCH_OPERATION_FAILED'
   workspaceId?: string
   phase?: string
-  details?: any
+  details?: Record<string, unknown>
   stepConfigError?: StepConfigError
   affectedSteps?: WorkflowStepId[]
+  recoverable?: boolean
+}
+
+/**
+ * Subtitle file operation error
+ */
+export interface SubtitleFileError extends Error {
+  code: 
+    | 'FILE_NOT_FOUND'
+    | 'FILE_READ_ERROR'
+    | 'FILE_WRITE_ERROR'
+    | 'FILE_PERMISSION_ERROR'
+    | 'FILE_FORMAT_ERROR'
+    | 'FILE_VALIDATION_ERROR'
+    | 'FILE_CORRUPTION_ERROR'
+    | 'FILE_SIZE_ERROR'
+  filename?: string
+  operation?: 'read' | 'write' | 'delete' | 'validate' | 'backup'
+  details?: Record<string, unknown>
   recoverable?: boolean
 }
 
 // Validation Types
 export interface WorkspaceValidationRule {
   field: keyof Workspace
-  validator: (value: any) => boolean
+  validator: (value: unknown) => boolean
   message: string
 }
 
@@ -781,12 +880,12 @@ export interface WorkspaceValidationResult {
   errors: Array<{
     field: string
     message: string
-    value: any
+    value: unknown
   }>
   warnings: Array<{
     field: string
     message: string
-    value: any
+    value: unknown
   }>
 }
 
@@ -799,6 +898,26 @@ export interface WorkspacePerformanceMetrics {
   dataSize?: number
   error?: string
   timestamp: number
+}
+
+/**
+ * Performance metrics for subtitle file operations
+ */
+export interface SubtitleFilePerformanceMetrics {
+  operationType: 'load' | 'save' | 'create' | 'delete' | 'validate' | 'backup' | 'restore'
+  duration: number
+  fileSize?: number
+  success: boolean
+  timestamp: number
+  workspaceId?: string
+  fileId?: string
+  error?: string
+  /** Additional metadata for subtitle operations */
+  metadata?: {
+    subtitleCount?: number
+    validationErrors?: number
+    compressionRatio?: number
+  }
 }
 
 // Backup and Recovery Types
@@ -827,8 +946,8 @@ export interface BackupStrategy {
 // Conflict Resolution Types
 export interface ConfigConflict {
   field: keyof WorkspaceConfig
-  localValue: any
-  remoteValue: any
+  localValue: unknown
+  remoteValue: unknown
   timestamp: number
   resolutionStrategy: 'local' | 'remote' | 'merge' | 'manual'
 }
@@ -976,7 +1095,7 @@ export interface EnhancedWorkspaceStoreActions extends WorkspaceStoreActions {
   getMultipleStepConfigs(
     workspaceId: string,
     stepIds: WorkflowStepId[]
-  ): Promise<Partial<Record<WorkflowStepId, any>>>
+  ): Promise<Partial<StepConfigMap>>
   
   /**
    * Batch update multiple step configurations
@@ -1244,7 +1363,7 @@ export interface EnhancedWorkspaceStoreActions extends WorkspaceStoreActions {
    * Get subtitle file performance metrics
    * @param workspaceId - Optional workspace ID to filter metrics
    */
-  getSubtitleFilePerformanceMetrics(workspaceId?: string): Promise<any[]>
+  getSubtitleFilePerformanceMetrics(workspaceId?: string): Promise<SubtitleFilePerformanceMetrics[]>
   
   // ============================================================================
   // ENHANCED PERFORMANCE MONITORING
@@ -1272,7 +1391,7 @@ export interface EnhancedWorkspaceStoreActions extends WorkspaceStoreActions {
   exportStepConfigs(
     workspaceId: string,
     stepIds?: WorkflowStepId[]
-  ): Promise<Record<WorkflowStepId, any>>
+  ): Promise<Partial<StepConfigMap>>
   
   /**
    * Import step configurations
@@ -1282,7 +1401,7 @@ export interface EnhancedWorkspaceStoreActions extends WorkspaceStoreActions {
    */
   importStepConfigs(
     workspaceId: string,
-    stepConfigs: Partial<Record<WorkflowStepId, any>>,
+    stepConfigs: Partial<StepConfigMap>,
     options?: {
       overwrite?: boolean
       skipValidation?: boolean
@@ -1304,8 +1423,8 @@ export interface WorkspaceStoreActions {
   duplicateWorkspace: (workspaceId: string, newName: string) => Promise<Workspace>
   
   // Session Management
-  saveWorkspaceSession: (sessionType: SessionType, sessionData: any) => Promise<void>
-  loadWorkspaceSession: (workspaceId: string, sessionType: SessionType) => Promise<any>
+  saveWorkspaceSession: <T extends SessionDataUnion = SessionDataUnion>(sessionType: SessionType, sessionData: T) => Promise<void>
+  loadWorkspaceSession: <T extends SessionDataUnion = SessionDataUnion>(workspaceId: string, sessionType: SessionType) => Promise<T | null>
   deleteWorkspaceSession: (workspaceId: string, sessionType: SessionType) => Promise<void>
   
   // Auto-Save & Persistence
@@ -1352,11 +1471,6 @@ export interface WorkspaceStoreActions {
  */
 export type EnhancedWorkspaceStore = EnhancedWorkspaceStoreState & EnhancedWorkspaceStoreActions
 
-/**
- * Legacy workspace store for backward compatibility
- * @deprecated Use EnhancedWorkspaceStore instead
- */
-export type WorkspaceStore = WorkspaceStoreState & WorkspaceStoreActions
 
 // ============================================================================
 // UTILITY TYPES AND HELPERS
@@ -1426,13 +1540,13 @@ export type StepConfigValidationResult<K extends WorkflowStepId> = {
   errors: Array<{
     field: keyof StepConfigMap[K]
     message: string
-    value: any
+    value: unknown
     severity: 'error' | 'warning'
   }>
   warnings: Array<{
     field: keyof StepConfigMap[K]
     message: string
-    value: any
+    value: unknown
   }>
   suggestions?: Array<{
     field: keyof StepConfigMap[K]
@@ -1457,8 +1571,8 @@ export type BatchValidationResult = {
  */
 export type StepConfigMigrationMap = {
   [K in WorkflowStepId]: {
-    fromLegacy: (legacyConfig: LegacyWorkspaceConfig) => Partial<StepConfigMap[K]>
-    toLegacy: (stepConfig: StepConfigMap[K]) => Partial<LegacyWorkspaceConfig>
+    fromLegacy: (legacyConfig: WorkspaceConfig) => Partial<StepConfigMap[K]>
+    toLegacy: (stepConfig: StepConfigMap[K]) => Partial<WorkspaceConfig>
     validator: (config: Partial<StepConfigMap[K]>) => StepConfigValidationResult<K>
     defaults: () => StepConfigMap[K]
   }
@@ -1517,7 +1631,7 @@ export interface UseStepConfigOptions {
   /** Custom validation success handler */
   onValidationSuccess?: () => void
   /** Custom validation error handler */
-  onValidationError?: (result: StepConfigValidationResult<any>) => void
+  onValidationError?: (result: StepConfigValidationResult<WorkflowStepId>) => void
 }
 
 /**
@@ -1545,7 +1659,7 @@ export interface StepConfigHookResult<T> {
   /** Validation state */
   isValidating: boolean
   /** Current validation result */
-  validationResult: StepConfigValidationResult<any> | null
+  validationResult: StepConfigValidationResult<WorkflowStepId> | null
   /** Last error that occurred */
   error: WorkspaceError | StepConfigError | null
   /** Whether the configuration has unsaved changes */
@@ -1565,7 +1679,7 @@ export interface StepConfigHookResult<T> {
   /** Force refresh from database */
   refresh: () => Promise<void>
   /** Validate current configuration */
-  validate: () => Promise<StepConfigValidationResult<any>>
+  validate: () => Promise<StepConfigValidationResult<WorkflowStepId>>
   /** Save changes immediately */
   save: () => Promise<void>
   /** Clear error state */
@@ -1607,7 +1721,7 @@ export interface ReviewStepConfigHookResult extends StepConfigHookResult<ReviewS
   /** Clear subtitle cache */
   clearSubtitleCache: (fileId?: string) => Promise<void>
   /** Get performance metrics */
-  getPerformanceMetrics: () => Promise<any[]>
+  getPerformanceMetrics: () => Promise<SubtitleFilePerformanceMetrics[]>
   
   // File operation states
   /** Whether subtitle files are loading */
@@ -1639,7 +1753,7 @@ export interface UseSubtitlePersistenceOptions extends UseStepConfigOptions {
   /** Custom file error handler */
   onFileError?: (error: SubtitleFileError) => void
   /** Custom file operation success handler */
-  onFileOperationSuccess?: (operation: string, result: any) => void
+  onFileOperationSuccess?: (operation: string, result: unknown) => void
   /** Enable performance monitoring */
   enablePerformanceMonitoring?: boolean
 }
@@ -1922,40 +2036,53 @@ export const DEFAULT_STEP_CONFIGS: StepConfigDefaults = {
 /**
  * Type guard for workspace errors
  */
-export function isWorkspaceError(error: any): error is WorkspaceError {
-  return error && typeof error.code === 'string' && 
-    (error.code.startsWith('WORKSPACE_') || error.code.startsWith('STEP_CONFIG_'))
+export function isWorkspaceError(error: unknown): error is WorkspaceError {
+  return error !== null && 
+    typeof error === 'object' && 
+    'code' in error &&
+    typeof (error as { code: unknown }).code === 'string' && 
+    ((error as { code: string }).code.startsWith('WORKSPACE_') || 
+     (error as { code: string }).code.startsWith('STEP_CONFIG_'))
 }
 
 /**
  * Type guard for step configuration errors
  */
-export function isStepConfigError(error: any): error is StepConfigError {
-  return error && typeof error.code === 'string' && error.code.startsWith('STEP_CONFIG_')
+export function isStepConfigError(error: unknown): error is StepConfigError {
+  return error !== null && 
+    typeof error === 'object' && 
+    'code' in error &&
+    typeof (error as { code: unknown }).code === 'string' && 
+    (error as { code: string }).code.startsWith('STEP_CONFIG_')
 }
 
 /**
- * Type guard for legacy workspace configuration
+ * Type guard for workspace configuration that needs migration
  */
-export function isLegacyWorkspaceConfig(config: any): config is LegacyWorkspaceConfig {
-  return config && typeof config === 'object' && 
-    (config._isLegacy === true || !config._stepConfigsEnabled)
+export function needsStepConfigMigration(config: unknown): config is WorkspaceConfig {
+  return config !== null && 
+    typeof config === 'object' && 
+    ('_stepConfigsEnabled' in config && !(config as { _stepConfigsEnabled: unknown })._stepConfigsEnabled)
 }
 
 /**
  * Type guard for enhanced workspace store
  */
-export function isEnhancedWorkspaceStore(store: any): store is EnhancedWorkspaceStore {
-  return store && 
-    typeof store.getStepConfig === 'function' &&
-    typeof store.setStepConfig === 'function' &&
-    typeof store.batchUpdateStepConfigs === 'function'
+export function isEnhancedWorkspaceStore(store: unknown): store is EnhancedWorkspaceStore {
+  return store !== null && 
+    typeof store === 'object' &&
+    'getStepConfig' in store &&
+    'setStepConfig' in store &&
+    'batchUpdateStepConfigs' in store &&
+    typeof (store as { getStepConfig: unknown }).getStepConfig === 'function' &&
+    typeof (store as { setStepConfig: unknown }).setStepConfig === 'function' &&
+    typeof (store as { batchUpdateStepConfigs: unknown }).batchUpdateStepConfigs === 'function'
 }
 
 /**
  * Type guard for valid workflow step ID
  */
-export function isValidWorkflowStepId(stepId: any): stepId is WorkflowStepId {
+export function isValidWorkflowStepId(stepId: unknown): stepId is WorkflowStepId {
   return typeof stepId === 'string' && 
     ['input-file', 'config', 'processing', 'review', 'export'].includes(stepId)
 }
@@ -1963,22 +2090,30 @@ export function isValidWorkflowStepId(stepId: any): stepId is WorkflowStepId {
 /**
  * Type guard for step configuration record
  */
-export function isStepConfigurationRecord(record: any): record is StepConfigurationRecord {
-  return record && 
-    typeof record.workspace_id === 'string' &&
-    typeof record.step_id === 'string' &&
-    typeof record.config_data === 'string' &&
-    isValidWorkflowStepId(record.step_id)
+export function isStepConfigurationRecord(record: unknown): record is StepConfigurationRecord {
+  return record !== null && 
+    typeof record === 'object' &&
+    'workspace_id' in record &&
+    'step_id' in record &&
+    'config_data' in record &&
+    typeof (record as { workspace_id: unknown }).workspace_id === 'string' &&
+    typeof (record as { step_id: unknown }).step_id === 'string' &&
+    typeof (record as { config_data: unknown }).config_data === 'string' &&
+    isValidWorkflowStepId((record as { step_id: unknown }).step_id)
 }
 
 /**
  * Type guard for cached step config
  */
-export function isCachedStepConfig(cached: any): cached is CachedStepConfig {
-  return cached &&
-    typeof cached.expiryTime === 'number' &&
-    typeof cached.accessCount === 'number' &&
-    typeof cached.isDirty === 'boolean'
+export function isCachedStepConfig(cached: unknown): cached is CachedStepConfig {
+  return cached !== null &&
+    typeof cached === 'object' &&
+    'expiryTime' in cached &&
+    'accessCount' in cached &&
+    'isDirty' in cached &&
+    typeof (cached as { expiryTime: unknown }).expiryTime === 'number' &&
+    typeof (cached as { accessCount: unknown }).accessCount === 'number' &&
+    typeof (cached as { isDirty: unknown }).isDirty === 'boolean'
 }
 
 /**
@@ -2017,7 +2152,7 @@ export function isCacheEntryExpired(cached: CachedStepConfig): boolean {
  */
 export function needsMigration(workspace: Workspace): boolean {
   return !workspace.config._stepConfigsEnabled && 
-    workspace.config.version < WORKSPACE_CONSTANTS.STEP_CONFIG_VERSION
+    (workspace.config.version ?? 0) < WORKSPACE_CONSTANTS.STEP_CONFIG_VERSION
 }
 
 /**
@@ -2125,7 +2260,7 @@ export function parseCacheKey(cacheKey: string): { workspaceId: string; stepId: 
  */
 export function validateStepConfigSchema<K extends WorkflowStepId>(
   stepId: K,
-  config: any
+  config: StepConfigMap[K] | Record<string, unknown>
 ): StepConfigValidationResult<K> {
   const errors: StepConfigValidationResult<K>['errors'] = []
   const warnings: StepConfigValidationResult<K>['warnings'] = []
@@ -2206,7 +2341,7 @@ export function checkConfigHealth(
     stepHealth,
     issues,
     performanceHints,
-    migrationRecommended: needsMigration({ config: { _stepConfigsEnabled: false } } as Workspace),
+    migrationRecommended: needsStepConfigMigration({ _stepConfigsEnabled: false }),
     lastHealthCheck: Date.now()
   }
 }
@@ -2237,7 +2372,7 @@ export function mergeStepConfigs<K extends WorkflowStepId>(
 /**
  * Calculate configuration checksum for integrity validation
  */
-export function calculateConfigChecksum(config: any): string {
+export function calculateConfigChecksum(config: Record<string, unknown>): string {
   const configString = JSON.stringify(config, Object.keys(config).sort())
   // Simple hash function - in production, use a proper crypto hash
   let hash = 0
@@ -2252,14 +2387,14 @@ export function calculateConfigChecksum(config: any): string {
 /**
  * Estimate configuration size in bytes
  */
-export function estimateConfigSize(config: any): number {
+export function estimateConfigSize(config: Record<string, unknown>): number {
   return JSON.stringify(config).length * 2 // Rough estimate (UTF-16)
 }
 
 /**
  * Compress configuration data for storage
  */
-export function compressConfigData(config: any): string {
+export function compressConfigData(config: Record<string, unknown>): string {
   // In production, implement actual compression (e.g., LZ-string)
   return JSON.stringify(config)
 }
@@ -2267,7 +2402,7 @@ export function compressConfigData(config: any): string {
 /**
  * Decompress configuration data from storage
  */
-export function decompressConfigData(compressedData: string): any {
+export function decompressConfigData(compressedData: string): Record<string, unknown> {
   try {
     return JSON.parse(compressedData)
   } catch {
@@ -2443,14 +2578,11 @@ export interface WorkspaceGroupingActions {
  * Combined enhanced workspace store with grouping support
  */
 export interface EnhancedWorkspaceStoreWithGrouping extends EnhancedWorkspaceStore {
-  // Add grouping state
-  grouping: WorkspaceGroupingState
+  // Add grouping state and actions
+  grouping: WorkspaceGroupingState & WorkspaceGroupingActions
   
   // Extend existing actions with grouping support
   createWorkspace: (name: string, config?: Partial<WorkspaceConfig>, groupId?: string | null) => Promise<Workspace>
-  
-  // Add grouping actions
-  grouping: WorkspaceGroupingActions
 }
 
 /**

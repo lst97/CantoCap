@@ -5,6 +5,8 @@
  * Provides comprehensive test scenarios, performance validation, and error simulation.
  */
 
+import { generateTestWorkspaceId } from '../../utils/id-generator'
+
 import type {
   SubtitleFileContent,
   SubtitleFileMetadata,
@@ -535,7 +537,7 @@ export class TestWorkspaceUtils {
    * Create isolated test workspace
    */
   static createTestWorkspace(id?: string): string {
-    return id || `test-workspace-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    return id || generateTestWorkspaceId()
   }
 
   /**

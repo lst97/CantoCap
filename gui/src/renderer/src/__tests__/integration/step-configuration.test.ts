@@ -16,7 +16,7 @@ import React from 'react'
 
 // Import system components
 import { useWorkspaceStore } from '../../stores/workspace-store'
-import { useWorkflowStore } from '../../stores/workflow-store'
+// Legacy workflow store removed - using WorkflowStateManager directly
 import { useSubtitleEditStore } from '../../stores/subtitle-edit-store'
 
 // Import step components for integration testing

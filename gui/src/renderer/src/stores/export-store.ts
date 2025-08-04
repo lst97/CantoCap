@@ -1,10 +1,12 @@
 import { create } from 'zustand'
 import { persist, subscribeWithSelector } from 'zustand/middleware'
 import { useSubtitleEditStore } from './subtitle-edit-store'
-import { useWorkflowStore } from './workflow-store'
 import { useAppStore } from '../stores/app-store'
 import { useWorkspaceStore } from './workspace-store'
+import { workflowStateManager } from '../services/workflow-state-manager'
+import { StepState } from '../types/workflow-state'
 import { convertToSRT, convertToVTT, convertToASS, convertToJSON } from '../utils/format-converters'
+import { generateExportId } from '../utils/id-generator'
 import type { SubtitleEntry } from '../types/subtitle'
 import type { ExportSession } from '../types/workspace'
 
@@ -290,9 +292,10 @@ export const useExportStore = create<ExportStore>()(
             }
           }))
 
-          // Mark export step as completed in workflow
-          const workflowStore = useWorkflowStore.getState()
-          workflowStore.completeStep('export')
+          // Mark export step as completed in workflow using WorkflowStateManager
+          await workflowStateManager.transitionState('export', StepState.Complete, {
+            reason: 'Export completed successfully'
+          })
 
           // Show success notification using system toast
           const appStore = useAppStore.getState()
@@ -433,9 +436,10 @@ export const useExportStore = create<ExportStore>()(
             }
           }))
 
-          // Mark export step as completed in workflow
-          const workflowStore = useWorkflowStore.getState()
-          workflowStore.completeStep('export')
+          // Mark export step as completed in workflow using WorkflowStateManager
+          await workflowStateManager.transitionState('export', StepState.Complete, {
+            reason: 'Multi-format export completed successfully'
+          })
 
           // Show success notification using system toast
           const appStore = useAppStore.getState()
@@ -527,7 +531,7 @@ export const useExportStore = create<ExportStore>()(
       addToHistory: (item: Omit<ExportHistoryItem, 'id'>) => {
         const historyItem: ExportHistoryItem = {
           ...item,
-          id: `export_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+          id: generateExportId()
         }
 
         set(state => ({

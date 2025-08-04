@@ -16,8 +16,6 @@ export {
 export {
   navigateToReviewFromJsonImport,
   navigateToReviewFromProcessing,
-  navigateToStepAtomic,
-  synchronizeWorkflowState,
   type NavigationContext,
   type NavigationResult
 } from './workflow-navigation'

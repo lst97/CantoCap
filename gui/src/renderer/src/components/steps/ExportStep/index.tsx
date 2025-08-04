@@ -20,6 +20,14 @@ export const ExportStep: React.FC = () => {
   const isMenuOpen = Boolean(menuAnchorEl)
   const exportActionsRef = useRef<ExportActionsRef>(null)
   
+  // CRITICAL FIX: Circuit breaker for workspace configuration save failures
+  const saveFailureCountRef = useRef<number>(0)
+  const lastSaveAttemptRef = useRef<number>(0)
+  const lastSavedProgressRef = useRef<string>('')
+  const MAX_SAVE_FAILURES = 3
+  const SAVE_COOLDOWN_MS = 5000 // 5 second cooldown after failures
+  const DEBOUNCE_MS = 1000 // 1 second debounce between saves
+  
   const subtitles = getSubtitleData()
   const canExport = subtitles.length > 0 && !progress.isExporting
   
@@ -31,23 +39,96 @@ export const ExportStep: React.FC = () => {
     }
   }, [lastError, error])
 
-  // Save export progress and history to workspace
+  // CRITICAL FIX: Replace infinite loop useEffect with circuit breaker pattern
+  const saveExportProgress = useCallback(async (currentProgress: typeof progress) => {
+    const now = Date.now()
+    
+    // Circuit breaker: Stop trying if too many failures
+    if (saveFailureCountRef.current >= MAX_SAVE_FAILURES) {
+      const timeSinceLastAttempt = now - lastSaveAttemptRef.current
+      if (timeSinceLastAttempt < SAVE_COOLDOWN_MS) {
+        console.log(`🚫 Export progress save blocked by circuit breaker. Failures: ${saveFailureCountRef.current}, Cooldown: ${Math.ceil((SAVE_COOLDOWN_MS - timeSinceLastAttempt) / 1000)}s remaining`)
+        return
+      } else {
+        // Reset after cooldown
+        console.log('🔄 Circuit breaker reset after cooldown')
+        saveFailureCountRef.current = 0
+      }
+    }
+    
+    // Debounce rapid calls
+    const timeSinceLastAttempt = now - lastSaveAttemptRef.current
+    if (timeSinceLastAttempt < DEBOUNCE_MS) {
+      console.log('🚫 Export progress save debounced')
+      return
+    }
+    
+    // Create stable comparison key to prevent unnecessary saves
+    const progressKey = JSON.stringify({
+      isExporting: currentProgress.isExporting,
+      progress: currentProgress.progress,
+      stage: currentProgress.stage,
+      exportedFiles: currentProgress.exportedFiles?.length || 0,
+      errors: currentProgress.errors?.length || 0
+    })
+    
+    // Skip if progress hasn't actually changed
+    if (progressKey === lastSavedProgressRef.current) {
+      console.log('🚫 Export progress save skipped - no changes detected')
+      return
+    }
+    
+    lastSaveAttemptRef.current = now
+    
+    try {
+      console.log('💾 Saving export progress to workspace...', {
+        isExporting: currentProgress.isExporting,
+        progress: currentProgress.progress,
+        stage: currentProgress.stage,
+        failures: saveFailureCountRef.current
+      })
+      
+      await updateConfig({
+        exportProgress: {
+          isExporting: currentProgress.isExporting,
+          progress: currentProgress.progress,
+          stage: currentProgress.stage,
+          exportedFiles: currentProgress.exportedFiles,
+          errors: currentProgress.errors
+        },
+        lastModified: now
+      })
+      
+      // Success: Reset failure count and update saved progress
+      saveFailureCountRef.current = 0
+      lastSavedProgressRef.current = progressKey
+      console.log('✅ Export progress saved successfully')
+      
+    } catch (error) {
+      saveFailureCountRef.current += 1
+      console.error(`❌ Failed to save export progress (attempt ${saveFailureCountRef.current}/${MAX_SAVE_FAILURES}):`, error)
+      
+      if (saveFailureCountRef.current >= MAX_SAVE_FAILURES) {
+        console.warn(`🚨 Circuit breaker activated after ${MAX_SAVE_FAILURES} failures. Will retry after ${SAVE_COOLDOWN_MS}ms cooldown.`)
+      }
+    }
+  }, [updateConfig])
+
+  // CRITICAL FIX: Use stable save function with dependency on progress content, not updateConfig
   useEffect(() => {
     if (isReady && progress) {
-      updateConfig({
-        exportProgress: {
-          isExporting: progress.isExporting,
-          progress: progress.progress,
-          stage: progress.stage,
-          exportedFiles: progress.exportedFiles,
-          errors: progress.errors
-        },
-        lastModified: Date.now()
-      }).catch(error => {
-        console.error('Failed to save export progress:', error)
-      })
+      saveExportProgress(progress)
     }
-  }, [progress, updateConfig, isReady])
+  }, [
+    isReady, 
+    // Depend on progress content, not the progress object reference
+    progress?.isExporting,
+    progress?.progress, 
+    progress?.stage,
+    progress?.exportedFiles?.length,
+    progress?.errors?.length,
+    saveExportProgress
+  ])
 
   // Generate initial preview on mount
   useEffect(() => {

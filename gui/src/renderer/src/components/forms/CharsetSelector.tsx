@@ -13,6 +13,7 @@ import {
 } from '@mui/icons-material'
 import { useAppStore } from '../../stores/app-store'
 import { useUnifiedConfig } from '../../contexts/EnhancedWorkspaceConfigContext'
+import { triggerUserInteraction } from '../../services/workflow-config-bridge'
 
 interface CharsetOption {
   value: string
@@ -32,6 +33,9 @@ export const CharsetSelector: React.FC = () => {
     }
     
     try {
+      // Trigger immediate config update through event system
+      triggerUserInteraction('setting-change', 'charset', event.target.value);
+      
       await setValue('charset', event.target.value)
     } catch (err) {
       console.error('Failed to update charset configuration:', err)

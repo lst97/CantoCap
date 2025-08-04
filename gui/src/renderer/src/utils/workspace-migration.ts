@@ -7,6 +7,7 @@
 
 import { AppConfig, WorkspaceConfig } from '../types/workflow'
 import { IndexedDBService } from './indexeddb-service'
+import { generateWorkspaceId } from './id-generator'
 
 export interface MigrationResult {
   success: boolean
@@ -189,6 +190,6 @@ export class WorkspaceMigrationService {
    * Generate unique workspace ID
    */
   private generateWorkspaceId(): string {
-    return `workspace-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    return generateWorkspaceId()
   }
 }

@@ -10,19 +10,19 @@ import {
   RestartAlt as RestartIcon,
 } from "@mui/icons-material";
 import { useAppStore } from "../../../stores/app-store";
-import { useWorkflowStore } from "../../../stores/workflow-store";
+import { workflowStateManager } from "../../../services/workflow-state-manager";
 import { ProcessingCard, GuideButton, SecondaryGuideButton } from "./styles";
 
 export const IdleState: React.FC = () => {
-  const { setCurrentStep } = useWorkflowStore();
+  // Modern workflow navigation using WorkflowStateManager
   const { config } = useAppStore();
 
   const handleNewGeneration = () => {
-    setCurrentStep("config");
+    workflowStateManager.setCurrentStep("config");
   };
 
   const handleReviewResults = () => {
-    setCurrentStep("review");
+    workflowStateManager.setCurrentStep("review");
   };
 
   return (
