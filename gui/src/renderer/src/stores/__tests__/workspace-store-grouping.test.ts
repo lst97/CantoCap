@@ -7,7 +7,7 @@
 import { jest } from '@jest/globals'
 import { act, renderHook } from '@testing-library/react'
 import { useWorkspaceStore } from '../workspace-store'
-import { workspaceDatabase } from '../../services/workspace-database'
+import { workspaceDatabase } from '../../services/workspace/workspace-database'
 // REMOVED: auto-save-engine import - timer-based auto-save system deleted
 import type { 
   WorkspaceGroup, 

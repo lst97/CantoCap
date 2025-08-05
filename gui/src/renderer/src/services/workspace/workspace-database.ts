@@ -1,7 +1,7 @@
 // Workspace Database Service - IndexedDB Abstraction Layer
 import type { 
   Workspace, 
-  WorkspaceSession, 
+  // REMOVED: WorkspaceSession (legacy - replaced by step states)
   MigrationLogEntry, 
   WorkspaceError,
   WorkspacePerformanceMetrics,
@@ -9,26 +9,15 @@ import type {
   StepConfigurationRecord,
   WorkflowStepId,
   StepConfigMap,
-  StepConfiguration,
   BatchResult,
   StepConfigUpdate,
   EnhancedWorkspacePerformanceMetrics,
-  CachedStepConfig,
   StepConfigError,
   // Grouping Types
   WorkspaceGroup,
-  WorkspaceWithGrouping,
-  WorkspaceGroupColor,
-  GroupOperationResult,
-  DragOperation
-} from '../types/workspace'
-import type {
-  // Subtitle Temporary Storage Types
-  SubtitleTempStorageRecord,
-  SubtitleTempSessionRecord,
-  SubtitleTempMetadata,
-  SubtitleTempError
-} from '../types/subtitle-temp-storage'
+  WorkspaceWithGrouping} from '../../types/workspace'
+// Removed: Subtitle Temporary Storage Types (unused)
+// These were moved to CantoCap_SubtitleSimple database
 import { 
   WORKSPACE_CONSTANTS,
   isValidWorkspaceId,
@@ -38,24 +27,21 @@ import {
   estimateConfigSize,
   compressConfigData,
   decompressConfigData
-} from '../types/workspace'
+} from '../../types/workspace'
 
 // Database Configuration
 const DB_NAME = 'CantoCap_Workspaces'
-const DB_VERSION = 4 // Upgraded for subtitle temp storage support
+const DB_VERSION = 5 // Upgraded: removed unused subtitle temp storage tables
 const STORES = {
   WORKSPACES: 'workspaces',
-  SESSIONS: 'workspace_sessions',
   MIGRATION_LOG: 'migration_log',
   STEP_CONFIGURATIONS: 'step_configurations',
   STEP_CONFIG_CACHE: 'step_config_cache',
   PERFORMANCE_METRICS: 'performance_metrics',
   WORKSPACE_GROUPS: 'workspace_groups',
-  WORKSPACE_GROUP_MAPPINGS: 'workspace_group_mappings',
-  // Subtitle Temporary Storage Stores
-  SUBTITLE_TEMP_STORAGE: 'subtitle_temp_storage',
-  SUBTITLE_TEMP_SESSIONS: 'subtitle_temp_sessions',
-  SUBTITLE_TEMP_METADATA: 'subtitle_temp_metadata'
+  WORKSPACE_GROUP_MAPPINGS: 'workspace_group_mappings'
+  // REMOVED: SESSIONS (legacy workspace_sessions - replaced by step states)
+  // REMOVED: Subtitle Temporary Storage Stores (moved to CantoCap_SubtitleSimple)
 } as const
 
 // Enhanced Performance monitoring with step configuration support
@@ -196,13 +182,7 @@ export class WorkspaceDatabase {
           workspaceStore.createIndex('positionInGroup', 'positionInGroup', { unique: false })
         }
 
-        // Create sessions store
-        if (!db.objectStoreNames.contains(STORES.SESSIONS)) {
-          const sessionStore = db.createObjectStore(STORES.SESSIONS, { keyPath: 'id' })
-          sessionStore.createIndex('workspaceId', 'workspaceId', { unique: false })
-          sessionStore.createIndex('sessionType', 'sessionType', { unique: false })
-          sessionStore.createIndex('isActive', 'isActive', { unique: false })
-        }
+        // REMOVED: Legacy sessions store (replaced by step states in workspace config)
 
         // Create migration log store
         if (!db.objectStoreNames.contains(STORES.MIGRATION_LOG)) {
@@ -261,41 +241,30 @@ export class WorkspaceDatabase {
           mappingsStore.createIndex('positionInGroup', 'positionInGroup', { unique: false })
         }
 
-        // Create subtitle temporary storage store
-        if (!db.objectStoreNames.contains(STORES.SUBTITLE_TEMP_STORAGE)) {
-          const tempStorageStore = db.createObjectStore(STORES.SUBTITLE_TEMP_STORAGE, { keyPath: 'id' })
-          tempStorageStore.createIndex('workspaceId', 'workspaceId', { unique: false })
-          tempStorageStore.createIndex('sessionId', 'sessionId', { unique: false })
-          tempStorageStore.createIndex('storageType', 'storageType', { unique: false })
-          tempStorageStore.createIndex('createdAt', 'createdAt', { unique: false })
-          tempStorageStore.createIndex('lastModified', 'lastModified', { unique: false })
-          tempStorageStore.createIndex('contentHash', 'contentHash', { unique: false })
-          tempStorageStore.createIndex('isLatest', 'isLatest', { unique: false })
-          tempStorageStore.createIndex('parentId', 'parentId', { unique: false })
-          tempStorageStore.createIndex('generationLevel', 'generationLevel', { unique: false })
-        }
-
-        // Create subtitle temporary sessions store
-        if (!db.objectStoreNames.contains(STORES.SUBTITLE_TEMP_SESSIONS)) {
-          const tempSessionsStore = db.createObjectStore(STORES.SUBTITLE_TEMP_SESSIONS, { keyPath: 'sessionId' })
-          tempSessionsStore.createIndex('workspaceId', 'workspaceId', { unique: false })
-          tempSessionsStore.createIndex('sessionType', 'sessionType', { unique: false })
-          tempSessionsStore.createIndex('status', 'status', { unique: false })
-          tempSessionsStore.createIndex('createdAt', 'createdAt', { unique: false })
-          tempSessionsStore.createIndex('lastActivity', 'lastActivity', { unique: false })
-          tempSessionsStore.createIndex('stateHash', 'stateHash', { unique: false })
-        }
-
-        // Create subtitle temporary metadata store
-        if (!db.objectStoreNames.contains(STORES.SUBTITLE_TEMP_METADATA)) {
-          const tempMetadataStore = db.createObjectStore(STORES.SUBTITLE_TEMP_METADATA, { keyPath: 'id' })
-          tempMetadataStore.createIndex('workspaceId', 'workspaceId', { unique: false })
-          tempMetadataStore.createIndex('sessionId', 'sessionId', { unique: false })
-          tempMetadataStore.createIndex('storageType', 'storageType', { unique: false })
-          tempMetadataStore.createIndex('createdAt', 'createdAt', { unique: false })
-          tempMetadataStore.createIndex('lastModified', 'lastModified', { unique: false })
-          tempMetadataStore.createIndex('contentHash', 'contentHash', { unique: false })
-          tempMetadataStore.createIndex('metadataHash', 'metadataHash', { unique: false })
+        // REMOVED: All subtitle temporary storage stores (moved to CantoCap_SubtitleSimple database)
+        // This cleanup improves performance and reduces database bloat
+        
+        // Database migration logic: Remove unused tables from previous versions
+        const oldVersion = event.oldVersion
+        if (oldVersion > 0 && oldVersion < 5) {
+          console.log(`Migrating workspace database from version ${oldVersion} to version 5...`)
+          
+          // Remove unused tables if they exist
+          const tablesToRemove = [
+            'subtitle_temp_storage',
+            'subtitle_temp_sessions', 
+            'subtitle_temp_metadata',
+            'workspace_sessions' // Legacy sessions table
+          ]
+          
+          tablesToRemove.forEach(tableName => {
+            if (db.objectStoreNames.contains(tableName)) {
+              console.log(`Removing unused table: ${tableName}`)
+              db.deleteObjectStore(tableName)
+            }
+          })
+          
+          console.log(`Database migration completed successfully to version 5`)
         }
       }
     })
@@ -467,9 +436,9 @@ export class WorkspaceDatabase {
   async deleteWorkspace(id: string): Promise<void> {
     const startTime = Date.now()
     try {
-      const transaction = await this.getTransaction([STORES.WORKSPACES, STORES.SESSIONS], 'readwrite')
+      const transaction = await this.getTransaction([STORES.WORKSPACES], 'readwrite')
       const workspaceStore = transaction.objectStore(STORES.WORKSPACES)
-      const sessionStore = transaction.objectStore(STORES.SESSIONS)
+      // REMOVED: Legacy session store operations
       
       // Verify workspace exists
       const existing = await this.promisifyRequest(workspaceStore.get(id))
@@ -477,22 +446,7 @@ export class WorkspaceDatabase {
         throw this.createError('WORKSPACE_NOT_FOUND', `Workspace with id '${id}' not found`, id)
       }
       
-      // Delete all associated sessions
-      const sessionIndex = sessionStore.index('workspaceId')
-      const sessionCursor = sessionIndex.openCursor(IDBKeyRange.only(id))
-      
-      await new Promise<void>((resolve, reject) => {
-        sessionCursor.onsuccess = (event) => {
-          const cursor = (event.target as IDBRequest<IDBCursorWithValue | null>).result
-          if (cursor) {
-            cursor.delete()
-            cursor.continue()
-          } else {
-            resolve()
-          }
-        }
-        sessionCursor.onerror = () => reject(sessionCursor.error)
-      })
+      // NOTE: Session deletion removed in v5 - sessions are now stored as step states in workspace config
       
       // Delete the workspace
       await this.promisifyRequest(workspaceStore.delete(id))
@@ -511,87 +465,9 @@ export class WorkspaceDatabase {
     }
   }
 
-  // Session Operations
-  async createSession(session: WorkspaceSession): Promise<void> {
-    const startTime = Date.now()
-    try {
-      const transaction = await this.getTransaction([STORES.SESSIONS], 'readwrite')
-      const store = transaction.objectStore(STORES.SESSIONS)
-      
-      await this.promisifyRequest(store.add(session))
-      
-      this.performanceMonitor.recordLegacyOperation(
-        'create', 
-        startTime, 
-        true, 
-        session.workspaceId, 
-        JSON.stringify(session).length
-      )
-    } catch (error) {
-      this.performanceMonitor.recordLegacyOperation(
-        'create', 
-        startTime, 
-        false, 
-        session.workspaceId, 
-        undefined, 
-        error instanceof Error ? error.message : 'Unknown error'
-      )
-      throw error
-    }
-  }
-
-  async getSession(sessionId: string): Promise<WorkspaceSession | null> {
-    const transaction = await this.getTransaction([STORES.SESSIONS])
-    const store = transaction.objectStore(STORES.SESSIONS)
-    
-    const result = await this.promisifyRequest(store.get(sessionId))
-    return result || null
-  }
-
-  async getWorkspaceSessions(workspaceId: string): Promise<WorkspaceSession[]> {
-    const transaction = await this.getTransaction([STORES.SESSIONS])
-    const store = transaction.objectStore(STORES.SESSIONS)
-    const index = store.index('workspaceId')
-    
-    const result = await this.promisifyRequest(index.getAll(workspaceId))
-    return result
-  }
-
-  async updateSession(session: WorkspaceSession): Promise<void> {
-    const transaction = await this.getTransaction([STORES.SESSIONS], 'readwrite')
-    const store = transaction.objectStore(STORES.SESSIONS)
-    
-    session.updatedAt = Date.now()
-    await this.promisifyRequest(store.put(session))
-  }
-
-  async deleteSession(sessionId: string): Promise<void> {
-    const transaction = await this.getTransaction([STORES.SESSIONS], 'readwrite')
-    const store = transaction.objectStore(STORES.SESSIONS)
-    
-    await this.promisifyRequest(store.delete(sessionId))
-  }
-
-  async deleteWorkspaceSessions(workspaceId: string): Promise<void> {
-    const transaction = await this.getTransaction([STORES.SESSIONS], 'readwrite')
-    const store = transaction.objectStore(STORES.SESSIONS)
-    const index = store.index('workspaceId')
-    
-    const cursor = index.openCursor(IDBKeyRange.only(workspaceId))
-    
-    await new Promise<void>((resolve, reject) => {
-      cursor.onsuccess = (event) => {
-        const result = (event.target as IDBRequest<IDBCursorWithValue | null>).result
-        if (result) {
-          result.delete()
-          result.continue()
-        } else {
-          resolve()
-        }
-      }
-      cursor.onerror = () => reject(cursor.error)
-    })
-  }
+  // REMOVED: Legacy Session Operations
+  // Sessions are now handled through step states in workspace configuration
+  // This simplifies the architecture and reduces database complexity
 
   // Migration Log Operations
   async addMigrationLogEntry(entry: MigrationLogEntry): Promise<void> {
@@ -795,7 +671,7 @@ export class WorkspaceDatabase {
       const mappingCursor = mappingIndex.openCursor(IDBKeyRange.only(groupId))
       
       await new Promise<void>((resolve, reject) => {
-        mappingCursor.onsuccess = (event) => {
+        mappingCursor.onsuccess = (event: Event) => {
           const cursor = (event.target as IDBRequest<IDBCursorWithValue | null>).result
           if (cursor) {
             cursor.delete()
@@ -1587,7 +1463,7 @@ export class WorkspaceDatabase {
       let deletedCount = 0
       
       await new Promise<void>((resolve, reject) => {
-        cursor.onsuccess = (event) => {
+        cursor.onsuccess = (event: Event) => {
           const result = (event.target as IDBRequest<IDBCursorWithValue | null>).result
           if (result) {
             result.delete()
@@ -1793,7 +1669,7 @@ export class WorkspaceDatabase {
         // Clear all cache entries for workspace
         const cursor = store.openCursor()
         await new Promise<void>((resolve, reject) => {
-          cursor.onsuccess = (event) => {
+          cursor.onsuccess = (event: Event) => {
             const result = (event.target as IDBRequest<IDBCursorWithValue | null>).result
             if (result) {
               const key = result.key as string
@@ -1863,30 +1739,24 @@ export class WorkspaceDatabase {
     try {
       const transaction = await this.getTransaction([
         STORES.WORKSPACES, 
-        STORES.SESSIONS, 
         STORES.MIGRATION_LOG,
         STORES.STEP_CONFIGURATIONS,
         STORES.STEP_CONFIG_CACHE,
         STORES.PERFORMANCE_METRICS,
         STORES.WORKSPACE_GROUPS,
-        STORES.WORKSPACE_GROUP_MAPPINGS,
-        STORES.SUBTITLE_TEMP_STORAGE,
-        STORES.SUBTITLE_TEMP_SESSIONS,
-        STORES.SUBTITLE_TEMP_METADATA
+        STORES.WORKSPACE_GROUP_MAPPINGS
+        // REMOVED: Legacy tables (sessions, subtitle temp storage)
       ], 'readwrite')
       
       await Promise.all([
         this.promisifyRequest(transaction.objectStore(STORES.WORKSPACES).clear()),
-        this.promisifyRequest(transaction.objectStore(STORES.SESSIONS).clear()),
         this.promisifyRequest(transaction.objectStore(STORES.MIGRATION_LOG).clear()),
         this.promisifyRequest(transaction.objectStore(STORES.STEP_CONFIGURATIONS).clear()),
         this.promisifyRequest(transaction.objectStore(STORES.STEP_CONFIG_CACHE).clear()),
         this.promisifyRequest(transaction.objectStore(STORES.PERFORMANCE_METRICS).clear()),
         this.promisifyRequest(transaction.objectStore(STORES.WORKSPACE_GROUPS).clear()),
-        this.promisifyRequest(transaction.objectStore(STORES.WORKSPACE_GROUP_MAPPINGS).clear()),
-        this.promisifyRequest(transaction.objectStore(STORES.SUBTITLE_TEMP_STORAGE).clear()),
-        this.promisifyRequest(transaction.objectStore(STORES.SUBTITLE_TEMP_SESSIONS).clear()),
-        this.promisifyRequest(transaction.objectStore(STORES.SUBTITLE_TEMP_METADATA).clear())
+        this.promisifyRequest(transaction.objectStore(STORES.WORKSPACE_GROUP_MAPPINGS).clear())
+        // REMOVED: Legacy table operations
       ])
       
       this.performanceMonitor.recordLegacyOperation('delete', startTime, true)
@@ -1903,21 +1773,19 @@ export class WorkspaceDatabase {
     }
   }
 
-  async getDatabaseSize(): Promise<{ workspaces: number; sessions: number; total: number }> {
-    const transaction = await this.getTransaction([STORES.WORKSPACES, STORES.SESSIONS])
+  async getDatabaseSize(): Promise<{ workspaces: number; total: number }> {
+    const transaction = await this.getTransaction([STORES.WORKSPACES])
     
-    const [workspaces, sessions] = await Promise.all([
-      this.promisifyRequest(transaction.objectStore(STORES.WORKSPACES).getAll()),
-      this.promisifyRequest(transaction.objectStore(STORES.SESSIONS).getAll())
-    ])
+    const workspaces = await this.promisifyRequest(
+      transaction.objectStore(STORES.WORKSPACES).getAll()
+    )
     
     const workspacesSize = JSON.stringify(workspaces).length
-    const sessionsSize = JSON.stringify(sessions).length
     
     return {
       workspaces: workspacesSize,
-      sessions: sessionsSize,
-      total: workspacesSize + sessionsSize
+      // REMOVED: sessions (legacy - now handled via step states in workspace config)
+      total: workspacesSize
     }
   }
 
@@ -1998,10 +1866,8 @@ export class WorkspaceDatabase {
         STORES.STEP_CONFIGURATIONS,
         STORES.STEP_CONFIG_CACHE,
         STORES.WORKSPACE_GROUPS,
-        STORES.WORKSPACE_GROUP_MAPPINGS,
-        STORES.SUBTITLE_TEMP_STORAGE,
-        STORES.SUBTITLE_TEMP_SESSIONS,
-        STORES.SUBTITLE_TEMP_METADATA
+        STORES.WORKSPACE_GROUP_MAPPINGS
+        // REMOVED: Subtitle temp storage tables (moved to CantoCap_SubtitleSimple)
       ])
       
       // Test workspace operations
@@ -2024,17 +1890,7 @@ export class WorkspaceDatabase {
       const mappingsStore = transaction.objectStore(STORES.WORKSPACE_GROUP_MAPPINGS)
       await this.promisifyRequest(mappingsStore.count())
       
-      // Test subtitle temp storage operations
-      const tempStorageStore = transaction.objectStore(STORES.SUBTITLE_TEMP_STORAGE)
-      await this.promisifyRequest(tempStorageStore.count())
-      
-      // Test subtitle temp sessions operations
-      const tempSessionsStore = transaction.objectStore(STORES.SUBTITLE_TEMP_SESSIONS)
-      await this.promisifyRequest(tempSessionsStore.count())
-      
-      // Test subtitle temp metadata operations
-      const tempMetadataStore = transaction.objectStore(STORES.SUBTITLE_TEMP_METADATA)
-      await this.promisifyRequest(tempMetadataStore.count())
+      // REMOVED: Subtitle temp storage operations (moved to CantoCap_SubtitleSimple database)
       
     } catch (error) {
       issues.push(`Database connection failed: ${error instanceof Error ? error.message : 'Unknown error'}`)

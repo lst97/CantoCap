@@ -3,7 +3,7 @@ import { persist, subscribeWithSelector } from 'zustand/middleware'
 import { useSubtitleEditStore } from './subtitle-edit-store'
 import { useAppStore } from '../stores/app-store'
 import { useWorkspaceStore } from './workspace-store'
-import { workflowStateManager } from '../services/workflow-state-manager'
+import { workflowStateManager } from '../services/workflow/workflow-state-manager'
 import { StepState } from '../types/workflow-state'
 import { convertToSRT, convertToVTT, convertToASS, convertToJSON } from '../utils/format-converters'
 import { generateExportId } from '../utils/id-generator'
@@ -485,8 +485,8 @@ export const useExportStore = create<ExportStore>()(
             return
           }
 
-          // Take first few subtitles for preview
-          const previewSubtitles = subtitles.slice(0, 3)
+          // Show all subtitles in preview
+          const previewSubtitles = subtitles
           let content: string
 
           switch (settings.selectedFormat) {
@@ -572,7 +572,15 @@ export const useExportStore = create<ExportStore>()(
               exportPresets: [] // Could be enhanced to include export presets
             }
 
-            await workspaceStore.saveWorkspaceSession('export', sessionData)
+            // UPDATED: Use step configuration instead of legacy sessions
+            await workspaceStore.setStepConfig(
+              workspaceStore.currentWorkspace.id,
+              'export',
+              {
+                exportSettings: get().settings,
+                exportHistory: sessionData.exportHistory
+              }
+            )
           }
         } catch (error) {
           console.error('Failed to save export session to workspace:', error)
@@ -584,35 +592,26 @@ export const useExportStore = create<ExportStore>()(
         try {
           const workspaceStore = useWorkspaceStore.getState()
           if (workspaceStore.currentWorkspace) {
-            const sessionData = await workspaceStore.loadWorkspaceSession(
+            // UPDATED: Use step configuration instead of legacy sessions
+            const exportStepConfig = await workspaceStore.getStepConfig(
               workspaceStore.currentWorkspace.id,
               'export'
-            ) as ExportSession | null
+            )
 
-            if (sessionData) {
-              // Restore export settings and history from workspace
+            if (exportStepConfig?.data) {
+              // Restore export settings from step configuration
               set(state => ({
-                settings: sessionData.lastExportConfig ? {
+                settings: exportStepConfig.data.exportSettings ? {
                   ...state.settings,
-                  ...sessionData.lastExportConfig
+                  ...exportStepConfig.data.exportSettings
                 } : state.settings,
-                history: sessionData.exportHistory ? 
-                  sessionData.exportHistory.map(item => ({
-                    id: `export_${item.timestamp}`,
-                    fileName: item.filePath.split('/').pop() || 'unknown',
-                    filePath: item.filePath,
-                    format: item.format,
-                    timestamp: item.timestamp,
-                    size: item.fileSize || 0,
-                    settings: state.settings, // Use current settings as fallback
-                    subtitleCount: 0 // Could be enhanced to track subtitle count
-                  })) : state.history
+                history: exportStepConfig.data.exportHistory || state.history
               }))
             }
           }
         } catch (error) {
-          console.error('Failed to load export session from workspace:', error)
-          set({ lastError: 'Failed to load export session from workspace' })
+          console.error('Failed to load export configuration from workspace:', error)
+          set({ lastError: 'Failed to load export configuration from workspace' })
         }
       },
 

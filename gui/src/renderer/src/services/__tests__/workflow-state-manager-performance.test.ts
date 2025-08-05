@@ -4,7 +4,7 @@
  */
 
 import { jest } from '@jest/globals'
-import { WorkflowStateManager } from '../workflow-state-manager'
+import { WorkflowStateManager } from '../workflow/workflow-state-manager'
 import {
   StepState,
   createStepId,

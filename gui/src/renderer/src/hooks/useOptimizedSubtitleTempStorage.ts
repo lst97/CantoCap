@@ -22,8 +22,8 @@ import type {
   isSubtitleTempError,
   isSubtitleTempContent
 } from '../types/subtitle-temp-storage'
-import { optimizedSubtitleTempStorageService } from '../services/subtitle-temp-storage-optimized'
-import { performanceManager } from '../services/subtitle-temp-storage-performance'
+import { optimizedSubtitleTempStorageService } from '../services/subtitle/subtitle-temp-storage-optimized'
+import { performanceManager } from '../services/subtitle/subtitle-temp-storage-performance'
 
 // ============================================================================
 // OPTIMIZED HOOK CONFIGURATION

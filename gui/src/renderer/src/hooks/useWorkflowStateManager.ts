@@ -9,7 +9,7 @@ import {
   getStepState,
   isStepAccessible,
   transitionStep
-} from '../services/workflow-state-manager'
+} from '../services/workflow/workflow-state-manager'
 import {
   StepState,
   StepId,

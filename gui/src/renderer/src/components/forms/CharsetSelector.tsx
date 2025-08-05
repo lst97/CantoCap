@@ -13,7 +13,7 @@ import {
 } from '@mui/icons-material'
 import { useAppStore } from '../../stores/app-store'
 import { useUnifiedConfig } from '../../contexts/EnhancedWorkspaceConfigContext'
-import { triggerUserInteraction } from '../../services/workflow-config-bridge'
+import { triggerUserInteraction } from '../../services/bridge/workflow-config-bridge'
 
 interface CharsetOption {
   value: string

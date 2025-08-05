@@ -2,7 +2,7 @@
  * Workflow navigation utilities with atomic operations and error recovery
  */
 
-import { workflowStateManager } from '../services/workflow-state-manager'
+import { workflowStateManager } from '../services/workflow/workflow-state-manager'
 import { StepState } from '../types/workflow-state'
 
 // Type definitions for navigation
@@ -35,6 +35,34 @@ export const navigateToProcessing = async (): Promise<NavigationResult> => {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Failed to navigate to processing step'
     console.error('Failed to navigate to processing step:', error)
+    return { success: false, error: errorMessage }
+  }
+}
+
+export const navigateToInputFile = async (): Promise<NavigationResult> => {
+  try {
+    // Reset subsequent steps when navigating back to input file
+    await workflowStateManager.transitionState('config', StepState.Pending, {
+      reason: 'Navigating back to input file - resetting config step'
+    })
+    
+    await workflowStateManager.transitionState('processing', StepState.Pending, {
+      reason: 'Navigating back to input file - resetting processing step'
+    })
+    
+    await workflowStateManager.transitionState('review', StepState.Pending, {
+      reason: 'Navigating back to input file - resetting review step'
+    })
+    
+    await workflowStateManager.transitionState('export', StepState.Pending, {
+      reason: 'Navigating back to input file - resetting export step'
+    })
+    
+    const success = workflowStateManager.setCurrentStep('input-file')
+    return { success }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Failed to navigate to input file step'
+    console.error('Failed to navigate to input file step:', error)
     return { success: false, error: errorMessage }
   }
 }

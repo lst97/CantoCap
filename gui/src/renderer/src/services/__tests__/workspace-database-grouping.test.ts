@@ -7,7 +7,7 @@
 import { jest } from '@jest/globals'
 import FDBFactory from 'fake-indexeddb/lib/FDBFactory'
 import FDBKeyRange from 'fake-indexeddb/lib/FDBKeyRange'
-import { workspaceDatabase } from '../workspace-database'
+import { workspaceDatabase } from '../workspace/workspace-database'
 import type { 
   WorkspaceGroup, 
   WorkspaceWithGrouping, 

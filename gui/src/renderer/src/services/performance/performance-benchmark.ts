@@ -4,10 +4,10 @@
  * Includes before/after comparisons and regression testing
  */
 
-import { WorkflowStateManager } from './workflow-state-manager'
-import { performanceMonitor } from './performance-monitor'
-import { workflowObjectPool } from './object-pool'
-import { StepState, createStepId } from '../types/workflow-state'
+import { WorkflowStateManager } from '../workflow/workflow-state-manager'
+import { performanceMonitor } from '../performance-monitor'
+import { workflowObjectPool } from '../object-pool'
+import { StepState, createStepId } from '../../types/workflow-state'
 
 export interface BenchmarkConfig {
   iterations: number

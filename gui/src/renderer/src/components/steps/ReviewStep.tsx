@@ -4,7 +4,6 @@ import { CheckCircle, Save, Error as ErrorIcon } from '@mui/icons-material';
 import { useAppStore } from '../../stores/app-store';
 import { useSubtitleEditStore } from '../../stores/subtitle-edit-store';
 import { useReviewStepConfig, useWorkspaceConfig } from '../../contexts/WorkspaceConfigContext';
-import { useSubtitleTempStorage } from '../../hooks/useSubtitleTempStorage';
 // DISABLED: import { useAutoSaveIntegration } from '../../hooks/useAutoSaveIntegration';
 import { VideoPreviewSection } from './ReviewStep/VideoPreviewSection';
 import { SubtitleEditor } from './ReviewStep/SubtitleEditor';
@@ -13,91 +12,15 @@ import { ProcessingErrorBoundary } from '../common/ProcessingErrorBoundary';
 // REMOVED: SubtitleAutoSaveIndicator - auto-save UI components deleted
 import { SessionRecoveryDialog } from '../dialogs/SessionRecoveryDialog';
 import { pulseKeyframes } from './ReviewStep/styles';
-import { PerformanceMonitor, debounce } from '../../utils/performance-utils';
+import { PerformanceMonitor } from '../../utils/performance-utils';
 import { transformSubtitleData } from '../../utils/subtitle-transformation';
 import type { SubtitleFileContent } from '../../types/subtitle-persistence';
-import type { SubtitleEntry } from '../../types/subtitle';
+import type { TempSubtitleSession } from '../../types/subtitle';
+import type { SubtitleData } from '../../../../types';
 
 // Helper functions for quality calculations
-const calculateGaps = (subtitles: SubtitleEntry[]): number => {
-  if (subtitles.length < 2) return 0;
-  
-  let gapCount = 0;
-  const minGapThreshold = 0.1; // 100ms minimum gap
-  
-  for (let i = 0; i < subtitles.length - 1; i++) {
-    const current = subtitles[i];
-    const next = subtitles[i + 1];
-    
-    if (current.endTime && next.startTime) {
-      const gap = next.startTime - current.endTime;
-      if (gap > minGapThreshold) {
-        gapCount++;
-      }
-    }
-  }
-  
-  return gapCount;
-};
 
-const calculateOverlaps = (subtitles: SubtitleEntry[]): number => {
-  if (subtitles.length < 2) return 0;
-  
-  let overlapCount = 0;
-  
-  for (let i = 0; i < subtitles.length - 1; i++) {
-    const current = subtitles[i];
-    const next = subtitles[i + 1];
-    
-    if (current.endTime && next.startTime && current.endTime > next.startTime) {
-      overlapCount++;
-    }
-  }
-  
-  return overlapCount;
-};
 
-const calculateQualityScore = (subtitles: SubtitleEntry[]): number => {
-  if (subtitles.length === 0) return 0;
-  
-  let totalScore = 0;
-  let validSubtitles = 0;
-  
-  for (const subtitle of subtitles) {
-    let score = 1.0; // Start with perfect score
-    
-    // Confidence penalty - lower confidence reduces score
-    if (subtitle.confidence !== undefined) {
-      score *= subtitle.confidence;
-    }
-    
-    // Duration penalty - very short or very long subtitles get penalized
-    if (subtitle.duration !== undefined) {
-      const duration = subtitle.duration;
-      if (duration < 0.5) {
-        score *= 0.7; // Penalty for very short subtitles
-      } else if (duration > 10) {
-        score *= 0.8; // Penalty for very long subtitles
-      }
-    }
-    
-    // Text quality penalties
-    if (subtitle.text) {
-      const text = subtitle.text.trim();
-      if (text.length < 2) {
-        score *= 0.5; // Penalty for very short text
-      }
-      if (text.length > 200) {
-        score *= 0.9; // Minor penalty for very long text
-      }
-    }
-    
-    totalScore += score;
-    validSubtitles++;
-  }
-  
-  return validSubtitles > 0 ? totalScore / validSubtitles : 0;
-};
 
 const ReviewStepComponent: React.FC = () => {
   const { config } = useAppStore();
@@ -110,26 +33,18 @@ const ReviewStepComponent: React.FC = () => {
     checkForRecoverableSession,
     recoverSession,
     sessionRecovery,
-    saveSessionToTempStorage,
     restorePersistedSession,
     setAutoSaveCallback,
-    resetSessionForNewContent,
   } = useSubtitleEditStore();
   const reviewStepResult = useReviewStepConfig();
   const {
-    config: reviewConfig,
-    updateConfig: updateReviewConfig,
     isLoading: configLoading,
     error,
     isReady,
     // Subtitle persistence properties
     persistenceData,
-    loadSubtitleFile,
-    saveSubtitleFile,
-    createSubtitleFile,
     isLoadingFiles,
     isSavingFiles,
-    hasUnsavedFileChanges,
     fileError,
     clearFileError,
   } = reviewStepResult;
@@ -139,9 +54,9 @@ const ReviewStepComponent: React.FC = () => {
   // DISABLED: Auto-save integration permanently disabled for performance
   // const autoSaveIntegration = useAutoSaveIntegration({ disabled: true });
   const [showErrorNotification, setShowErrorNotification] = useState(false);
-  const [subtitleFiles, setSubtitleFiles] = useState<Record<string, SubtitleFileContent>>({});
-  const [originalFileId, setOriginalFileId] = useState<string | null>(null);
-  const [modifiedFileId, setModifiedFileId] = useState<string | null>(null);
+  const [, setSubtitleFiles] = useState<Record<string, SubtitleFileContent>>({});
+  const [, setOriginalFileId] = useState<string | null>(null);
+  const [, setModifiedFileId] = useState<string | null>(null);
   const [showSessionRecovery, setShowSessionRecovery] = useState(false);
   const [sessionRecoveryInfo, setSessionRecoveryInfo] = useState<{
     lastModified: number;
@@ -149,7 +64,7 @@ const ReviewStepComponent: React.FC = () => {
     editCount: number;
     workspaceId: string;
   } | null>(null);
-  const [isInitializing, setIsInitializing] = useState(false); // Prevent infinite initialization loops
+  const [, setIsInitializing] = useState(false); // Prevent infinite initialization loops
   const [initializationMutex, setInitializationMutex] = useState(false); // Prevent concurrent initialization
   const initializationTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Debounce initialization
   
@@ -197,38 +112,9 @@ const ReviewStepComponent: React.FC = () => {
   }, [currentWorkspaceId, config.inputFile]);
 
   // Create stable reference to prevent infinite re-renders
-  const lastInitDataRef = useRef<{
-    inputFile: string | null;
-    outputFile: string | null;
-    subtitleCount: number;
-    videoPath: string | null;
-    originalPath: string | null;
-  }>({
-    inputFile: null,
-    outputFile: null,
-    subtitleCount: 0,
-    videoPath: null,
-    originalPath: null,
-  });
 
   // STABLE: Content fingerprint to detect NEW source content (not user edits)
-  const createContentFingerprint = useCallback(
-    (data: {
-      inputFile: string | null;
-      outputFile: string | null;
-      importedJsonFile: string | null;
-      workspaceId: string | null;
-      hasSubtitleData: boolean;
-    }) => {
-      // Only include factors that indicate NEW source content, not user edits
-      const { inputFile, outputFile, importedJsonFile, workspaceId, hasSubtitleData } = data;
-      // Use file paths and timestamps, NOT subtitle content (which changes with user edits)
-      return `${workspaceId}:${inputFile}:${outputFile}:${importedJsonFile}:${hasSubtitleData}`;
-    },
-    [] // STABLE: Empty deps to prevent recreation
-  );
 
-  const lastContentFingerprintRef = useRef<string>('');
 
   // OPTIMIZED: Auto-save integration callback with reduced re-renders
   const autoSaveCallbackRef = useRef<((subtitles: any[], action: string) => void) | null>(null);
@@ -287,7 +173,7 @@ const ReviewStepComponent: React.FC = () => {
         type: 'JSON_IMPORT' as const,
         source: config.importedJsonFile || 'imported-json',
         // Add stable identity to prevent object recreation
-        __stable_id: `json_import_${config.inputFile}_${config.subtitle.length}_${config.importedJsonFile}`,
+        __stable_id: `json_import_${config.inputFile}_${config.subtitle?.length ?? 0}_${config.importedJsonFile}`,
       };
     }
 
@@ -327,10 +213,10 @@ const ReviewStepComponent: React.FC = () => {
           setSubtitleFiles(files);
           // Find original and modified file IDs
           const originalFile = Object.entries(files).find(
-            ([_, content]) => content.metadata && content.metadata.fileType === 'original'
+            ([_, content]) => content.metadata && (content.metadata as any).fileType === 'original'
           );
           const modifiedFile = Object.entries(files).find(
-            ([_, content]) => content.metadata && content.metadata.fileType === 'modified'
+            ([_, content]) => content.metadata && (content.metadata as any).fileType === 'modified'
           );
 
           if (originalFile) setOriginalFileId(originalFile[0]);
@@ -342,147 +228,6 @@ const ReviewStepComponent: React.FC = () => {
     }
   }, [isReady, config.inputFile, persistenceData]);
 
-  /**
-   * Save subtitle session to persistence layer
-   */
-  const saveSubtitleSession = useCallback(async () => {
-    if (!session || !isReady) return;
-
-    try {
-      // Create subtitle file content from session
-      const subtitleFileContent: SubtitleFileContent = {
-        metadata: {
-          fileId: modifiedFileId || `modified-${Date.now()}`,
-          workspaceId: persistenceData.currentSession?.workspaceId || 'default',
-          version: 1,
-          schemaVersion: 1,
-        },
-        subtitles: session.currentSubtitles.map((subtitle) => ({
-          id: subtitle.id,
-          index: subtitle.index,
-          startTime: subtitle.startTime,
-          endTime: subtitle.endTime,
-          text: subtitle.text,
-          translation: subtitle.translation,
-          confidence: subtitle.confidence,
-          speaker: subtitle.speaker,
-          music: subtitle.isMusic || false,
-        })),
-        statistics: {
-          totalSubtitles: session.currentSubtitles.length,
-          totalDuration: session.totalDuration || 0,
-          wordCount: session.currentSubtitles.reduce(
-            (count, sub) => count + (sub.text?.split(' ').length || 0),
-            0
-          ),
-          characterCount: session.currentSubtitles.reduce(
-            (count, sub) => count + (sub.text?.length || 0),
-            0
-          ),
-          translationCoverage:
-            session.currentSubtitles.filter((sub) => sub.translation && sub.translation.trim())
-              .length / session.currentSubtitles.length,
-          averageConfidence:
-            session.currentSubtitles.reduce((sum, sub) => sum + (sub.confidence || 0), 0) /
-            session.currentSubtitles.length,
-          speakerDistribution: {},
-          musicSegments: session.currentSubtitles.filter((sub) => sub.isMusic).length,
-          qualityDistribution: {
-            high: session.currentSubtitles.filter((sub) => (sub.confidence || 0) > 0.8).length,
-            medium: session.currentSubtitles.filter(
-              (sub) => (sub.confidence || 0) >= 0.5 && (sub.confidence || 0) <= 0.8
-            ).length,
-            low: session.currentSubtitles.filter((sub) => (sub.confidence || 0) < 0.5).length,
-          },
-          timingStats: {
-            averageDuration:
-              session.currentSubtitles.reduce((sum, sub) => sum + (sub.duration || 0), 0) /
-              session.currentSubtitles.length,
-            minDuration: Math.min(...session.currentSubtitles.map((sub) => sub.duration || 0)),
-            maxDuration: Math.max(...session.currentSubtitles.map((sub) => sub.duration || 0)),
-            gapCount: calculateGaps(session.currentSubtitles),
-            overlapCount: calculateOverlaps(session.currentSubtitles)
-          },
-        },
-        editHistory: session.modifications.map((mod) => ({
-          id: mod.id,
-          timestamp: Date.parse(mod.timestamp),
-          operation:
-            mod.type === 'added'
-              ? 'create'
-              : mod.type === 'deleted'
-                ? 'delete'
-                : mod.type === 'modified'
-                  ? 'update'
-                  : 'update',
-          subtitleId: parseInt(mod.subtitleId) || 0,
-          field: 'text',
-          previousValue: mod.original,
-          newValue: mod.modified,
-          source: 'user',
-          context: {
-            reason: mod.description,
-          },
-        })),
-        validation: {
-          isValid: true,
-          warnings: [],
-          errors: [],
-          qualityScore: calculateQualityScore(session.currentSubtitles)
-        },
-      };
-
-      // Save or create the modified file
-      if (modifiedFileId) {
-        await saveSubtitleFile(modifiedFileId, subtitleFileContent, { createBackup: true });
-      } else {
-        const newFileId = await createSubtitleFile(subtitleFileContent, 'modified');
-        setModifiedFileId(newFileId);
-      }
-
-      // Update workspace configuration
-      await updateReviewConfig({
-        subtitlePersistence: {
-          modifiedFile: {
-            fileId: modifiedFileId || 'new',
-            path: `${modifiedFileId || 'new'}.json`,
-            metadata: subtitleFileContent.metadata as any,
-            hasChanges: session.isDirty,
-          },
-          sessionBackups: [],
-          autoSave: {
-            enabled: reviewConfig?.editingPreferences?.autoSave !== false,
-            interval: reviewConfig?.editingPreferences?.autoSaveConfig?.interval || 30000,
-            lastSave: Date.now(),
-            backupCount: 1,
-          },
-          operationHistory: [],
-          cacheStatus: {
-            isCached: true,
-            lastCacheUpdate: Date.now(),
-          },
-          performance: {
-            lastOperationTime: Date.now(),
-            averageOperationTime: 1000,
-            totalOperations: 1,
-            errorCount: 0,
-          },
-        },
-        lastModified: Date.now(),
-      });
-    } catch (error) {
-      console.error('Failed to save subtitle session:', error);
-    }
-  }, [
-    session,
-    isReady,
-    modifiedFileId,
-    saveSubtitleFile,
-    createSubtitleFile,
-    updateReviewConfig,
-    reviewConfig,
-    persistenceData,
-  ]);
 
   // PERFORMANCE-CRITICAL: Optimized initialization with reduced overhead
   const stableInitializeSession = useCallback(
@@ -585,9 +330,9 @@ const ReviewStepComponent: React.FC = () => {
               );
 
               // Transform the data and initialize session
-              const transformedData = result.data.subtitles.map((subtitle) => ({
+              const transformedData = result.data.subtitles.map((subtitle: SubtitleData, index: number) => ({
                 id: subtitle.id?.toString() || Math.random().toString(),
-                index: subtitle.index || 0,
+                index: index,
                 startTime: subtitle.startTime || 0,
                 endTime: subtitle.endTime || 0,
                 duration: (subtitle.endTime || 0) - (subtitle.startTime || 0),
@@ -595,7 +340,7 @@ const ReviewStepComponent: React.FC = () => {
                 translation: subtitle.translation,
                 confidence: subtitle.confidence,
                 speaker: subtitle.speaker,
-                isMusic: subtitle.music || false,
+                isMusic: subtitle.isMusic || false,
               }));
 
               await stableInitializeSession(srtPath, validatedVideoPath, transformedData);
@@ -619,9 +364,9 @@ const ReviewStepComponent: React.FC = () => {
                 'subtitles'
               );
 
-              const transformedData = result.data.subtitles.map((subtitle) => ({
+              const transformedData = result.data.subtitles.map((subtitle: SubtitleData, index: number) => ({
                 id: subtitle.id?.toString() || Math.random().toString(),
-                index: subtitle.index || 0,
+                index: index,
                 startTime: subtitle.startTime || 0,
                 endTime: subtitle.endTime || 0,
                 duration: (subtitle.endTime || 0) - (subtitle.startTime || 0),
@@ -629,7 +374,7 @@ const ReviewStepComponent: React.FC = () => {
                 translation: subtitle.translation,
                 confidence: subtitle.confidence,
                 speaker: subtitle.speaker,
-                isMusic: subtitle.music || false,
+                isMusic: subtitle.isMusic || false,
               }));
 
               await stableInitializeSession(srtPath, validatedVideoPath, transformedData);
@@ -681,7 +426,12 @@ const ReviewStepComponent: React.FC = () => {
   
   // Effect 1: Handle JSON import data initialization (highest priority)
   useEffect(() => {
-    if (!preparedSubtitleData || typeof preparedSubtitleData !== 'object' || preparedSubtitleData.type !== 'JSON_IMPORT') {
+    if (!preparedSubtitleData || typeof preparedSubtitleData !== 'object' || Array.isArray(preparedSubtitleData)) {
+      return;
+    }
+    
+    // Type guard for JSON_IMPORT object
+    if (!('type' in preparedSubtitleData) || preparedSubtitleData.type !== 'JSON_IMPORT') {
       return;
     }
 
@@ -690,7 +440,7 @@ const ReviewStepComponent: React.FC = () => {
     }
 
     // CRITICAL: Check if this exact import has already been initialized
-    const importId = preparedSubtitleData.__stable_id || `json_${config.inputFile}_${preparedSubtitleData.data.length}`;
+    const importId = preparedSubtitleData.__stable_id || `json_${config.inputFile}_${Array.isArray(preparedSubtitleData.data) ? preparedSubtitleData.data.length : 0}`;
     if (initializationCompleteRef.current.has(importId)) {
       return;
     }
@@ -703,10 +453,12 @@ const ReviewStepComponent: React.FC = () => {
     const initializeJsonImport = async () => {
       setInitializationMutex(true);
       try {
+        // Ensure data is an array before passing to stableInitializeSession
+        const subtitleArray = Array.isArray(preparedSubtitleData.data) ? preparedSubtitleData.data : [];
         await stableInitializeSession(
-          preparedSubtitleData.source,
-          config.inputFile,
-          preparedSubtitleData.data
+          preparedSubtitleData.source || 'json-import',
+          config.inputFile || '',
+          subtitleArray
         );
         // Mark this import as completed
         initializationCompleteRef.current.add(importId);
@@ -754,7 +506,7 @@ const ReviewStepComponent: React.FC = () => {
       try {
         await stableInitializeSession(
           'imported-subtitles.json',
-          config.inputFile,
+          config.inputFile || '',
           preparedSubtitleData
         );
         // Mark this array import as completed
@@ -807,7 +559,7 @@ const ReviewStepComponent: React.FC = () => {
       setInitializationMutex(true);
       try {
         const srtPath = config.outputFile?.replace(/\.[^/.]+$/, '.srt') || 'output.srt';
-        await ensureSessionExists(srtPath, config.inputFile);
+        await ensureSessionExists(srtPath, config.inputFile || '');
         circuitBreaker.failures = 0;
       } catch (error) {
         console.error('❌ SRT initialization failed:', error);
@@ -1210,7 +962,7 @@ const ReviewStepComponent: React.FC = () => {
       <SessionRecoveryDialog
         open={showSessionRecovery}
         sessionId={sessionRecovery.recoverableSessionId}
-        sessionInfo={sessionRecoveryInfo}
+        sessionInfo={sessionRecoveryInfo || undefined}
         onRecover={async (sessionId) => {
           try {
             console.log('🔄 Starting session recovery for sessionId:', sessionId);
@@ -1218,7 +970,7 @@ const ReviewStepComponent: React.FC = () => {
             // Check if this session belongs to current workspace
             const { checkAndRestoreWorkspaceSession, loadSession } =
               useSubtitleEditStore.getState();
-            const currentWorkspaceSessionId = checkAndRestoreWorkspaceSession(currentWorkspaceId);
+            const currentWorkspaceSessionId = await checkAndRestoreWorkspaceSession(currentWorkspaceId || '');
 
             if (currentWorkspaceSessionId && currentWorkspaceSessionId === sessionId) {
               console.log(
@@ -1239,8 +991,6 @@ const ReviewStepComponent: React.FC = () => {
                 const restoredSession: TempSubtitleSession = {
                   sessionId: sessionInfo.sessionId,
                   workspaceId: sessionInfo.workspaceId || currentWorkspaceId, // Ensure workspace binding
-                  originalPath: sessionInfo.originalPath,
-                  tempPath: sessionInfo.tempPath,
                   videoPath: sessionInfo.videoPath,
                   originalSubtitles: sessionInfo.originalSubtitles || [],
                   currentSubtitles: sessionInfo.currentSubtitles || [],
@@ -1290,8 +1040,9 @@ const ReviewStepComponent: React.FC = () => {
                 const sessionInfo = persistedState.state.session;
 
                 // Only create new session if it's from a different workspace or no current session exists
-                if (sessionInfo.videoPath && sessionInfo.originalPath) {
-                  await stableInitializeSession(sessionInfo.originalPath, sessionInfo.videoPath);
+                if (sessionInfo.videoPath) {
+                  // Use videoPath for session initialization as originalPath is no longer part of the interface
+                  await stableInitializeSession(sessionInfo.videoPath, sessionInfo.videoPath);
 
                   // Restore session state
                   if (session) {
@@ -1384,7 +1135,7 @@ const ReviewStepComponent: React.FC = () => {
 };
 
 // PERFORMANCE: Memoized component to prevent unnecessary re-renders during JSON import
-const MemoizedReviewStepComponent = React.memo(ReviewStepComponent, (prevProps, nextProps) => {
+const MemoizedReviewStepComponent = React.memo(ReviewStepComponent, () => {
   // CRITICAL: Custom comparison function - no props to compare, prevent unnecessary re-renders
   // This stops React from re-rendering during rapid JSON import state changes
   return true;

@@ -7,8 +7,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from 'vitest'
-import { SubtitlePersistenceService, resetSubtitlePersistenceService } from '../../services/subtitle-persistence-service'
-import { workspaceDatabase } from '../../services/workspace-database'
+import { SubtitlePersistenceService, resetSubtitlePersistenceService } from '../../services/subtitle/subtitle-persistence-service'
+import { workspaceDatabase } from '../../services/workspace/workspace-database'
 import {
   generateMockSubtitleFileContent,
   generateMockSubtitleFileMetadata,

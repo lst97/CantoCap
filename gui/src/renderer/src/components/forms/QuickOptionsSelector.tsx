@@ -11,7 +11,7 @@ import {
 import { Chip } from "@mui/material";
 import { useAppStore } from "../../stores/app-store";
 import { AppConfig } from "@/types";
-import { triggerUserInteraction } from '../../services/workflow-config-bridge';
+import { triggerUserInteraction } from '../../services/bridge/workflow-config-bridge';
 
 interface QuickOption {
   key: keyof AppConfig;

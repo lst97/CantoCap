@@ -1,6 +1,6 @@
 import { useEffect, useCallback, useRef } from 'react'
 import { useAppStore } from '../stores/app-store'
-import { workflowStateManager } from '../services/workflow-state-manager'
+import { workflowStateManager } from '../services/workflow/workflow-state-manager'
 import { useWorkflowState } from '../contexts/WorkflowStateContext'
 import { StepState } from '../types/workflow-state'
 import { useWorkflowValidationStore } from '../stores/workflow-validation-store'

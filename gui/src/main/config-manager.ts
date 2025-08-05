@@ -7,6 +7,9 @@ export interface AppConfig {
   lastInputPath?: string
   lastOutputPath?: string
   
+  // Imported JSON caption file
+  importedJsonFile?: string | null
+  
   // Processing settings
   modelSettings: {
     selectedModel?: string
@@ -40,6 +43,17 @@ export interface AppConfig {
     enginePath?: string
   }
   
+  // Imported caption configuration
+  importedCaption: {
+    jsonFilePath?: string | null
+    lastImported?: number
+    metadata?: {
+      fileName?: string
+      subtitleCount?: number
+      importedBy?: string
+    }
+  }
+  
   // UI preferences
   ui: {
     theme?: 'light' | 'dark' | 'system'
@@ -55,12 +69,24 @@ export interface AppConfig {
     y?: number
     maximized?: boolean
   }
+  
+  // Workflow state persistence
+  workflowState: {
+    currentStep?: string
+    stepStates?: Record<string, {
+      state: string
+      lastModified: number
+      reason?: string
+    }>
+    lastUpdated?: number
+  }
 }
 
 export class ConfigManager {
   private configPath: string
   private config: AppConfig
   private readonly defaultConfig: AppConfig = {
+    importedJsonFile: null,
     modelSettings: {
       priority: 'balanced',
       useGpu: true
@@ -76,6 +102,11 @@ export class ConfigManager {
     },
     apiKeys: {},
     dependencies: {},
+    importedCaption: {
+      jsonFilePath: null,
+      lastImported: undefined,
+      metadata: undefined
+    },
     ui: {
       theme: 'system',
       showAdvanced: false,
@@ -85,6 +116,11 @@ export class ConfigManager {
       width: 1200,
       height: 800,
       maximized: false
+    },
+    workflowState: {
+      currentStep: 'input-file',
+      stepStates: {},
+      lastUpdated: undefined
     }
   }
 
@@ -137,6 +173,10 @@ export class ConfigManager {
         ...defaultConfig.dependencies,
         ...(loadedConfig.dependencies || {})
       },
+      importedCaption: {
+        ...defaultConfig.importedCaption,
+        ...(loadedConfig.importedCaption || {})
+      },
       ui: {
         ...defaultConfig.ui,
         ...(loadedConfig.ui || {})
@@ -144,6 +184,10 @@ export class ConfigManager {
       window: {
         ...defaultConfig.window,
         ...(loadedConfig.window || {})
+      },
+      workflowState: {
+        ...defaultConfig.workflowState,
+        ...(loadedConfig.workflowState || {})
       }
     }
   }
@@ -197,6 +241,18 @@ export class ConfigManager {
     return this.config.window
   }
 
+  public getImportedJsonFile(): string | null {
+    return this.config.importedJsonFile || null
+  }
+
+  public getImportedCaption() {
+    return this.config.importedCaption
+  }
+
+  public getWorkflowState() {
+    return this.config.workflowState
+  }
+
   // Setters
   public set<K extends keyof AppConfig>(section: K, value: AppConfig[K]): void {
     this.config[section] = value
@@ -240,6 +296,75 @@ export class ConfigManager {
 
   public updateWindowState(state: Partial<AppConfig['window']>): void {
     this.config.window = { ...this.config.window, ...state }
+    this.saveConfig()
+  }
+
+  public setImportedJsonFile(path: string | null): void {
+    this.config.importedJsonFile = path
+    // Also update the importedCaption section for consistency
+    this.config.importedCaption = {
+      ...this.config.importedCaption,
+      jsonFilePath: path,
+      lastImported: path ? Date.now() : undefined,
+      metadata: path ? { 
+        fileName: path.split('/').pop() || path,
+        importedBy: 'config-manager'
+      } : undefined
+    }
+    this.saveConfig()
+  }
+
+  public updateImportedCaption(update: Partial<AppConfig['importedCaption']>): void {
+    this.config.importedCaption = { ...this.config.importedCaption, ...update }
+    // Keep importedJsonFile in sync
+    if (update.jsonFilePath !== undefined) {
+      this.config.importedJsonFile = update.jsonFilePath
+    }
+    this.saveConfig()
+  }
+
+  public clearVideoAndCaptionState(): void {
+    this.config.lastInputPath = undefined
+    this.config.lastOutputPath = undefined
+    this.config.importedJsonFile = null
+    this.config.importedCaption = {
+      jsonFilePath: null,
+      lastImported: undefined,
+      metadata: undefined
+    }
+    this.saveConfig()
+  }
+
+  public updateWorkflowState(update: Partial<AppConfig['workflowState']>): void {
+    this.config.workflowState = { ...this.config.workflowState, ...update }
+    this.saveConfig()
+  }
+
+  public setCurrentStep(stepId: string): void {
+    this.config.workflowState.currentStep = stepId
+    this.config.workflowState.lastUpdated = Date.now()
+    this.saveConfig()
+  }
+
+  public setStepState(stepId: string, state: string, reason?: string): void {
+    if (!this.config.workflowState.stepStates) {
+      this.config.workflowState.stepStates = {}
+    }
+    this.config.workflowState.stepStates[stepId] = {
+      state,
+      lastModified: Date.now(),
+      reason
+    }
+    this.config.workflowState.lastUpdated = Date.now()
+    this.saveConfig()
+  }
+
+  public saveWorkflowState(currentStep: string, stepStates: Record<string, { state: string; lastModified: number; reason?: string }>): void {
+    this.config.workflowState = {
+      currentStep,
+      stepStates,
+      lastUpdated: Date.now()
+    }
     this.saveConfig()
   }
 

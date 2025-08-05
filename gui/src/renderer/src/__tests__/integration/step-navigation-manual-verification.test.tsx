@@ -10,7 +10,7 @@ import userEvent from '@testing-library/user-event';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { StepNavigation } from '../../components/layout/StepNavigation';
 import { WorkflowStateProvider } from '../../contexts/WorkflowStateContext';
-import { workflowStateManager } from '../../services/workflow-state-manager';
+import { workflowStateManager } from '../../services/workflow/workflow-state-manager';
 import { StepState } from '../../types/workflow-state';
 
 // Test theme

@@ -4,27 +4,10 @@
  * Replaces complex auto-save timers with event-driven config updates
  */
 
-import { configEventEmitter, type ConfigPersistenceEvents } from './config-persistence-event-system'
-import { useAppStore } from '../stores/app-store'
-import type { StepState, StepId } from '../types/workflow-state'
+import { configEventEmitter, type ConfigPersistenceEvents } from '../config-persistence-event-system'
+import { useAppStore } from '../../stores/app-store'
+import type { StepState, StepId } from '../../types/workflow-state'
 
-/**
- * Configuration section mapping for different types of updates
- */
-interface ConfigSectionMapping {
-  workflowProgress: {
-    currentStepId: string
-    completedSteps: string[]
-    stepStates: Record<string, StepState>
-    lastUpdated: number
-  }
-  
-  stepConfigurations: Record<string, {
-    settings: Record<string, any>
-    userPreferences: Record<string, any>
-    completionData: any
-  }>
-}
 
 /**
  * Workflow Configuration Bridge
@@ -33,6 +16,8 @@ interface ConfigSectionMapping {
 export class WorkflowConfigBridge {
   private static instance: WorkflowConfigBridge | null = null
   private initialized = false
+  private lastProcessedEvents = new Map<string, number>() // For event deduplication
+  private readonly EVENT_DEBOUNCE_MS = 100 // Debounce window for duplicate events
   
   static getInstance(): WorkflowConfigBridge {
     if (!WorkflowConfigBridge.instance) {
@@ -54,6 +39,18 @@ export class WorkflowConfigBridge {
     configEventEmitter.on('user-interaction', this.handleUserInteraction.bind(this))
     configEventEmitter.on('config-update-required', this.handleConfigUpdateRequired.bind(this))
     
+    // Clean up old event entries periodically to prevent memory leaks
+    setInterval(() => {
+      const now = Date.now()
+      const cutoff = now - (this.EVENT_DEBOUNCE_MS * 10) // Keep entries for 10x debounce window
+      
+      for (const [key, timestamp] of this.lastProcessedEvents.entries()) {
+        if (timestamp < cutoff) {
+          this.lastProcessedEvents.delete(key)
+        }
+      }
+    }, 30000) // Clean up every 30 seconds
+    
     this.initialized = true
   }
   
@@ -64,6 +61,18 @@ export class WorkflowConfigBridge {
     data: ConfigPersistenceEvents['workflow-state-changed']
   ): Promise<void> {
     const { stepId, previousState, newState, workspaceId, metadata } = data
+    
+    // Event deduplication check
+    const eventKey = `${stepId}-${previousState}-${newState}-${workspaceId || 'null'}`
+    const now = Date.now()
+    const lastProcessed = this.lastProcessedEvents.get(eventKey)
+    
+    if (lastProcessed && (now - lastProcessed) < this.EVENT_DEBOUNCE_MS) {
+      console.log('🔧 [WORKFLOW BRIDGE] Skipping duplicate event:', eventKey)
+      return
+    }
+    
+    this.lastProcessedEvents.set(eventKey, now)
     
     console.log('🔧 [WORKFLOW BRIDGE] Handling workflow state change:', {
       stepId,
@@ -111,7 +120,7 @@ export class WorkflowConfigBridge {
       const appStore = useAppStore.getState()
       
       // Call updateConfig immediately for user interactions
-      await appStore.updateConfig(configKey as any, value)
+      appStore.updateConfig(configKey as any, value)
       
       console.log('✅ [WORKFLOW BRIDGE] User interaction persisted immediately')
       
@@ -139,7 +148,7 @@ export class WorkflowConfigBridge {
       // Apply each update immediately using existing updateConfig method
       for (const [key, value] of Object.entries(updates)) {
         const appStore = useAppStore.getState()
-        await appStore.updateConfig(key as any, value)
+        appStore.updateConfig(key as any, value)
       }
       
       console.log('✅ [WORKFLOW BRIDGE] Config updates applied immediately')
@@ -156,11 +165,10 @@ export class WorkflowConfigBridge {
     stepId: StepId,
     newState: StepState,
     workspaceId: string | null,
-    metadata?: Record<string, any>
+    _metadata?: Record<string, any>
   ): Promise<void> {
     try {
       // Use existing updateConfig for workflow progress
-      const appStore = useAppStore.getState()
       
       // Update current step tracking
       if (newState === 'complete') {
@@ -242,29 +250,6 @@ export class WorkflowConfigBridge {
   }
   
   /**
-   * Simple retry logic for failed config updates
-   */
-  private async retryConfigUpdate(
-    updateFn: () => Promise<void>,
-    retryCount = 0,
-    maxRetries = 3
-  ): Promise<void> {
-    try {
-      await updateFn()
-    } catch (error) {
-      if (retryCount < maxRetries) {
-        // Simple exponential backoff: 100ms, 200ms, 400ms
-        const delay = 100 * Math.pow(2, retryCount)
-        await new Promise(resolve => setTimeout(resolve, delay))
-        return this.retryConfigUpdate(updateFn, retryCount + 1, maxRetries)
-      }
-      
-      console.error(`🚨 [WORKFLOW BRIDGE] Config update failed after ${maxRetries} attempts:`, error)
-      throw error
-    }
-  }
-  
-  /**
    * Clean shutdown
    */
   destroy(): void {
@@ -272,6 +257,7 @@ export class WorkflowConfigBridge {
       configEventEmitter.removeAllListeners('workflow-state-changed')
       configEventEmitter.removeAllListeners('user-interaction')
       configEventEmitter.removeAllListeners('config-update-required')
+      this.lastProcessedEvents.clear() // Clean up event deduplication map
       this.initialized = false
     }
     WorkflowConfigBridge.instance = null

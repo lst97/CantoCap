@@ -4,7 +4,7 @@ import { InputPanel } from '../ui/InputPanel'
 import { ErrorBoundary } from '../common/ErrorBoundary'
 import { useInputFileConfig, useWorkspaceConfig } from '../../contexts/WorkspaceConfigContext'
 import { useAppStore } from '../../stores/app-store'
-import { triggerUserInteraction } from '../../services/workflow-config-bridge'
+import { triggerUserInteraction } from '../../services/bridge/workflow-config-bridge'
 import { VideoMetadata } from '../../types/workspace'
 
 export const InputFileStep: React.FC = () => {
@@ -103,7 +103,7 @@ export const InputFileStep: React.FC = () => {
         lastUpdateRef.current = { workspace: file, appStore: file }
         
         // Batch updates to prevent cascading re-renders
-        const updates: Promise<any>[] = []
+        const updates: Promise<void>[] = []
         
         if (workspaceChanged) {
           if (logOnce) console.log('🔧 [VIDEO DEBUG] InputFileStep: Updating workspace config')
@@ -134,7 +134,7 @@ export const InputFileStep: React.FC = () => {
     }, 50) // 50ms debounce
   }, [config?.selectedFile, appConfig.inputFile, updateConfig, updateAppConfig]);
 
-  // React 19 Optimization: Memoize JSON file selection handler with debouncing
+  // React 19 Optimization: Memoize JSON file selection handler with batched updates
   const handleJsonFileSelect = useCallback(async (file: string | null) => {
     // Skip if no actual change
     if (config?.importedJsonFile === file) {
@@ -143,7 +143,7 @@ export const InputFileStep: React.FC = () => {
     
     const logOnce = process.env.NODE_ENV === 'development'
     if (logOnce) {
-      console.log('🔧 [VIDEO DEBUG] InputFileStep: handleJsonFileSelect called:', {
+      console.log('🔧 [PERFORMANCE] InputFileStep: handleJsonFileSelect called (batched):', {
         timestamp: new Date().toISOString(),
         file,
         currentJsonFile: config?.importedJsonFile
@@ -151,26 +151,43 @@ export const InputFileStep: React.FC = () => {
     }
     
     try {
-      // Batch updates
-      triggerUserInteraction('file-selection', 'importedJsonFile', file)
+      // Set import flag to prevent cascade re-renders
+      const importFlag = window as Window & { __JSON_IMPORT_IN_PROGRESS?: boolean }
+      importFlag.__JSON_IMPORT_IN_PROGRESS = true
       
-      const updates: Promise<any>[] = [
-        updateConfig({
+      // Batch all updates in a single transaction
+      const batchedUpdate = async () => {
+        // Trigger user interaction
+        triggerUserInteraction('file-selection', 'importedJsonFile', file)
+        
+        // Update workspace config
+        await updateConfig({
           importedJsonFile: file || undefined,
           lastModified: Date.now()
         })
-      ]
+        
+        // Update app store immediately after workspace config (within same batch)
+        updateAppConfig('importedJsonFile', file)
+      }
       
-      await Promise.all(updates)
-      
-      // Update app store after workspace config is saved
-      updateAppConfig('importedJsonFile', file)
+      // Use startTransition for non-urgent state updates to reduce re-renders
+      await new Promise<void>((resolve, reject) => {
+        React.startTransition(() => {
+          batchedUpdate().then(resolve).catch(reject)
+        })
+      })
       
       if (logOnce) {
-        console.log('✅ [VIDEO DEBUG] InputFileStep: Both JSON configs updated successfully')
+        console.log('✅ [PERFORMANCE] InputFileStep: Batched JSON config updates completed')
       }
     } catch (error) {
-      console.error('❌ [VIDEO DEBUG] InputFileStep: Failed to save JSON file selection:', error)
+      console.error('❌ [PERFORMANCE] InputFileStep: Failed to save JSON file selection:', error)
+    } finally {
+      // Clear import flag after a delay to allow subscriptions to settle
+      setTimeout(() => {
+        const importFlag = window as Window & { __JSON_IMPORT_IN_PROGRESS?: boolean }
+        importFlag.__JSON_IMPORT_IN_PROGRESS = false
+      }, 100)
     }
   }, [config?.importedJsonFile, updateConfig, updateAppConfig])
 
@@ -241,24 +258,6 @@ export const InputFileStep: React.FC = () => {
         flexDirection: 'column',
         overflow: 'hidden'
       }}>
-        {/* Configuration Loading State */}
-        {isLoading && (
-          <Alert severity="info" sx={{ mb: 2 }}>
-            Loading input file configuration...
-          </Alert>
-        )}
-
-        {/* Configuration Error State */}
-        {error && (
-          <Alert 
-            severity="error" 
-            sx={{ mb: 2 }}
-            onClose={() => clearError()}
-          >
-            Failed to load configuration: {error.message}
-          </Alert>
-        )}
-
         {/* File Upload, Media Preview & Range Selection */}
         <ErrorBoundary 
           fallbackTitle="File Upload Error" 

@@ -7,7 +7,7 @@ import { EnhancedWorkspaceConfigProvider } from './contexts/EnhancedWorkspaceCon
 import { WorkflowStateProvider } from './contexts/WorkflowStateContext';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { useAppStore } from './stores/app-store';
-import { workflowStateManager } from './services/workflow-state-manager';
+import { workflowStateManager } from './services/workflow/workflow-state-manager';
 import theme from './theme/theme';
 import './styles/globals.css';
 import { JSX } from 'react/jsx-runtime';
@@ -91,7 +91,7 @@ function App(): JSX.Element {
     };
 
     runInitialization();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [
     initializeApp,
     loadConfigFromStorage,

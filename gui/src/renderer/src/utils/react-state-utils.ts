@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useWorkflowState } from '../hooks/useWorkflowStateManager'
 import { useAppStore } from '../stores/app-store'
-import { workflowStateManager } from '../services/workflow-state-manager'
+import { workflowStateManager } from '../services/workflow/workflow-state-manager'
 import { StepState } from '../types/workflow-state'
 // Modern workflow state management using WorkflowStateManager
 

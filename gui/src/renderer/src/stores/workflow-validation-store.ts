@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import { useAppStore } from './app-store'
-import { workflowStateManager } from '../services/workflow-state-manager'
+import { workflowStateManager } from '../services/workflow/workflow-state-manager'
 import { StepState, type StepId } from '../types/workflow-state'
 import { atomicVideoRemoval } from '../utils/step-state-controller'
 
@@ -222,7 +222,7 @@ export const useWorkflowValidationStore = create<WorkflowValidationStore>()(
         }
       }
       
-      set(state => ({
+      set(_state => ({
         mediaValidation: result
       }))
       
@@ -237,11 +237,11 @@ export const useWorkflowValidationStore = create<WorkflowValidationStore>()(
         filePath,
         currentFilePath,
         timestamp: Date.now(),
-        shouldSkip: currentFilePath === filePath && currentState.mediaValidation.lastValidation
+        shouldSkip: currentFilePath === filePath && currentState.mediaValidation.lastValidated
       })
       
       // PERFORMANCE FIX: Skip if same file path and already validated
-      if (currentFilePath === filePath && currentState.mediaValidation.lastValidation) {
+      if (currentFilePath === filePath && currentState.mediaValidation.lastValidated) {
         console.log('🔧 [PERFORMANCE] updateMediaFile: Skipping - same file already validated')
         return
       }
@@ -377,12 +377,12 @@ export const useWorkflowValidationStore = create<WorkflowValidationStore>()(
     },
 
     resetStepValidation: (stepId) => {
-      set(state => ({
-        stepValidations: {
-          ...state.stepValidations,
-          [stepId]: undefined
+      set(state => {
+        const { [stepId]: removed, ...remainingValidations } = state.stepValidations
+        return {
+          stepValidations: remainingValidations
         }
-      }))
+      })
     },
 
     resetAllValidations: () => {
@@ -447,23 +447,13 @@ export const useWorkflowValidationStore = create<WorkflowValidationStore>()(
         
         console.log('🔧 Media file present - enabling config step')
         
-        const inputFileComplete = workflowStateManager.isStepComplete('input-file')
-        
-        if (!inputFileComplete) {
-          await workflowStateManager.transitionState('input-file', StepState.Complete, {
-            reason: 'Media file uploaded - validation enforcement'
-          })
-        }
-        
         if (configStepState !== StepState.Ready) {
           await workflowStateManager.transitionState('config', StepState.Ready, {
             reason: 'Media uploaded - config step ready'
           })
         }
         
-        // AUTOMATIC NAVIGATION: After video upload, automatically navigate to config step
-        // This provides a smooth user experience and matches user expectations
-        // The step-state-controller handles this navigation automatically
+        // Note: Step completion handled by explicit user action, not automatic navigation
       }
     },
 
@@ -552,6 +542,13 @@ const initializeSubscriptions = () => {
     useAppStore.subscribe(
       (state) => state.config.inputFile,
       (inputFile, prevInputFile) => {
+        // PERFORMANCE FIX: Skip during JSON import to prevent cascade re-renders
+        const importFlag = window as Window & { __JSON_IMPORT_IN_PROGRESS?: boolean }
+        if (importFlag.__JSON_IMPORT_IN_PROGRESS) {
+          console.log('🚀 [PERFORMANCE] Skipping inputFile validation during JSON import')
+          return
+        }
+        
         // PERFORMANCE FIX: Additional null/undefined comparison to prevent excessive calls
         if (inputFile !== prevInputFile && !(inputFile === null && prevInputFile === undefined)) {
           console.log('🔧 App store inputFile subscription triggered:', {
@@ -566,6 +563,14 @@ const initializeSubscriptions = () => {
           }
           
           updateTimeout = setTimeout(async () => {
+            // Double-check import flag before proceeding with validation
+            const importFlag = window as Window & { __JSON_IMPORT_IN_PROGRESS?: boolean }
+            if (importFlag.__JSON_IMPORT_IN_PROGRESS) {
+              console.log('🚀 [PERFORMANCE] Aborting validation - import still in progress')
+              updateTimeout = null
+              return
+            }
+            
             const validationStore = useWorkflowValidationStore.getState()
             // PERFORMANCE FIX: Check if we already have this file validated before updating
             const currentValidation = validationStore.mediaValidation
@@ -586,6 +591,13 @@ const initializeSubscriptions = () => {
     useAppStore.subscribe(
       (state) => state.dependencies,
       async (dependencies, prevDependencies) => {
+        // PERFORMANCE FIX: Skip dependency validation during JSON import
+        const importFlag = window as Window & { __JSON_IMPORT_IN_PROGRESS?: boolean }
+        if (importFlag.__JSON_IMPORT_IN_PROGRESS) {
+          console.log('🚀 [PERFORMANCE] Skipping dependency validation during JSON import')
+          return
+        }
+        
         if (JSON.stringify(dependencies) !== JSON.stringify(prevDependencies)) {
           const validationStore = useWorkflowValidationStore.getState()
           await validationStore.validateStep('config')

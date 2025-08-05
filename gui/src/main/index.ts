@@ -376,6 +376,10 @@ class CantoCap {
         Object.entries(updates).forEach(([dep, path]) => {
           this.configManager.updateDependency(dep as any, path as string);
         });
+      } else if (section === 'importedJsonFile') {
+        this.configManager.setImportedJsonFile(updates);
+      } else if (section === 'importedCaption') {
+        this.configManager.updateImportedCaption(updates);
       }
     });
 
@@ -387,6 +391,10 @@ class CantoCap {
       this.configManager.setLastOutputPath(path);
     });
 
+    ipcMain.handle("config:clearVideoAndCaptionState", () => {
+      this.configManager.clearVideoAndCaptionState();
+    });
+
     ipcMain.handle("config:reset", () => {
       this.configManager.reset();
     });
@@ -394,6 +402,27 @@ class CantoCap {
     ipcMain.handle("config:resetSection", (_event, section: string) => {
       this.configManager.resetSection(section as any);
     });
+
+    // Workflow state persistence handlers
+    ipcMain.handle('config:save-workflow-state', async (_, currentStep: string, stepStates: Record<string, any>) => {
+      try {
+        this.configManager.saveWorkflowState(currentStep, stepStates)
+        return { success: true }
+      } catch (error) {
+        safeError('Failed to save workflow state:', error)
+        return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+      }
+    })
+
+    ipcMain.handle('config:load-workflow-state', async () => {
+      try {
+        const workflowState = this.configManager.getWorkflowState()
+        return { success: true, data: workflowState }
+      } catch (error) {
+        safeError('Failed to load workflow state:', error)
+        return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+      }
+    })
 
     // Export Operations
     ipcMain.handle("dialog:saveFile", async (_event, options?: {

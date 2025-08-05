@@ -18,7 +18,7 @@ import {
   TestWorkspaceUtils,
   ErrorSimulator
 } from '../utils/subtitle-test-helpers'
-import { resetSubtitlePersistenceService } from '../../services/subtitle-persistence-service'
+import { resetSubtitlePersistenceService } from '../../services/subtitle/subtitle-persistence-service'
 import React from 'react'
 
 // Mock Electron IPC

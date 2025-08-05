@@ -114,10 +114,20 @@ const api: ElectronAPI = {
   setLastOutputPath: (path: string): Promise<void> =>
     ipcRenderer.invoke("config:setLastOutputPath", path),
 
+  clearVideoAndCaptionState: (): Promise<void> =>
+    ipcRenderer.invoke("config:clearVideoAndCaptionState"),
+
   resetConfig: (): Promise<void> => ipcRenderer.invoke("config:reset"),
 
   resetConfigSection: (section: string): Promise<void> =>
     ipcRenderer.invoke("config:resetSection", section),
+
+  // Workflow state persistence methods
+  saveWorkflowState: (currentStep: string, stepStates: Record<string, any>): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke("config:save-workflow-state", currentStep, stepStates),
+
+  loadWorkflowState: (): Promise<{ success: boolean; data?: any; error?: string }> =>
+    ipcRenderer.invoke("config:load-workflow-state"),
 
   // Process Management
   startTranscription: (config: AppConfig): void =>

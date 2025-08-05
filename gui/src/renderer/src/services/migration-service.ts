@@ -1,5 +1,5 @@
 // Migration Service - Three-phase migration system with comprehensive rollback capability
-import { workspaceDatabase } from './workspace-database'
+import { workspaceDatabase } from './workspace/workspace-database'
 import type { 
   Workspace, 
   WorkspaceConfig, 

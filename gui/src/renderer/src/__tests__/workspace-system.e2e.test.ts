@@ -17,8 +17,8 @@ import { renderHook } from '@testing-library/react'
 // Import system components
 import { useWorkspaceStore } from '../stores/workspace-store'
 import { useAppStore } from '../stores/app-store'
-import { WorkspaceIPCIntegration } from '../services/workspace-ipc-integration'
-import { getWorkspaceDatabase } from '../services/workspace-database'
+import { WorkspaceIPCIntegration } from '../services/workspace/workspace-ipc-integration'
+import { getWorkspaceDatabase } from '../services/workspace/workspace-database'
 import { PerformanceMonitor } from '../utils/performance-utils'
 import { WorkflowIntegration } from '../utils/workflow-integration'
 

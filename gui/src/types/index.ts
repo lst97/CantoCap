@@ -29,7 +29,7 @@ export interface ProcessingDebugMessage {
   stage: string
   message: string
   level: 'debug' | 'info' | 'warning' | 'error'
-  source?: string
+  source: string
 }
 
 export interface ProcessingState {
@@ -130,6 +130,7 @@ export interface AppState {
   config: AppConfig
   ui: UIState
   hardware: HardwareState
+  lastConfigLogTime: Record<string, number>
 }
 
 // Modern IPC Message Types
@@ -286,8 +287,11 @@ export interface ElectronAPI {
   updateConfigSection: (section: string, updates: any) => Promise<void>
   setLastInputPath: (path: string) => Promise<void>
   setLastOutputPath: (path: string) => Promise<void>
+  clearVideoAndCaptionState: () => Promise<void>
   resetConfig: () => Promise<void>
   resetConfigSection: (section: string) => Promise<void>
+  saveWorkflowState: (currentStep: string, stepStates: Record<string, any>) => Promise<{ success: boolean; error?: string }>
+  loadWorkflowState: () => Promise<{ success: boolean; data?: any; error?: string }>
   startTranscription: (config: AppConfig) => void
   cancelProcess: () => void
   checkHardware: () => Promise<HardwareInfo>
@@ -381,8 +385,6 @@ export type {
   // Context and hooks
   UnifiedConfigContext,
   UnifiedConfigHook,
-  ConfigHookState,
-  ConfigHookActions,
   
   // Workspace integration
   WorkspaceConfigTarget,
@@ -455,7 +457,7 @@ export type {
   ContentTransformer,
   SearchParams,
   SearchResult
-} from './renderer/src/types/subtitle-temp-storage'
+} from '../renderer/src/types/subtitle-temp-storage'
 
 export type {
   // Branded types for enhanced type safety
@@ -488,7 +490,7 @@ export type {
   TypedEventEmitter,
   StorageEventPayloads,
   ReactiveStream
-} from './renderer/src/types/subtitle-temp-storage-utils'
+} from '../renderer/src/types/subtitle-temp-storage-utils'
 
 export type {
   // Integration bridge types
@@ -518,7 +520,7 @@ export type {
   TempStorageExport,
   TempStorageImportOptions,
   TempStorageImportResult
-} from './renderer/src/types/subtitle-temp-storage-integration'
+} from '../renderer/src/types/subtitle-temp-storage-integration'
 
 // Export utility functions and type guards
 export {
@@ -533,7 +535,6 @@ export {
   isValidationResult,
   
   // Utility functions
-  generateTempStorageId,
   calculateContentHash,
   estimateStorageSize,
   shouldCleanup,
@@ -546,7 +547,7 @@ export {
   // Constants
   SUBTITLE_TEMP_STORAGE_CONSTANTS,
   DEFAULT_SUBTITLE_TEMP_CONFIG
-} from './renderer/src/types/subtitle-temp-storage'
+} from '../renderer/src/types/subtitle-temp-storage'
 
 export {
   // Enhanced type guards
@@ -570,6 +571,6 @@ export {
   debounce,
   throttle,
   createRetryFunction
-} from './renderer/src/types/subtitle-temp-storage-utils'
+} from '../renderer/src/types/subtitle-temp-storage-utils'
 
 export {};

@@ -55,10 +55,10 @@ export const InputPanel: React.FC<InputPanelProps> = React.memo(({
     ...appConfig,
     inputFile: appConfig.inputFile,  // Always use app config - don't fall back to props
     importedJsonFile: appConfig.importedJsonFile  // Always use app config - don't fall back to props
-  }), [appConfig.inputFile, appConfig.importedJsonFile, appConfig.startTime, appConfig.endTime, appConfig.duration]);
+  }), [appConfig]);
 
   // Throttled debug logging
-  const debugLogRef = useRef<{ lastLog: number; lastInputFile: string | undefined }>({ lastLog: 0, lastInputFile: undefined })
+  const debugLogRef = useRef<{ lastLog: number; lastInputFile: string | undefined | null }>({ lastLog: 0, lastInputFile: undefined })
   
   useEffect(() => {
     const now = Date.now()

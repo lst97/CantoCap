@@ -5,27 +5,19 @@
  * Provides backward compatibility and data preservation during system upgrades.
  */
 
-import type { SubtitleData } from '../../../types'
+import type { SubtitleData } from '../../../../types'
 import type {
-  SubtitleTempStorageRecord,
-  SubtitleTempSessionRecord,
-  SubtitleTempContent,
-  SubtitleTempSession,
-  SubtitleTempMetadata,
   SubtitleTempError,
-  SubtitleTempCleanupResult,
   SubtitleAutoSaveConfig
-} from '../types/subtitle-temp-storage'
+} from '../../types/subtitle-temp-storage'
 import {
   SUBTITLE_TEMP_STORAGE_CONSTANTS,
   DEFAULT_SUBTITLE_TEMP_CONFIG,
   generateTempStorageId,
-  calculateContentHash,
   estimateStorageSize
-} from '../types/subtitle-temp-storage'
-import { workspaceDatabase } from './workspace-database'
+} from '../../types/subtitle-temp-storage'
+import { workspaceDatabase } from '../workspace/workspace-database'
 import { subtitleTempStorageService } from './subtitle-temp-storage-service'
-import { DataIntegrityValidator, HashValidator } from '../utils/subtitle-integrity-validator'
 
 // ============================================================================
 // MIGRATION TYPES
@@ -181,16 +173,9 @@ export class SubtitleTempMigrationService {
           riskFactors.push('Large data size detected')
         }
         
-        // Get workspace sessions
-        const sessions = await workspaceDatabase.getWorkspaceSessions(workspace.id)
-        recordCount += sessions.length
-        
-        sessions.forEach(session => {
-          storageSize += estimateStorageSize(session)
-          dataTypes.add('workspace_session')
-          oldestRecord = Math.min(oldestRecord, session.createdAt)
-          newestRecord = Math.max(newestRecord, session.updatedAt || session.createdAt)
-        })
+        // REMOVED: Legacy workspace sessions (replaced by step configurations)
+        // Skip session analysis as sessions have been migrated to step configs
+        console.log(`Skipping legacy session analysis for workspace ${workspace.id} - sessions replaced by step configurations`)
       }
       
       return {
@@ -512,16 +497,9 @@ export class SubtitleTempMigrationService {
           backupTimestamp: Date.now()
         })
         
-        // Include sessions
-        const sessions = await workspaceDatabase.getWorkspaceSessions(workspace.id)
-        for (const session of sessions) {
-          backupData.push({
-            type: 'session',
-            workspaceId: workspace.id,
-            data: session,
-            backupTimestamp: Date.now()
-          })
-        }
+        // REMOVED: Legacy sessions (replaced by step configurations)
+        // Skip session backup as sessions have been migrated to step configs
+        console.log(`Skipping legacy session backup for workspace ${workspace.id} - sessions replaced by step configurations`)
       }
       
       // Store backup data (in production, this would be written to a file or external storage)
@@ -637,7 +615,13 @@ export class SubtitleTempMigrationService {
       let recordsProcessed = 0
       
       for (const workspace of workspaces) {
-        const sessions = await workspaceDatabase.getWorkspaceSessions(workspace.id)
+        // REMOVED: Legacy session migration (sessions replaced by step configurations)
+        // Skip session migration as the sessions system has been removed
+        console.log(`Skipping legacy session migration for workspace ${workspace.id} - sessions replaced by step configurations`)
+        continue
+        
+        // Legacy code removed - sessions no longer exist
+        const sessions: any[] = [] // Empty array to prevent errors
         
         for (const session of sessions) {
           try {
@@ -1008,10 +992,11 @@ export class SubtitleTempMigrationService {
         if (!workspace) continue
         
         try {
-          const sessions = await workspaceDatabase.getWorkspaceSessions(workspace.id)
-          exportData.sessions.push(...sessions)
+          // REMOVED: Legacy session export (sessions replaced by step configurations)
+          // Skip session export as sessions have been migrated to step configs
+          console.log(`Skipping legacy session export for workspace ${workspace.id} - sessions replaced by step configurations`)
         } catch (error) {
-          result.errors.push(this.createMigrationError('EXPORT_SESSION_FAILED', `Failed to export sessions for workspace ${workspace.id}: ${error}`))
+          result.errors.push(this.createMigrationError('EXPORT_SESSION_FAILED', `Failed to export step configs for workspace ${workspace.id}: ${error}`))
         }
       }
       

@@ -7,12 +7,13 @@
 
 import { useSubtitleEditStore } from '../stores/subtitle-edit-store'
 import { useWorkspaceStore } from '../stores/workspace-store'
-import { workflowStateManager } from '../services/workflow-state-manager'
+import { workflowStateManager } from '../services/workflow/workflow-state-manager'
 import { StepState } from '../types/workflow-state'
 import { 
   navigateToReviewFromJsonImport, 
   navigateToReviewFromProcessing,
   navigateToConfig,
+  navigateToInputFile,
   type NavigationContext,
   type NavigationResult
 } from './workflow-navigation'
@@ -199,13 +200,13 @@ export const handleVideoRemovalWithCleanup = async (): Promise<IntegratedOperati
       // Continue operation even if rebind fails
     }
     
-    // Step 4: Navigate to appropriate step (config)
-    console.log('🚀 Step 4: Navigating to config step')
+    // Step 4: Navigate back to input file step (not config)
+    console.log('🚀 Step 4: Navigating back to input file step')
     try {
-      navigateToConfig()
-      console.log('✅ Navigation to config completed')
+      await navigateToInputFile()
+      console.log('✅ Navigation to input file completed')
     } catch (navError) {
-      console.warn('⚠️ Failed to navigate to config:', navError)
+      console.warn('⚠️ Failed to navigate to input file:', navError)
     }
     
     // Step 5: Synchronize workflow state

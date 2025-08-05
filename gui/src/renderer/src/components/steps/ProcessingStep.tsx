@@ -6,7 +6,7 @@ import {
   Alert,
   Snackbar} from "@mui/material";
 import { useAppStore } from "../../stores/app-store";
-import { workflowStateManager } from "../../services/workflow-state-manager";
+import { workflowStateManager } from "../../services/workflow/workflow-state-manager";
 import { StepState } from "../../types/workflow-state";
 import { useProcessingStepConfig, useWorkspaceConfig } from '../../contexts/WorkspaceConfigContext';
 import { ProcessingErrorBoundary } from "../common/ProcessingErrorBoundary";

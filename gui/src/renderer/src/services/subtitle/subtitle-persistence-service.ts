@@ -20,13 +20,13 @@ import type {
   SubtitleFileOperation,
   BatchSubtitleFileOperationRequest,
   BatchSubtitleFileOperationResponse
-} from '../types/subtitle-persistence'
+} from '../../types/subtitle-persistence'
 
 import {
   DEFAULT_SUBTITLE_CACHE_CONFIG,
   isSubtitleFileError,
   isSubtitleFileContent,
-} from '../types/subtitle-persistence'
+} from '../../types/subtitle-persistence'
 
 // Constants
 const STREAMING_THRESHOLD = 100 * 1024 // 100KB

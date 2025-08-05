@@ -4,7 +4,7 @@
  * and coordinating between multiple systems that need to update step states.
  */
 
-import { workflowStateManager } from '../services/workflow-state-manager'
+import { workflowStateManager } from '../services/workflow/workflow-state-manager'
 import { StepState, type StepId } from '../types/workflow-state'
 
 class StepStateController {
@@ -40,28 +40,45 @@ class StepStateController {
 
   /**
    * Atomic video removal - All steps reset to Blocked except Step 1 (input-file) → Ready
+   * Also clears all JSON caption data and associated configuration
    */
   async handleVideoRemoval(): Promise<void> {
     return this.executeAtomicStepOperation(async () => {
-      console.log('🗑️ Atomic video removal: resetting all steps to Blocked except input-file → Ready')
+      console.log('🗑️ Atomic video removal: resetting all steps + clearing JSON data')
+      
+      // Clear main process video and caption state first
+      try {
+        await window.cantocapAPI.clearVideoAndCaptionState()
+        console.log('✅ Main process video and caption state cleared')
+      } catch (error) {
+        console.warn('⚠️ Failed to clear main process state:', error)
+      }
+      
+      // Clear temporary subtitle data from main process
+      try {
+        await window.cantocapAPI.clearTempSubtitleData()
+        console.log('✅ Temp subtitle data cleared')
+      } catch (error) {
+        console.warn('⚠️ Failed to clear temp subtitle data:', error)
+      }
       
       // Reset all steps to Blocked first
       const allSteps: StepId[] = ['input-file', 'config', 'processing', 'review', 'export'] as StepId[]
       for (const stepId of allSteps) {
         if (stepId !== 'input-file') {
           await workflowStateManager.transitionState(stepId, StepState.Blocked, {
-            reason: 'Video removed - step blocked'
+            reason: 'Video removed - step blocked and JSON data cleared'
           })
         }
       }
       
       // Set input-file to Ready state
       await workflowStateManager.transitionState('input-file', StepState.Ready, {
-        reason: 'Video removed - ready for new input'
+        reason: 'Video removed - ready for new input (JSON data cleared)'
       })
       
-      console.log('✅ Video removal atomic operation completed')
-    }, { operation: 'video-removal' })
+      console.log('✅ Video removal with comprehensive JSON cleanup completed')
+    }, { operation: 'video-removal-with-json-cleanup' })
   }
 
   /**
@@ -277,8 +294,10 @@ class StepStateController {
       console.log('✅ [DEBUG] Config transition succeeded')
     }
 
-    // Automatically navigate to config step after video upload
-    workflowStateManager.setCurrentStep('config')
+    // REMOVED: Automatic navigation that was causing unwanted step changes
+    // Users should stay at step 1 after video upload and manually navigate when ready
+    // workflowStateManager.setCurrentStep('config')
+    console.log('🔧 [FIX] Video upload completed - staying at step 1, no auto-navigation')
     
     // Check state again after navigation
     const configStateAfterNav = workflowStateManager.getStepState('config')
@@ -359,38 +378,47 @@ class StepStateController {
     return this.executeAtomicStepOperation(async () => {
       console.log('🚀 Atomic JSON import navigation', context)
       
-      // Complete input step if not already completed
-      const inputStepState = workflowStateManager.getStepState('input-file')
+      // PERFORMANCE OPTIMIZATION: Batch all step transitions to reduce re-renders
+      console.log('🚀 [PERFORMANCE] Batching JSON import step transitions')
       
+      const inputStepState = workflowStateManager.getStepState('input-file')
+      const stepTransitions: Promise<void>[] = []
+      
+      // Complete input step if not already completed
       if (inputStepState !== StepState.Complete) {
-        console.log('🔧 Input-file step not completed, completing it for JSON import navigation')
-        await workflowStateManager.transitionState('input-file', StepState.Complete, {
-          reason: 'JSON import - completing input step'
-        })
+        console.log('🔧 Input-file step will be completed for JSON import')
+        stepTransitions.push(
+          workflowStateManager.transitionState('input-file', StepState.Complete, {
+            reason: 'JSON import - completing input step'
+          })
+        )
       } else {
-        console.log('✅ Input-file step already completed for JSON import navigation')
+        console.log('✅ Input-file step already completed')
       }
       
-      // Skip config and processing steps since we're importing processed subtitles
-      await workflowStateManager.transitionState('config', StepState.Skip, {
-        reason: 'JSON import - config not needed'
-      })
+      // Batch skip config and processing, enable review and export
+      stepTransitions.push(
+        workflowStateManager.transitionState('config', StepState.Skip, {
+          reason: 'JSON import - config not needed'
+        }),
+        workflowStateManager.transitionState('processing', StepState.Skip, {
+          reason: 'JSON import - processing not needed'
+        }),
+        workflowStateManager.transitionState('review', StepState.Ready, {
+          reason: 'JSON import - ready for review'
+        }),
+        workflowStateManager.transitionState('export', StepState.Ready, {
+          reason: 'JSON import - ready for export'
+        })
+      )
       
-      await workflowStateManager.transitionState('processing', StepState.Skip, {
-        reason: 'JSON import - processing not needed'
-      })
+      // Execute all step transitions in parallel
+      await Promise.all(stepTransitions)
       
-      // Enable and navigate to review step
-      await workflowStateManager.transitionState('review', StepState.Ready, {
-        reason: 'JSON import - ready for review'
-      })
-      
+      // Set current step after all transitions complete
       workflowStateManager.setCurrentStep('review')
       
-      // Enable export step as well since subtitles are ready
-      await workflowStateManager.transitionState('export', StepState.Ready, {
-        reason: 'JSON import - ready for export'
-      })
+      console.log('✅ [PERFORMANCE] Batched JSON import step transitions completed')
       
       console.log('✅ JSON import navigation completed')
     }, { operation: 'json-import-navigation', context })

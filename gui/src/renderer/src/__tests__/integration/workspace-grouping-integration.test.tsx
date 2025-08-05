@@ -11,7 +11,7 @@ import { act } from '@testing-library/react'
 import React from 'react'
 import FDBFactory from 'fake-indexeddb/lib/FDBFactory'
 import FDBKeyRange from 'fake-indexeddb/lib/FDBKeyRange'
-import { workspaceDatabase } from '../../services/workspace-database'
+import { workspaceDatabase } from '../../services/workspace/workspace-database'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 // REMOVED: auto-save-engine import - timer-based auto-save system deleted
 import type { 

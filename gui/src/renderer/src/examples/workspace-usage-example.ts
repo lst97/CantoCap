@@ -10,8 +10,8 @@
  * This example shows the complete workflow from initialization to usage.
  */
 
-import { getWorkspaceIPCIntegration } from '../services/workspace-ipc-integration'
-import { getWorkspaceDatabase } from '../services/workspace-database'
+import { getWorkspaceIPCIntegration } from '../services/workspace/workspace-ipc-integration'
+import { getWorkspaceDatabase } from '../services/workspace/workspace-database'
 import type { 
   Workspace, 
   WorkspaceConfig, 

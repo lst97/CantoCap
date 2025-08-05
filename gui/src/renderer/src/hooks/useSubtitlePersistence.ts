@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSubtitleTempStorage, type UseSubtitleTempStorageResult } from './useSubtitleTempStorage';
 import { useWorkspaceConfig } from '../contexts/WorkspaceConfigContext';
-import { getSubtitlePersistenceService } from '../services/subtitle-persistence-service';
+import { getSubtitlePersistenceService } from '../services/subtitle/subtitle-persistence-service';
 import type {
   SubtitleFileContent,
   SubtitleFileOperations,

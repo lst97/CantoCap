@@ -16,7 +16,7 @@ import {
   Warning as WarningIcon
 } from '@mui/icons-material'
 import { useAppStore } from '../../stores/app-store'
-import { triggerUserInteraction } from '../../services/workflow-config-bridge'
+import { triggerUserInteraction } from '../../services/bridge/workflow-config-bridge'
 
 interface TranslationOption {
   value: string

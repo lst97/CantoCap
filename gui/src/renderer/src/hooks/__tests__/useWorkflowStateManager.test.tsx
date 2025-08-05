@@ -14,7 +14,7 @@ import {
   useStepValidation,
   useWorkflowControl
 } from '../useWorkflowStateManager'
-import { WorkflowStateManager } from '../../services/workflow-state-manager'
+import { WorkflowStateManager } from '../../services/workflow/workflow-state-manager'
 import {
   StepState,
   createStepId,

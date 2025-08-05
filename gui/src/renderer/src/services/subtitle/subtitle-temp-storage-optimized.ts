@@ -9,7 +9,7 @@
  * - Performance monitoring and adaptive behavior
  */
 
-import type { SubtitleData } from '../../../types'
+import type { SubtitleData } from '../../../../types'
 import type {
   SubtitleTempStorageRecord,
   SubtitleTempSessionRecord,
@@ -23,7 +23,7 @@ import type {
   SubtitleTempBatchResponse,
   SubtitleTempCleanupResult,
   SubtitleTempStorageConfig
-} from '../types/subtitle-temp-storage'
+} from '../../types/subtitle-temp-storage'
 import {
   SUBTITLE_TEMP_STORAGE_CONSTANTS,
   DEFAULT_SUBTITLE_TEMP_CONFIG,
@@ -32,7 +32,7 @@ import {
   estimateStorageSize,
   isSubtitleTempError,
   isSubtitleTempContent
-} from '../types/subtitle-temp-storage'
+} from '../../types/subtitle-temp-storage'
 import {
   IndexedDBConnectionPool,
   BatchProcessor,
@@ -41,7 +41,7 @@ import {
   performanceManager,
   PERFORMANCE_CONFIG
 } from './subtitle-temp-storage-performance'
-import { workspaceDatabase } from './workspace-database'
+import { workspaceDatabase } from '../workspace/workspace-database'
 
 // ============================================================================
 // OPTIMIZED CACHE LAYER

@@ -26,7 +26,7 @@ import {
   PowerSettingsNew as PowerIcon,
 } from "@mui/icons-material";
 import { useAppStore } from "../../../stores/app-store";
-import { workflowStateManager } from "../../../services/workflow-state-manager";
+import { workflowStateManager } from "../../../services/workflow/workflow-state-manager";
 import { ErrorCategory } from "../../../types/error";
 import { errorHandler } from "../../../utils/errorHandler";
 import { ErrorCard, InfoSection } from "./styles";

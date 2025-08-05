@@ -11,6 +11,14 @@ import type {
   SubtitleSessionData,
   SubtitleValidationResult
 } from './subtitle-persistence'
+import type {
+  StepState,
+  StepId,
+  Timestamp,
+  WorkflowStepState,
+  AnyWorkflowStepState,
+  StateTransitionKey
+} from './workflow-state'
 
 // ============================================================================
 // STEP CONFIGURATION SYSTEM
@@ -414,6 +422,37 @@ export interface WorkspaceConfig extends AppConfig {
   version?: number
   /** Flag indicating migration to step configs is complete */
   _stepConfigsEnabled?: boolean
+  
+  // Enhanced step state persistence
+  /** Step states for workflow persistence across app restarts */
+  stepStates?: Record<WorkflowStepId, {
+    state: StepState
+    lastModified: number
+    metadata?: Record<string, unknown>
+    dependencies?: WorkflowStepId[]
+    validationPassed?: boolean
+    errorMessage?: string
+  }>
+  
+  /** Current active step for navigation restoration */
+  lastActiveStep?: WorkflowStepId
+  
+  /** Step transition history for debugging and rollback */
+  stepTransitionHistory?: Array<{
+    stepId: WorkflowStepId
+    fromState: StepState
+    toState: StepState
+    timestamp: number
+    reason?: string
+  }>
+  
+  /** JSON import context preservation */
+  importContext?: {
+    sourceType: 'regular' | 'json-import' | 'manual'
+    timestamp: number
+    importedJsonFile?: string
+    metadata?: Record<string, unknown>
+  }
 }
 
 export interface WorkspaceMetadata {
@@ -792,7 +831,7 @@ export interface EnhancedWorkspacePerformanceMetrics extends WorkspacePerformanc
   /** Step-specific operation details */
   stepId?: WorkflowStepId
   /** Operation category */
-  category: 'workspace' | 'step_config' | 'cache' | 'migration'
+  category: 'workspace' | 'step_config' | 'cache' | 'migration' | 'workspace_group' | 'workspace_mapping' | 'workspace_group_query' | 'workspace_reorder' | 'workspace_migration' | 'workspace_with_grouping'
   /** Cache performance data */
   cacheMetrics?: {
     hitRate: number
@@ -1422,10 +1461,8 @@ export interface WorkspaceStoreActions {
   deleteWorkspace: (workspaceId: string) => Promise<void>
   duplicateWorkspace: (workspaceId: string, newName: string) => Promise<Workspace>
   
-  // Session Management
-  saveWorkspaceSession: <T extends SessionDataUnion = SessionDataUnion>(sessionType: SessionType, sessionData: T) => Promise<void>
-  loadWorkspaceSession: <T extends SessionDataUnion = SessionDataUnion>(workspaceId: string, sessionType: SessionType) => Promise<T | null>
-  deleteWorkspaceSession: (workspaceId: string, sessionType: SessionType) => Promise<void>
+  // REMOVED: Legacy Session Management (replaced by step configuration system)
+  // Use setStepConfig/getStepConfig methods instead
   
   // Auto-Save & Persistence
   autoSaveCurrentWorkspace: () => Promise<void>

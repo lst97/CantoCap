@@ -1,5 +1,5 @@
 import React, { createContext, useContext, ReactNode, useMemo, useCallback, useRef } from 'react'
-import { workflowStateManager } from '../services/workflow-state-manager'
+import { workflowStateManager } from '../services/workflow/workflow-state-manager'
 import { useWorkflowState as useWorkflowStateHook } from '../hooks/useWorkflowStateManager'
 import { StepId, AnyWorkflowStepState, StepState } from '../types/workflow-state'
 

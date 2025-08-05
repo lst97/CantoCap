@@ -18,7 +18,7 @@ import {
   Settings as SettingsIcon,
   Warning as WarningIcon
 } from '@mui/icons-material'
-import { workflowStateManager } from '../../services/workflow-state-manager'
+import { workflowStateManager } from '../../services/workflow/workflow-state-manager'
 import { stepStateController, atomicStepError } from '../../utils/step-state-controller'
 
 interface Props {

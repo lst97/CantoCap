@@ -54,11 +54,71 @@ import {
   WORKFLOW_CONSTANTS,
   DefaultStepId,
   WorkflowTypes
-} from '../types/workflow-state'
-import { performanceMonitor, DetailedPerformanceMetrics } from './performance-monitor'
-import { workflowObjectPool } from './object-pool'
-import { emitWorkflowStateChange } from './config-persistence-event-system'
-import { ElectronStateBridge } from './electron-state-bridge'
+} from '../../types/workflow-state'
+import { performanceMonitor, DetailedPerformanceMetrics } from '../performance/performance-monitor'
+import { workflowObjectPool } from '../object-pool'
+import { emitWorkflowStateChange } from '../config-persistence-event-system'
+import { ElectronStateBridge } from '../bridge/electron-state-bridge'
+
+/**
+ * workspace synchronization state with import context
+ * Merged from enhanced-workflow-state-manager for workspace integration
+ */
+export interface WorkspaceSyncState {
+  isLoading: boolean
+  lastSyncTime: number | null
+  pendingChanges: StepId[]
+  syncErrors: Array<{ stepId: StepId; error: string; timestamp: number }>
+  
+  // Import context management - single source of truth for importedJsonFile
+  importContext?: {
+    sourceType: 'regular' | 'json-import' | 'manual'
+    timestamp: number
+    importedJsonFile?: string
+    metadata?: Record<string, unknown>
+  }
+  
+  // State restoration status
+  restorationStatus: {
+    isRestoring: boolean
+    completedSteps: StepId[]
+    failedSteps: Array<{ stepId: StepId; reason: string }>
+    lastRestoration?: number
+  }
+}
+
+/**
+ * Enhanced state transition tracking
+ * Merged from enhanced-workflow-state-manager
+ */
+export interface StateTransition extends StateChangeEvent {
+  triggeredBy: 'user' | 'system' | 'workspace' | 'import'
+  reason?: string
+}
+
+/**
+ * Enhanced navigation result with detailed feedback
+ * Merged from enhanced-workflow-state-manager
+ */
+export interface NavigationResult {
+  success: boolean
+  stepId: StepId
+  stepState?: StepState
+  error?: string
+  details?: string
+  validationResults?: ValidationResult[]
+}
+
+/**
+ * Step validation result
+ * Merged from enhanced-workflow-state-manager
+ */
+export interface ValidationResult {
+  isValid: boolean
+  errors: string[]
+  warnings: string[]
+  stepId?: StepId
+}
 
 /**
  * Modern logging utility with branded types and const assertions
@@ -115,7 +175,10 @@ const DEFAULT_TRANSITION_RULES = [
   createTransitionRule({ from: StepState.Skip, to: StepState.Ready }),
   
   // Blocked can stay blocked (for navigation scenarios)
-  createTransitionRule({ from: StepState.Blocked, to: StepState.Blocked })
+  createTransitionRule({ from: StepState.Blocked, to: StepState.Blocked }),
+  
+  // Add conditional validation for config step completion
+  // This rule will be checked in performValidation with access to all steps
 ] as const
 
 
@@ -935,6 +998,22 @@ export class WorkflowStateManager {
   // Modern high-frequency access optimization
   private cachedCurrentStep: StepId | null = null
   
+  // Enhanced workspace synchronization state (merged from enhanced manager)
+  private workspaceSync: WorkspaceSyncState = {
+    isLoading: false,
+    lastSyncTime: null,
+    pendingChanges: [],
+    syncErrors: [],
+    restorationStatus: {
+      isRestoring: false,
+      completedSteps: [],
+      failedSteps: []
+    }
+  }
+  
+  // Enhanced transition history with additional metadata
+  private enhancedTransitionHistory: StateTransition[] = []
+  
   // Performance metrics - subset of DetailedPerformanceMetrics that we track locally
   private performanceMetrics: Pick<DetailedPerformanceMetrics, 
     'stateTransitionTime' | 'notificationTime' | 'cacheHitRate' | 'memoryUsage' | 'observerCount' | 'rerenderCount'
@@ -1204,6 +1283,11 @@ export class WorkflowStateManager {
         timestamp: Date.now()
       }
     )
+
+    // Sync to app config for persistence across restarts
+    this.syncToAppConfig().catch(error => {
+      log('Failed to sync workflow state to app config', error, 'error')
+    })
   }
 
   /**
@@ -1377,6 +1461,20 @@ export class WorkflowStateManager {
         attemptedState: newState,
         reason: `Invalid transition from ${currentState} to ${newState}`,
         code: WORKFLOW_CONSTANTS.ERROR_CODES.INVALID_TRANSITION
+      }
+    }
+
+    // Additional business logic validation
+    if (stepId === 'config' && newState === StepState.Complete) {
+      const inputFileStep = this.steps.get('input-file')
+      if (!inputFileStep || inputFileStep.stateMetadata.state !== StepState.Complete) {
+        return {
+          stepId: stepId as string,
+          currentState,
+          attemptedState: newState,
+          reason: 'Config step cannot be completed without a valid input file',
+          code: WORKFLOW_CONSTANTS.ERROR_CODES.VALIDATION_FAILED
+        }
       }
     }
 
@@ -2103,6 +2201,522 @@ export class WorkflowStateManager {
     })
   }
 
+  // ============================================================================
+  // WORKSPACE INTEGRATION METHODS (Phase 2 Enhancement)
+  // ============================================================================
+  
+  /**
+   * Synchronize current workflow state to workspace config
+   * Enables persistence across app restarts
+   */
+  async syncToWorkspaceConfig(workspaceId: string): Promise<void> {
+    const startTime = performance.now()
+    
+    try {
+      log('Syncing workflow state to workspace config', { workspaceId })
+      
+      // Get current state snapshot
+      const stepStates: Record<string, Record<string, unknown>> = {}
+      
+      // Convert all steps to workspace config format
+      for (const [stepId, step] of this.steps.entries()) {
+        stepStates[stepId] = {
+          state: step.stateMetadata.state,
+          lastModified: step.stateMetadata.lastModified,
+          metadata: step.stateMetadata.context,
+          validationPassed: step.stateMetadata.state === StepState.Complete,
+          errorMessage: step.stateMetadata.message
+        }
+      }
+      
+      // Recent transition history available via getEnhancedTransitionHistory() method
+      
+      // Emit workspace config update event
+      emitWorkflowStateChange(
+        this._currentStepId || createStepId('step-1'),
+        StepState.Ready, // previousState
+        StepState.Complete, // newState
+        workspaceId,
+        { stepStates, lastActiveStep: this._currentStepId, syncTimestamp: Date.now() }
+      )
+      
+      performanceMonitor.recordTransition(performance.now() - startTime)
+      log('Workspace config sync completed', { duration: performance.now() - startTime })
+      
+    } catch (error) {
+      performanceMonitor.recordTransition(performance.now() - startTime)
+      log('Workspace config sync failed', error, 'error')
+      throw error
+    }
+  }
+  
+  /**
+   * Restore workflow state from workspace config
+   * Used during app initialization and workspace switching
+   */
+  async restoreFromWorkspaceConfig(workspaceConfig: Record<string, unknown> & { stepStates?: Record<string, unknown>; importContext?: Record<string, unknown> }): Promise<boolean> {
+    const startTime = performance.now()
+    
+    try {
+      log('Restoring workflow state from workspace config', workspaceConfig)
+      
+      // Validate workspace config structure
+      if (!workspaceConfig?.stepStates) {
+        log('No step states found in workspace config, using defaults')
+        return false
+      }
+      
+      // Restore step states
+      const restored: string[] = []
+      for (const [stepId, stepState] of Object.entries(workspaceConfig.stepStates)) {
+        if (typeof stepState === 'object' && stepState && 'state' in stepState) {
+          const validStepId = createStepId(stepId)
+          const currentStep = this.steps.get(validStepId)
+          
+          if (currentStep) {
+            // Create new step state with restored data
+            const metadata = await this.createStateMetadataAsync(
+              (stepState as Record<string, unknown>).state as StepState,
+              ((stepState as Record<string, unknown>).metadata as string) || undefined,
+              ((stepState as Record<string, unknown>).errorMessage as string) || undefined
+            )
+            
+            const restoredStep = {
+              ...currentStep,
+              stateMetadata: {
+                ...metadata,
+                lastModified: (stepState as Record<string, unknown>).lastModified as number || Date.now()
+              }
+            }
+            
+            this.steps.set(validStepId, restoredStep as AnyWorkflowStepState)
+            this.invalidateCaches(validStepId)
+            restored.push(stepId)
+          }
+        }
+      }
+      
+      // Restore active step
+      if (workspaceConfig.lastActiveStep) {
+        const activeStepId = createStepId(workspaceConfig.lastActiveStep as string)
+        if (this.steps.has(activeStepId)) {
+          this._currentStepId = activeStepId
+          this.cachedCurrentStep = null
+        }
+      }
+      
+      // Import context handling (importedJsonFile)
+      if (workspaceConfig.importContext?.importedJsonFile) {
+        log('Restoring import context', workspaceConfig.importContext)
+        // Emit import context restoration event
+        emitWorkflowStateChange(
+          createStepId('input-file'), // stepId
+          StepState.Ready, // previousState
+          StepState.Complete, // newState
+          this.getCurrentWorkspaceId(),
+          { 
+            importedJsonFile: workspaceConfig.importContext.importedJsonFile,
+            importContext: workspaceConfig.importContext,
+            restorationSource: 'workspace-config'
+          }
+        )
+      }
+      
+      performanceMonitor.recordTransition(performance.now() - startTime)
+      log('Workflow state restoration completed', { 
+        restoredSteps: restored, 
+        activeStep: this._currentStepId,
+        duration: performance.now() - startTime 
+      })
+      
+      return restored.length > 0
+      
+    } catch (error) {
+      performanceMonitor.recordTransition(performance.now() - startTime)
+      log('Workspace state restoration failed', error, 'error')
+      return false
+    }
+  }
+  
+  /**
+   * Update import context (handles importedJsonFile)
+   * Centralized management for JSON import state
+   */
+  async updateImportContext(importedJsonFile: string | null, sourceType: 'regular' | 'json-import' | 'manual' = 'json-import'): Promise<void> {
+    const startTime = performance.now()
+    
+    try {
+      log('Updating import context', { importedJsonFile, sourceType })
+      
+      // Emit import context change event
+      emitWorkflowStateChange(
+        createStepId('step-1'), // stepId
+        StepState.Ready, // previousState
+        StepState.Processing, // newState
+        this.getCurrentWorkspaceId(),
+        {
+          importedJsonFile,
+          importContext: {
+            sourceType,
+            timestamp: Date.now(),
+            importedJsonFile,
+            metadata: {
+              updatedBy: 'workflow-state-manager',
+              reason: 'import-context-update'
+            }
+          }
+        }
+      )
+      
+      // Update input-file step if JSON import
+      if (importedJsonFile && sourceType === 'json-import') {
+        const inputFileStep = this.steps.get(createStepId('input-file'))
+        if (inputFileStep) {
+          const updatedStep = {
+            ...inputFileStep,
+            importContext: {
+              sourceType: 'json-import' as const,
+              timestamp: createTimestamp(),
+              metadata: { importedJsonFile }
+            }
+          }
+          
+          this.steps.set(createStepId('input-file'), updatedStep as AnyWorkflowStepState)
+          this.invalidateCaches(createStepId('input-file'))
+        }
+      }
+      
+      performanceMonitor.recordTransition(performance.now() - startTime)
+      log('Import context updated successfully', { duration: performance.now() - startTime })
+      
+    } catch (error) {
+      performanceMonitor.recordTransition(performance.now() - startTime)
+      log('Import context update failed', error, 'error')
+      throw error
+    }
+  }
+  
+  /**
+   * Get current workspace ID for event coordination
+   */
+  private getCurrentWorkspaceId(): string | null {
+    // For now, return null as workspace ID system is not yet implemented
+    // TODO: Implement proper workspace ID management when workspace system is added
+    return null
+  }
+  
+  /**
+   * Get current workspace state summary for debugging
+   */
+  getWorkspaceStateSummary(): Record<string, unknown> {
+    return {
+      currentStep: this._currentStepId,
+      stepStates: Object.fromEntries(
+        Array.from(this.steps.entries()).map(([id, step]) => [
+          id,
+          {
+            state: step.stateMetadata.state,
+            lastModified: step.stateMetadata.lastModified,
+            hasError: step.stateMetadata.state === StepState.Error
+          }
+        ])
+      ),
+      recentTransitions: this.stateHistory.toArray().slice(-5),
+      cacheStats: {
+        stepStatesSize: this.cachedStepStates.size,
+        computedCacheSize: this.computedCache.stats.size,
+        cacheHitRate: this.performanceMetrics.cacheHitRate
+      },
+      performanceMetrics: this.performanceMetrics
+    }
+  }
+  
+  // ============================================================================
+  // APP CONFIG PERSISTENCE METHODS (Phase 2 Enhancement)
+  // ============================================================================
+  
+  /**
+   * Synchronize current workflow state to app config
+   * Enables persistence across app restarts
+   */
+  async syncToAppConfig(): Promise<void> {
+    const startTime = performance.now()
+    
+    try {
+      log('Syncing workflow state to app config')
+      
+      // Create step states object
+      const stepStates: Record<string, { state: string; lastModified: number; reason?: string }> = {}
+      
+      // Convert all steps to app config format
+      for (const [stepId, step] of this.steps.entries()) {
+        stepStates[stepId] = {
+          state: step.stateMetadata.state,
+          lastModified: step.stateMetadata.lastModified,
+          reason: step.stateMetadata.reason
+        }
+      }
+      
+      // Emit IPC event to save to main process config
+      const result = await this.electronBridge.saveWorkflowState(this._currentStepId, stepStates)
+      if (!result.success) {
+        throw new Error('error' in result ? result.error : 'Unknown error')
+      }
+      
+      performanceMonitor.recordTransition(performance.now() - startTime)
+      log('App config sync completed', { duration: performance.now() - startTime })
+      
+    } catch (error) {
+      performanceMonitor.recordTransition(performance.now() - startTime)
+      log('App config sync failed', error, 'error')
+      throw error
+    }
+  }
+  
+  /**
+   * Restore workflow state from app config
+   * Used during app initialization
+   */
+  async restoreFromAppConfig(): Promise<boolean> {
+    const startTime = performance.now()
+    
+    try {
+      log('Restoring workflow state from app config')
+      
+      // Load workflow state from main process config
+      const result = await this.electronBridge.loadWorkflowState()
+      if (!result.success) {
+        throw new Error('error' in result ? result.error : 'Unknown error')
+      }
+      const workflowState = result.data
+      
+      if (!workflowState?.stepStates) {
+        log('No workflow state found in app config, using defaults')
+        return false
+      }
+      
+      // Restore step states
+      const restored: string[] = []
+      for (const [stepId, stepState] of Object.entries(workflowState.stepStates)) {
+        const validStepId = createStepId(stepId)
+        const currentStep = this.steps.get(validStepId)
+        
+        if (currentStep && typeof stepState === 'object' && stepState && 'state' in stepState) {
+          // Create new step state with restored data
+          const metadata = await this.createStateMetadataAsync(
+            stepState.state as StepState,
+            stepState.reason || undefined,
+            undefined
+          )
+          
+          const restoredStep = {
+            ...currentStep,
+            stateMetadata: {
+              ...metadata,
+              lastModified: stepState.lastModified || Date.now()
+            }
+          }
+          
+          this.steps.set(validStepId, restoredStep as AnyWorkflowStepState)
+          this.invalidateCaches(validStepId)
+          restored.push(stepId)
+        }
+      }
+      
+      // Restore current step
+      if (workflowState.currentStep) {
+        const activeStepId = createStepId(workflowState.currentStep)
+        if (this.steps.has(activeStepId)) {
+          this._currentStepId = activeStepId
+          this.cachedCurrentStep = null
+        }
+      }
+      
+      performanceMonitor.recordTransition(performance.now() - startTime)
+      log('App config state restoration completed', { 
+        restoredSteps: restored, 
+        activeStep: this._currentStepId,
+        duration: performance.now() - startTime 
+      })
+      
+      return restored.length > 0
+      
+    } catch (error) {
+      performanceMonitor.recordTransition(performance.now() - startTime)
+      log('App config state restoration failed', error, 'error')
+      return false
+    }
+  }
+
+  /**
+   * Enhanced workspace synchronization methods (merged from enhanced manager)
+   */
+  
+  /**
+   * Get current workspace synchronization state
+   */
+  getWorkspaceSyncState(): Readonly<WorkspaceSyncState> {
+    return { ...this.workspaceSync }
+  }
+  
+  /**
+   * Set import context for workspace synchronization
+   */
+  async setImportContext(context: {
+    sourceType: 'regular' | 'json-import' | 'manual'
+    importedJsonFile?: string
+    metadata?: Record<string, unknown>
+  }): Promise<void> {
+    const startTime = performance.now()
+    
+    try {
+      this.workspaceSync.importContext = {
+        sourceType: context.sourceType,
+        timestamp: Date.now(),
+        importedJsonFile: context.importedJsonFile,
+        metadata: context.metadata
+      }
+      
+      // Emit workspace state change for import context update
+      await this.updateImportContext(context.importedJsonFile || null, context.sourceType)
+      
+      performanceMonitor.recordTransition(performance.now() - startTime)
+      log('Import context updated', context)
+      
+    } catch (error) {
+      performanceMonitor.recordTransition(performance.now() - startTime)
+      log('Import context update failed', error, 'error')
+      throw error
+    }
+  }
+  
+  /**
+   * Get current import context
+   */
+  getImportContext(): WorkspaceSyncState['importContext'] {
+    return this.workspaceSync.importContext
+  }
+  
+  /**
+   * Clear import context
+   */
+  async clearImportContext(): Promise<void> {
+    this.workspaceSync.importContext = undefined
+    await this.updateImportContext(null, 'regular')
+    log('Import context cleared')
+  }
+  
+  /**
+   * Enhanced navigation with validation
+   */
+  async navigateToStep(stepId: StepId, force = false): Promise<NavigationResult> {
+    const startTime = performance.now()
+    
+    try {
+      const step = this.steps.get(stepId)
+      if (!step) {
+        return {
+          success: false,
+          stepId,
+          error: 'Step not found',
+          details: `Step ${stepId} does not exist`
+        }
+      }
+      
+      // Check if navigation is allowed
+      if (!force && !this.isStepAccessible(stepId)) {
+        const validationResult = this.validateStepTransition(this._currentStepId, stepId)
+        return {
+          success: false,
+          stepId,
+          error: 'Navigation not allowed',
+          details: 'Step is not accessible',
+          validationResults: [validationResult]
+        }
+      }
+      
+      // Perform navigation
+      const previousStepId = this._currentStepId
+      this._currentStepId = stepId
+      this.cachedCurrentStep = null
+      
+      // Record enhanced transition
+      const transition: StateTransition = {
+        stepId,
+        previousState: this.steps.get(previousStepId)?.stateMetadata.state || StepState.Pending,
+        newState: step.stateMetadata.state,
+        timestamp: createTimestamp(),
+        metadata: {
+          state: step.stateMetadata.state,
+          lastModified: createTimestamp(),
+          reason: 'navigation',
+          context: { force }
+        },
+        triggeredBy: 'user'
+      }
+      
+      this.enhancedTransitionHistory.push(transition)
+      this.stateHistory.push(transition)
+      
+      performanceMonitor.recordTransition(performance.now() - startTime)
+      log('Navigation completed', { from: previousStepId, to: stepId, force })
+      
+      return {
+        success: true,
+        stepId,
+        stepState: step.stateMetadata.state
+      }
+      
+    } catch (error) {
+      performanceMonitor.recordTransition(performance.now() - startTime)
+      log('Navigation failed', error, 'error')
+      
+      return {
+        success: false,
+        stepId,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        details: 'Navigation failed due to internal error'
+      }
+    }
+  }
+  
+  /**
+   * Validate step transition
+   */
+  validateStepTransition(fromStepId: StepId, toStepId: StepId): ValidationResult {
+    const errors: string[] = []
+    const warnings: string[] = []
+    
+    const fromStep = this.steps.get(fromStepId)
+    const toStep = this.steps.get(toStepId)
+    
+    if (!fromStep) {
+      errors.push(`Source step ${fromStepId} not found`)
+    }
+    
+    if (!toStep) {
+      errors.push(`Target step ${toStepId} not found`)
+    }
+    
+    if (!this.isStepAccessible(toStepId)) {
+      errors.push(`Step ${toStepId} is not accessible`)
+    }
+    
+    return {
+      isValid: errors.length === 0,
+      errors,
+      warnings,
+      stepId: toStepId
+    }
+  }
+  
+  /**
+   * Get enhanced transition history
+   */
+  getEnhancedTransitionHistory(): readonly StateTransition[] {
+    return [...this.enhancedTransitionHistory]
+  }
+  
   /**
    * Cleanup resources with enhanced memory management
    */
@@ -2137,6 +2751,20 @@ export const getStepState = (stepId: string) => workflowStateManager.getStepStat
 export const isStepAccessible = (stepId: string) => workflowStateManager.isStepAccessible(stepId)
 export const transitionStep = (stepId: string, newState: StepState, metadata?: Partial<StepStateMetadata>) => 
   workflowStateManager.transitionState(stepId, newState, metadata)
+
+// Enhanced workspace synchronization exports (for compatibility with enhanced manager)
+export const setImportContext = (context: Parameters<WorkflowStateManager['setImportContext']>[0]) => 
+  workflowStateManager.setImportContext(context)
+export const getImportContext = () => workflowStateManager.getImportContext()
+export const clearImportContext = () => workflowStateManager.clearImportContext()
+export const navigateToStep = (stepId: StepId, force?: boolean) => workflowStateManager.navigateToStep(stepId, force)
+export const validateStepTransition = (fromStepId: StepId, toStepId: StepId) => 
+  workflowStateManager.validateStepTransition(fromStepId, toStepId)
+export const getWorkspaceSyncState = () => workflowStateManager.getWorkspaceSyncState()
+export const getEnhancedTransitionHistory = () => workflowStateManager.getEnhancedTransitionHistory()
+
+// Alias for enhanced manager compatibility
+export const useWorkflowStateManager = workflowStateManager
 
 // Debug call stack tracking (development only)
 const debugCallStack: string[] = []

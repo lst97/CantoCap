@@ -10,9 +10,9 @@
 // CORE SERVICES
 // ============================================================================
 
-export { WorkspaceDatabase, workspaceDatabase } from './workspace-database'
-export { SubtitleTempStorageService, subtitleTempStorageService } from './subtitle-temp-storage-service'
-export { SubtitleTempMigrationService, subtitleTempMigrationService } from './subtitle-temp-migration'
+export { WorkspaceDatabase, workspaceDatabase } from './workspace/workspace-database'
+export { SubtitleTempStorageService, subtitleTempStorageService } from './subtitle/subtitle-temp-storage-service'
+export { SubtitleTempMigrationService, subtitleTempMigrationService } from './subtitle/subtitle-temp-migration'
 
 // ============================================================================
 // VALIDATION AND INTEGRITY
@@ -64,7 +64,7 @@ export type {
   MigrationStep,
   MigrationResult,
   LegacySubtitleData
-} from './subtitle-temp-migration'
+} from './subtitle/subtitle-temp-migration'
 
 // ============================================================================
 // CONSTANTS AND UTILITIES
@@ -429,13 +429,13 @@ import type {
   SubtitleValidationWarning,
   SubtitleTempCleanupResult
 } from '../types/subtitle-temp-storage'
-import type { MigrationResult, LegacySubtitleData } from './subtitle-temp-migration'
+import type { MigrationResult, LegacySubtitleData } from './subtitle/subtitle-temp-migration'
 import {
   DEFAULT_SUBTITLE_TEMP_CONFIG,
   generateTempStorageId
 } from '../types/subtitle-temp-storage'
-import { subtitleTempStorageService } from './subtitle-temp-storage-service'
-import { subtitleTempMigrationService } from './subtitle-temp-migration'
+import { subtitleTempStorageService } from './subtitle/subtitle-temp-storage-service'
+import { subtitleTempMigrationService } from './subtitle/subtitle-temp-migration'
 
 // Re-export SubtitleData for convenience
 export type { SubtitleData }

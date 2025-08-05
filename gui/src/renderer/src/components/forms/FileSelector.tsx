@@ -32,10 +32,10 @@ import {
   atomicStepReset,
   atomicVideoRemoval,
 } from '../../utils/step-state-controller';
-import { workflowStateManager } from '../../services/workflow-state-manager';
+import { workflowStateManager } from '../../services/workflow/workflow-state-manager';
 import { StepState } from '../../types/workflow-state';
 import { testSubscriptionSystem } from '../../utils/subscription-test';
-import { triggerUserInteraction, triggerConfigUpdate } from '../../services/workflow-config-bridge';
+import { triggerUserInteraction, triggerConfigUpdate } from '../../services/bridge/workflow-config-bridge';
 
 // TypeScript interfaces for subtitle data structure
 interface SubtitleData {
@@ -363,16 +363,20 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
   ]);
 
   const handleClearFile = useCallback(async () => {
-    console.log('🗑️ Removing video file with atomic operations');
+    console.log('🗑️ Removing video file with comprehensive cleanup (video + JSON)');
 
-    // Trigger immediate config update through event system
+    // Trigger immediate config updates through event system
     triggerUserInteraction('file-selection', 'inputFile', null);
+    triggerUserInteraction('file-selection', 'importedJsonFile', null);
 
-    // CRITICAL FIX: Clear the input file from app config FIRST
+    // CRITICAL FIX: Clear BOTH video AND JSON data from app config
     updateConfig('inputFile', null);
+    updateConfig('importedJsonFile', null);
+    updateConfig('subtitle', null);
+    updateConfig('isImportedFromJson', false);
 
-    // Use atomic video removal instead of full workspace reset
-    // This preserves step states and only resets what's necessary
+    // Use atomic video removal with comprehensive cleanup
+    // This preserves step states and resets video + JSON data
     await atomicVideoRemoval();
 
     // Clear local component state
@@ -383,8 +387,8 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
     // Notify parent component that file was removed
     onFileRemoved?.();
 
-    showNotification('Video file removed', 'info');
-    console.log('✅ Video file removal completed');
+    showNotification('Video file and associated JSON data removed', 'info');
+    console.log('✅ Video file removal with JSON cleanup completed');
   }, [updateConfig, onFileRemoved, showNotification]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {

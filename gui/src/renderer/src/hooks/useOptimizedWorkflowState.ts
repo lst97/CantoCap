@@ -10,8 +10,8 @@ import {
   getStepState,
   isStepAccessible,
   transitionStep
-} from '../services/workflow-state-manager'
-import { performanceMonitor } from '../services/performance-monitor'
+} from '../services/workflow/workflow-state-manager'
+import { performanceMonitor } from '../services/performance/performance-monitor'
 import {
   StepState,
   StepId,

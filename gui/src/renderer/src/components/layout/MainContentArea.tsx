@@ -1,6 +1,6 @@
 import React from 'react'
 import { Box, Typography } from '@mui/material'
-import { workflowStateManager } from '../../services/workflow-state-manager'
+import { workflowStateManager } from '../../services/workflow/workflow-state-manager'
 import { useWorkflowState } from '../../contexts/WorkflowStateContext'
 import { useWorkspaceRequirement } from '../../contexts/WorkspaceConfigContext'
 import { useWorkspacePanelIntegration } from '../workspace/hooks'

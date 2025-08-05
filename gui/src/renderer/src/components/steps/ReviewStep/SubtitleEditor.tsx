@@ -24,7 +24,7 @@ import {
   FileDownload as ExportIcon,
 } from "@mui/icons-material";
 import { useSubtitleEditStore } from "../../../stores/subtitle-edit-store";
-import { workflowStateManager } from "../../../services/workflow-state-manager";
+import { workflowStateManager } from "../../../services/workflow/workflow-state-manager";
 import { useWorkflowNavigation } from "../../../hooks/useWorkflowStateManager";
 import { StepState } from "../../../types/workflow-state";
 import { ReviewCard, ActionButton } from "./styles";

@@ -13,7 +13,7 @@ import {
 } from '@mui/icons-material'
 import { BaseButton, BaseAlert, BaseSelector } from '../elements'
 import { useAppStore } from '../../stores/app-store'
-import { triggerUserInteraction } from '../../services/workflow-config-bridge'
+import { triggerUserInteraction } from '../../services/bridge/workflow-config-bridge'
 
 export const OutputLocationSelector: React.FC = () => {
   const { config, updateConfig, showNotification } = useAppStore()

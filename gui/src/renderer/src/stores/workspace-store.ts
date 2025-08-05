@@ -5,7 +5,7 @@ import { subscribeWithSelector } from 'zustand/middleware'
 const generateUUID = (): string => {
   return crypto.randomUUID()
 }
-import { workspaceDatabase } from '../services/workspace-database'
+import { workspaceDatabase } from '../services/workspace/workspace-database'
 import { migrationService } from '../services/migration-service'
 // REMOVED: auto-save-engine - timer-based auto-save system deleted
 import { performanceMonitor } from '../utils/performance-monitor'
@@ -13,8 +13,7 @@ import type {
   Workspace, 
   WorkspaceConfig, 
   WorkspaceMetadata,
-  WorkspaceSession,
-  SessionType,
+  // REMOVED: WorkspaceSession, SessionType (legacy - replaced by step states)
   WorkspaceError,
   AutoSaveStatus,
   AutoSaveConfig,
@@ -1039,69 +1038,9 @@ export const useWorkspaceStore = create<EnhancedWorkspaceStoreWithGrouping>()(
         }
       },
 
-      // Session Management
-      saveWorkspaceSession: async (sessionType: SessionType, sessionData: any) => {
-        const state = get()
-        if (!state.currentWorkspace) {
-          throw new Error('No active workspace')
-        }
-
-        const session: WorkspaceSession = {
-          id: generateUUID(),
-          workspaceId: state.currentWorkspace.id,
-          sessionType,
-          sessionData,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-          isActive: true
-        }
-
-        try {
-          // Deactivate existing sessions of the same type
-          const existingSessions = await workspaceDatabase.getWorkspaceSessions(state.currentWorkspace.id)
-          for (const existingSession of existingSessions) {
-            if (existingSession.sessionType === sessionType && existingSession.isActive) {
-              await workspaceDatabase.updateSession({
-                ...existingSession,
-                isActive: false
-              })
-            }
-          }
-
-          await workspaceDatabase.createSession(session)
-        } catch (error) {
-          set({ lastError: error as WorkspaceError })
-          throw error
-        }
-      },
-
-      loadWorkspaceSession: async (workspaceId: string, sessionType: SessionType) => {
-        try {
-          const sessions = await workspaceDatabase.getWorkspaceSessions(workspaceId)
-          const activeSession = sessions.find(s => 
-            s.sessionType === sessionType && s.isActive
-          )
-          
-          return activeSession?.sessionData || null
-        } catch (error) {
-          set({ lastError: error as WorkspaceError })
-          throw error
-        }
-      },
-
-      deleteWorkspaceSession: async (workspaceId: string, sessionType: SessionType) => {
-        try {
-          const sessions = await workspaceDatabase.getWorkspaceSessions(workspaceId)
-          const sessionsToDelete = sessions.filter(s => s.sessionType === sessionType)
-          
-          for (const session of sessionsToDelete) {
-            await workspaceDatabase.deleteSession(session.id)
-          }
-        } catch (error) {
-          set({ lastError: error as WorkspaceError })
-          throw error
-        }
-      },
+      // REMOVED: Legacy Session Management (replaced by step state system)
+      // saveWorkspaceSession, loadWorkspaceSession, deleteWorkspaceSession methods removed
+      // Use step configuration system instead via setStepConfig/getStepConfig
 
       // Performance-Optimized Auto-Save & Persistence
       autoSaveCurrentWorkspace: async () => {
@@ -1239,11 +1178,13 @@ export const useWorkspaceStore = create<EnhancedWorkspaceStoreWithGrouping>()(
           throw new Error(`Workspace with id '${workspaceId}' not found`)
         }
 
-        const sessions = await workspaceDatabase.getWorkspaceSessions(workspaceId)
+        // REMOVED: Legacy session export (replaced by step configurations)
+        const stepConfigs = await workspaceDatabase.getStepConfigurations(workspaceId)
         
         return {
           workspace,
-          sessions: format === 'config_only' ? [] : sessions,
+          sessions: [], // Legacy sessions removed - use stepConfigs instead
+          stepConfigurations: format === 'config_only' ? [] : stepConfigs,
           backups: [],
           metadata: {
             exportedAt: Date.now(),

@@ -18,7 +18,7 @@ import {
   StateChangeEvent, 
   WorkflowStateSnapshot,
   createTimestamp
-} from '../types/workflow-state'
+} from '../../types/workflow-state'
 
 // Import the existing ElectronAPI interface from types
 import type { ElectronAPI } from '../../../types'
@@ -1001,6 +1001,37 @@ export class ElectronStateBridge {
     } catch (error) {
       console.error('❌ Failed to load state:', error)
       return null
+    }
+  }
+
+  /**
+   * Workflow state persistence methods for app config integration
+   */
+  async saveWorkflowState(currentStep: string, stepStates: Record<string, { state: string; lastModified: number; reason?: string }>): Promise<Result<void, string>> {
+    try {
+      if (!this.electronAPI?.config) {
+        return { success: false, error: 'Config API not available' }
+      }
+
+      await this.electronAPI.config.saveWorkflowState(currentStep, stepStates)
+      return { success: true, data: undefined }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      return { success: false, error: `Failed to save workflow state: ${errorMessage}` }
+    }
+  }
+
+  async loadWorkflowState(): Promise<Result<{ currentStep?: string; stepStates?: Record<string, any> } | null, string>> {
+    try {
+      if (!this.electronAPI?.config) {
+        return { success: false, error: 'Config API not available' }
+      }
+
+      const workflowState = await this.electronAPI.config.loadWorkflowState()
+      return { success: true, data: workflowState }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      return { success: false, error: `Failed to load workflow state: ${errorMessage}` }
     }
   }
 

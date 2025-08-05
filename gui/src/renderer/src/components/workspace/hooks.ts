@@ -97,10 +97,10 @@ const useIntegratedWorkspaceStore = (): IntegratedWorkspaceStore => {
       workspacesToPreload.forEach(workspace => {
         if (workspace.id !== store.currentWorkspace?.id) {
           WorkspacePreloader.prefetchWorkspace(workspace.id, async () => {
-            // Preload workspace sessions and config
+            // Preload workspace config and step configurations (sessions removed)
             return {
               config: workspace.config,
-              sessions: await store.loadWorkspaceSession?.(workspace.id, 'ui_state')
+              metadata: workspace.metadata || {}
             }
           })
         }
@@ -352,13 +352,15 @@ export const useWorkspaceSession = () => {
     if (!activeWorkspace) return
     
     try {
-      // Save session data to the workspace store
-      await store.saveWorkspaceSession('ui_state', {
-        currentStep: data.currentStep || 'input-file',
-        ...data
+      // UPDATED: Use step configuration instead of legacy sessions
+      await store.setStepConfig(activeWorkspace.id, 'config', {
+        uiState: {
+          currentStep: data.currentStep || 'input-file',
+          ...data
+        }
       })
       
-      console.log('Updated session data for workspace:', activeWorkspace.id, data)
+      console.log('Updated session data via step config for workspace:', activeWorkspace.id, data)
     } catch (error) {
       console.error('Failed to update session data:', error)
     }
@@ -368,8 +370,9 @@ export const useWorkspaceSession = () => {
     if (!activeWorkspace) return {}
     
     try {
-      const sessionData = await store.loadWorkspaceSession(activeWorkspace.id, 'ui_state')
-      return sessionData || { currentStep: 'input-file' }
+      // UPDATED: Use step configuration instead of legacy sessions
+      const stepConfig = await store.getStepConfig(activeWorkspace.id, 'config')
+      return stepConfig?.data?.uiState || { currentStep: 'input-file' }
     } catch (error) {
       console.error('Failed to load session data:', error)
       return { currentStep: 'input-file' }

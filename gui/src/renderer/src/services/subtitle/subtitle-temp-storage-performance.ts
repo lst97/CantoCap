@@ -5,7 +5,7 @@
  * and background processing for the subtitle auto-save system.
  */
 
-import type { SubtitleData } from '../../../types'
+import type { SubtitleData } from '../../../../types'
 import type {
   SubtitleTempContent,
   SubtitleTempStorageRecord,
@@ -13,7 +13,7 @@ import type {
   SubtitleTempOperationResponse,
   SubtitleTempBatchOperation,
   SubtitleTempBatchResponse
-} from '../types/subtitle-temp-storage'
+} from '../../types/subtitle-temp-storage'
 
 // ============================================================================
 // PERFORMANCE CONSTANTS AND CONFIGURATION

@@ -19,7 +19,7 @@ import {
   WorkflowStatePersistence,
   WORKFLOW_CONSTANTS
 } from '../../types/workflow-state'
-import { WorkflowStateManager } from '../../services/workflow-state-manager'
+import { WorkflowStateManager } from '../../services/workflow/workflow-state-manager'
 
 /**
  * Mock implementation of WorkflowStatePersistence for testing

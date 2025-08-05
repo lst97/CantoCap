@@ -3,7 +3,7 @@
  * Tests if the atomic operations properly trigger React re-renders
  */
 
-import { workflowStateManager } from '../services/workflow-state-manager'
+import { workflowStateManager } from '../services/workflow/workflow-state-manager'
 import { atomicVideoRemoval } from './step-state-controller'
 import { StepState } from '../types/workflow-state'
 

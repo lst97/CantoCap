@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo, useEffect, useRef } from 'react';
 import { Box } from '@mui/material';
 import { useWorkflowIntegration } from '../hooks/useWorkflowIntegration';
 import { CustomTitleBar } from './layout/CustomTitleBar';
@@ -18,15 +18,22 @@ interface AppContentProps {
   handleCloseGlobalSettings: () => void;
 }
 
-export const AppContent: React.FC<AppContentProps> = ({
+export const AppContent: React.FC<AppContentProps> = memo(({
   globalSettingsOpen,
   handleCloseGlobalSettings,
 }) => {
+  const isInitialized = useRef(false);
   
   // Initialize workflow integration system - now safely inside WorkflowStateProvider
   useWorkflowIntegration();
   
-  console.log("✅ App content workflow integration initialized");
+  // Only log once during initialization to reduce console noise
+  useEffect(() => {
+    if (!isInitialized.current) {
+      console.log("✅ App content workflow integration initialized");
+      isInitialized.current = true;
+    }
+  }, []);
 
   return (
     <Box
@@ -78,4 +85,4 @@ export const AppContent: React.FC<AppContentProps> = ({
       <GlobalSettingsDialog open={globalSettingsOpen} onClose={handleCloseGlobalSettings} />
     </Box>
   );
-};
+});

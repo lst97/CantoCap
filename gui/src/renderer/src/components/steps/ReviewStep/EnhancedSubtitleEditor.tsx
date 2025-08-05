@@ -39,7 +39,7 @@ import {
   CheckCircle as CheckCircleIcon
 } from '@mui/icons-material'
 import { useSubtitleEditStore } from '../../../stores/subtitle-edit-store'
-import { workflowStateManager } from '../../../services/workflow-state-manager'
+import { workflowStateManager } from '../../../services/workflow/workflow-state-manager'
 import { StepState } from '../../../types/workflow-state'
 import { useSubtitleTempStorage } from '../../../hooks/useSubtitleTempStorage'
 import { ReviewCard, ActionButton } from './styles'

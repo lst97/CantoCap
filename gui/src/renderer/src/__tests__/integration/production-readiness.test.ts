@@ -18,7 +18,7 @@ import React from 'react'
 // Import system components
 import { useWorkspaceStore } from '../../stores/workspace-store'
 import { useAppStore } from '../../stores/app-store'
-import { WorkspaceIPCIntegration } from '../../services/workspace-ipc-integration'
+import { WorkspaceIPCIntegration } from '../../services/workspace/workspace-ipc-integration'
 
 // Import test utilities
 import { 

@@ -10,7 +10,7 @@ import {
   RestartAlt as RestartIcon,
 } from "@mui/icons-material";
 import { useAppStore } from "../../../stores/app-store";
-import { workflowStateManager } from "../../../services/workflow-state-manager";
+import { workflowStateManager } from "../../../services/workflow/workflow-state-manager";
 import { ProcessingCard, GuideButton, SecondaryGuideButton } from "./styles";
 
 export const IdleState: React.FC = () => {

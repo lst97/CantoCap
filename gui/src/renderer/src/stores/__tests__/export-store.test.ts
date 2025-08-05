@@ -5,7 +5,7 @@
 import { act, renderHook } from '@testing-library/react'
 import { useExportStore } from '../export-store'
 import { useSubtitleEditStore } from '../subtitle-edit-store'
-import { workflowStateManager } from '../../services/workflow-state-manager'
+import { workflowStateManager } from '../../services/workflow/workflow-state-manager'
 import type { SubtitleEntry } from '../../types/subtitle'
 
 // Mock dependencies

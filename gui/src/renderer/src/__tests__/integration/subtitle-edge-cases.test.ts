@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { SubtitlePersistenceService, resetSubtitlePersistenceService } from '../../services/subtitle-persistence-service'
+import { SubtitlePersistenceService, resetSubtitlePersistenceService } from '../../services/subtitle/subtitle-persistence-service'
 import {
   generateMockSubtitleFileContent,
   MockIPCResponse,

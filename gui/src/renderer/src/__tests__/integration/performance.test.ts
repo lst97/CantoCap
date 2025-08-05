@@ -19,7 +19,7 @@ import React from 'react'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 import { useAppStore } from '../../stores/app-store'
 // Legacy workflow store removed - using WorkflowStateManager directly
-import { WorkspaceIPCIntegration } from '../../services/workspace-ipc-integration'
+import { WorkspaceIPCIntegration } from '../../services/workspace/workspace-ipc-integration'
 
 // Import types
 import type { 

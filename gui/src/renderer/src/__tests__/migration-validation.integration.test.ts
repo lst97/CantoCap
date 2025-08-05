@@ -11,8 +11,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { WorkspaceIPCIntegration } from '../services/workspace-ipc-integration'
-import { getWorkspaceDatabase } from '../services/workspace-database'
+import { WorkspaceIPCIntegration } from '../services/workspace/workspace-ipc-integration'
+import { getWorkspaceDatabase } from '../services/workspace/workspace-database'
 import { PerformanceMonitor } from '../utils/performance-utils'
 import type { WorkspaceConfig, MigrationStatus } from '../types/workspace'
 

@@ -5,7 +5,7 @@
 
 import { StepState, WorkflowStateSnapshot } from '../types/workflow-state'
 import { WorkflowStep, WorkflowState } from '../types/workflow'
-import { workflowStateManager } from '../services/workflow-state-manager'
+import { workflowStateManager } from '../services/workflow/workflow-state-manager'
 
 /**
  * Migration version tracking

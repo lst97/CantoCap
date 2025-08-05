@@ -53,7 +53,7 @@ import {
   ChartOptions
 } from 'chart.js'
 import { useSubtitleTempStorage } from '../../hooks/useSubtitleTempStorage'
-import { performanceManager, type PerformanceMetric } from '../../services/subtitle-temp-storage-performance'
+import { performanceManager, type PerformanceMetric } from '../../services/subtitle/subtitle-temp-storage-performance'
 
 // Register Chart.js components
 ChartJS.register(

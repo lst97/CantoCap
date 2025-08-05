@@ -14,7 +14,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
-import { ElectronStateBridge, ElectronDebugCollector } from '../../services/electron-state-bridge'
+import { ElectronStateBridge, ElectronDebugCollector } from '../../services/bridge/electron-state-bridge'
 import { useWorkflowState } from '../../hooks/useWorkflowStateManager'
 import { StepState } from '../../types/workflow-state'
 

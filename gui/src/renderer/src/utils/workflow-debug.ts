@@ -3,7 +3,7 @@
  * Comprehensive debugging tools to trace race conditions and navigation failures
  */
 
-import { workflowStateManager, debugWorkflowState, getDebugCallStack } from '../services/workflow-state-manager'
+import { workflowStateManager, debugWorkflowState, getDebugCallStack } from '../services/workflow/workflow-state-manager'
 
 /**
  * Comprehensive race condition debugger

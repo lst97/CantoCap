@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { WorkspaceIPCIntegration } from '../workspace-ipc-integration'
+import { WorkspaceIPCIntegration } from '../workspace/workspace-ipc-integration'
 import type { MigrationStatus } from '../../types/workspace'
 
 // Mock window.cantocapAPI

@@ -5,7 +5,7 @@
  * and session management. Provides comprehensive CRUD operations for temporary subtitle storage.
  */
 
-import type { SubtitleData } from '../../../types'
+import type { SubtitleData } from '../../../../types'
 import type {
   SubtitleTempStorageRecord,
   SubtitleTempSessionRecord,
@@ -23,7 +23,7 @@ import type {
   SubtitleTempStatistics,
   SubtitleValidationWarning,
   SubtitleValidationError
-} from '../types/subtitle-temp-storage'
+} from '../../types/subtitle-temp-storage'
 import {
   SUBTITLE_TEMP_STORAGE_CONSTANTS,
   DEFAULT_SUBTITLE_TEMP_CONFIG,
@@ -34,8 +34,8 @@ import {
   isSubtitleTempError,
   isSubtitleTempContent,
   isSubtitleTempSession
-} from '../types/subtitle-temp-storage'
-import { workspaceDatabase } from './workspace-database'
+} from '../../types/subtitle-temp-storage'
+import { workspaceDatabase } from '../workspace/workspace-database'
 
 // ============================================================================
 // CORE SERVICE CLASS
@@ -1269,4 +1269,4 @@ export const subtitleTempStorageService = new SubtitleTempStorageService()
 // UTILITY EXPORTS
 // ============================================================================
 
-export { isSubtitleTempError, isSubtitleTempContent, isSubtitleTempSession } from '../types/subtitle-temp-storage'
+export { isSubtitleTempError, isSubtitleTempContent, isSubtitleTempSession } from '../../types/subtitle-temp-storage'

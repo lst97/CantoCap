@@ -1,10 +1,10 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
-import { navigateToProcessing, navigateToConfig } from '../utils/workflow-navigation'
 import { generateDebugId } from '../utils/id-generator'
 import { useWorkspaceStore } from '../stores/workspace-store'
-import { workflowStateManager } from '../services/workflow-state-manager'
+import { workflowStateManager } from '../services/workflow/workflow-state-manager'
 import { StepState } from '../types/workflow-state'
+import { navigateToConfig, navigateToProcessing } from '../utils/workflow-navigation'
 import type { 
   AppState, 
   AppConfig, 
@@ -46,14 +46,14 @@ interface AppActions {
   toggleAdvanced: () => void
   showNotification: (message: string, type?: 'success' | 'error' | 'warning' | 'info', duration?: number) => void
   removeNotification: (id: number) => void
-  addToHistory: (inputFile: string, status: string, outputFile?: string | null) => void
+  addToHistory: (inputFile: string, status: 'started' | 'completed' | 'failed' | 'cancelled', outputFile?: string | null) => void
 
   // Utility Functions
   canStartTranscription: () => boolean
   getConfigAsCliArgs: () => string[]
   
   // Testing and workspace integration methods
-  loadFromWorkspace: (workspace: any) => Promise<void>
+  loadFromWorkspace: (workspace: { appConfig?: Partial<AppConfig> }) => Promise<void>
   getConfig: () => AppConfig
   reset: () => void
 }
@@ -172,6 +172,15 @@ export const useAppStore = create<AppStore>()(
         set({ appVersion: version, isInitialized: true })
         console.log('✅ App store state updated with version')
         
+        // Restore workflow state from app config
+        try {
+          console.log('🔄 Restoring workflow state...')
+          await workflowStateManager.restoreFromAppConfig()
+          console.log('✅ Workflow state restored')
+        } catch (error) {
+          console.warn('Failed to restore workflow state:', error)
+        }
+        
         // Try workspace initialization with fallback
         console.log('🔄 Starting workspace initialization...')
         try {
@@ -219,15 +228,23 @@ export const useAppStore = create<AppStore>()(
             workspaceId: workspaceStore.currentWorkspace.id,
             hasConfig: !!workspaceConfig,
             configKeys: workspaceConfig ? Object.keys(workspaceConfig) : [],
-            importedJsonFile: workspaceConfig?.importedJsonFile,
+            importedJsonFile: workspaceConfig?.importedJsonFile || workspaceConfig?.importContext?.importedJsonFile,
+            importContext: workspaceConfig?.importContext,
             inputFile: workspaceConfig?.inputFile,
             outputFile: workspaceConfig?.outputFile
           })
           
+          // Enhanced workspace config loading with import context support
+          const mergedConfig = {
+            ...workspaceConfig,
+            // Handle import context -> importedJsonFile migration
+            importedJsonFile: workspaceConfig?.importedJsonFile || workspaceConfig?.importContext?.importedJsonFile || null
+          }
+          
           set((state: AppState) => ({
             config: {
               ...state.config,
-              ...workspaceConfig
+              ...mergedConfig
             }
           }))
           console.log('✅ Workspace config merged', {
@@ -335,7 +352,7 @@ export const useAppStore = create<AppStore>()(
           stage,
           message,
           level,
-          source
+          source: source || 'app-store'
         }
         
         const newDebugMessages = [...state.processing.debugMessages, debugMessage]
@@ -439,17 +456,34 @@ export const useAppStore = create<AppStore>()(
           
           // PERFORMANCE FIX: Check if session is already in correct state
           const currentSession = subtitleStore.session
-          const hasExistingContent = currentSession && (currentSession.subtitles?.length > 0 || currentSession.isDirty)
+          const hasExistingContent = currentSession && (currentSession.currentSubtitles?.length > 0 || currentSession.isDirty)
           
           // If removing video file, trigger comprehensive integrated cleanup
           if (!value && previousConfig.inputFile) {
-            console.log('🗑️ Video file removed, performing integrated cleanup operation')
+            console.log('🗑️ Video file removed, performing integrated cleanup operation with JSON data clearing')
             
-            // Use the integrated atomic operation for comprehensive cleanup
-            import('../utils/session-workflow-integration')
-              .then(({ handleVideoRemovalWithCleanup }) => handleVideoRemovalWithCleanup())
+            // CRITICAL FIX: Clear JSON-related config in app store immediately when video is removed
+            set((state: AppStore) => ({
+              config: {
+                ...state.config,
+                inputFile: null,
+                importedJsonFile: null,
+                subtitle: null,
+                isImportedFromJson: false
+              }
+            }))
+            
+            // Clear main process config state immediately
+            window.cantocapAPI.clearVideoAndCaptionState()
+              .then(() => {
+                console.log('✅ Main process state cleared for video removal')
+                
+                // Use the integrated atomic operation for comprehensive cleanup
+                return import('../utils/session-workflow-integration')
+                  .then(({ handleVideoRemovalWithCleanup }) => handleVideoRemovalWithCleanup())
+              })
               .then(result => {
-                console.log('✅ Integrated video removal completed:', result)
+                console.log('✅ Integrated video removal with JSON cleanup completed:', result)
               })
               .catch(error => {
                 console.warn('⚠️ Integrated video removal failed:', error)
@@ -488,7 +522,7 @@ export const useAppStore = create<AppStore>()(
           
           // PERFORMANCE FIX: Only trigger session reset for significant changes
           const currentSession = subtitleStore.session
-          const hasExistingContent = currentSession && (currentSession.subtitles?.length > 0 || currentSession.isDirty)
+          const hasExistingContent = currentSession && (currentSession.currentSubtitles?.length > 0 || currentSession.isDirty)
           const isSignificantChange = (value && !previousConfig.importedJsonFile) || (!value && previousConfig.importedJsonFile)
           
           if (isSignificantChange && (hasExistingContent || value)) {
@@ -509,14 +543,25 @@ export const useAppStore = create<AppStore>()(
                   // This ensures session reset happens before navigation
                 }
                 
-                // If removing JSON file, ensure proper workflow navigation
+                // If removing JSON file, clear main process state and navigate
                 if (!value && previousConfig.importedJsonFile) {
-                  console.log('🔄 JSON file removed, navigating to config')
-                  try {
-                    navigateToConfig()
-                  } catch (navError) {
-                    console.warn('Failed to navigate to config after JSON removal:', navError)
-                  }
+                  console.log('🔄 JSON file removed, clearing main process state and navigating to config')
+                  
+                  // Clear main process JSON file state
+                  window.cantocapAPI.updateConfigSection('importedJsonFile', null)
+                    .then(() => window.cantocapAPI.updateConfigSection('importedCaption', {
+                      jsonFilePath: null,
+                      lastImported: undefined,
+                      metadata: undefined
+                    }))
+                    .then(async () => {
+                      console.log('✅ Main process JSON state cleared')
+                      await navigateToConfig()
+                    })
+                    .catch(async error => {
+                      console.warn('Failed to clear main process JSON state:', error)
+                      await navigateToConfig() // Navigate anyway
+                    })
                 }
               })
               .catch(error => {
@@ -562,7 +607,7 @@ export const useAppStore = create<AppStore>()(
             newDataLength: Array.isArray(value) ? value.length : 0,
             isJsonImport: !!updatedConfig.importedJsonFile || !!updatedConfig.isImportedFromJson,
             hasInputFile: !!updatedConfig.inputFile,
-            isImportInProgress: !!(window as any).__JSON_IMPORT_IN_PROGRESS,
+            isImportInProgress: !!((window as Window & { __JSON_IMPORT_IN_PROGRESS?: boolean }).__JSON_IMPORT_IN_PROGRESS),
             timestamp: new Date().toISOString()
           })
           
@@ -575,13 +620,14 @@ export const useAppStore = create<AppStore>()(
             
             // Simple debouncing to prevent multiple rapid integrations
             const integrationKey = 'json-import-integration';
-            if ((window as any).__INTEGRATION_TIMEOUTS) {
-              clearTimeout((window as any).__INTEGRATION_TIMEOUTS[integrationKey]);
+            const windowWithTimeouts = window as Window & { __INTEGRATION_TIMEOUTS?: Record<string, NodeJS.Timeout> }
+            if (windowWithTimeouts.__INTEGRATION_TIMEOUTS) {
+              clearTimeout(windowWithTimeouts.__INTEGRATION_TIMEOUTS[integrationKey]);
             } else {
-              (window as any).__INTEGRATION_TIMEOUTS = {};
+              windowWithTimeouts.__INTEGRATION_TIMEOUTS = {};
             }
             
-            (window as any).__INTEGRATION_TIMEOUTS[integrationKey] = setTimeout(async () => {
+            windowWithTimeouts.__INTEGRATION_TIMEOUTS![integrationKey] = setTimeout(async () => {
               // Trigger session integration using the enhanced integration utilities
               try {
                 import('../utils/session-workflow-integration')
@@ -589,7 +635,7 @@ export const useAppStore = create<AppStore>()(
                     const { handleJsonImportWithSessionReset } = integrationModule
                     
                     return handleJsonImportWithSessionReset(value, {
-                      sourceType: 'json-import-config',
+                      sourceType: 'json-import',
                       timestamp: Date.now(),
                       metadata: {
                         fileName: updatedConfig.importedJsonFile || 'imported-json',
@@ -617,7 +663,7 @@ export const useAppStore = create<AppStore>()(
           // If subtitle data is being cleared, ensure session cleanup
           else if (!value && previousConfig.subtitle) {
             console.log('🗑️ Subtitle data cleared, ensuring session cleanup')
-            subtitleStore.resetSessionForNewContent('subtitle_cleared')
+            subtitleStore.resetSessionForNewContent('step1_import')
           }
         }
       } catch (error) {
@@ -625,20 +671,27 @@ export const useAppStore = create<AppStore>()(
         // Continue with normal config update even if session reset fails
       }
       
-      // Define which config keys are workspace-specific vs global/system-wide
-      const workspaceSpecificKeys: (keyof AppConfig)[] = [
-        'inputFile', 'outputFile', 'language', 'model', 'priority', 
-        'speakers', 'written', 'music', 'charset', 'noGeminiRefinement',
-        'maxChunkDuration', 'videoQuality', 'terminologyConfig', 
-        'subtitle', 'duration', 'verbose', 'startTime', 'endTime', 'importedJsonFile'
+      // Define which config keys belong to which steps and storage systems
+      // Steps 1-3: Main process + workspace IndexedDB only (no localStorage)
+      const steps1to3Keys: (keyof AppConfig)[] = [
+        'inputFile', 'outputFile', 'importedJsonFile', // Step 1
+        'language', 'model', 'priority', 'speakers', 'written', 'music', 'charset', 'noGeminiRefinement', 'maxChunkDuration', 'videoQuality', 'terminologyConfig', // Step 2
+        'subtitle', 'duration', 'verbose', 'startTime', 'endTime' // Step 3
       ]
       
+      // Steps 4-5: Can use localStorage + workspace system
+      // (Currently no specific Step 4-5 fields in AppConfig)
+      
+      // Global/System: API keys, paths, system settings
       const globalKeys: (keyof AppConfig)[] = [
         'geminiKey', 'hfToken', 'ffmpegPath', 'autoSaveApiKeys'
       ]
       
-      const isWorkspaceSpecific = workspaceSpecificKeys.includes(key)
+      // Maintain backward compatibility
+      
+      const isSteps1to3 = steps1to3Keys.includes(key)
       const isGlobal = globalKeys.includes(key)
+      const isWorkspaceSpecific = isSteps1to3 // Steps 1-3 are workspace-specific
       
       // Save config to workspace if it's workspace-specific and we have an active workspace
       const workspaceStore = useWorkspaceStore.getState()
@@ -653,10 +706,26 @@ export const useAppStore = create<AppStore>()(
             const currentWorkspace = workspaceStore.currentWorkspace
             if (currentWorkspace) {
               // Update the workspace config in memory immediately
-              currentWorkspace.config = {
+              const updatedConfig = {
                 ...currentWorkspace.config,
                 [key]: value
               }
+              
+              // Enhanced: Handle importedJsonFile in import context for new architecture
+              if (key === 'importedJsonFile') {
+                updatedConfig.importContext = {
+                  ...updatedConfig.importContext,
+                  sourceType: value ? 'json-import' as const : 'regular' as const,
+                  timestamp: Date.now(),
+                  importedJsonFile: value as string | undefined,
+                  metadata: {
+                    updatedBy: 'app-store',
+                    reason: 'config-update'
+                  }
+                }
+              }
+              
+              currentWorkspace.config = updatedConfig
               
               // Also persist to database asynchronously
               workspaceStore.updateWorkspaceConfig(currentWorkspace.id, { [key]: value })
@@ -685,15 +754,14 @@ export const useAppStore = create<AppStore>()(
                     })
                   }
                   
-                  // Fallback to localStorage if workspace update fails
-                  localStorage.setItem('cantocap-config', JSON.stringify(updatedConfig))
-                  console.log('💾 Config saved to localStorage as fallback')
+                  // No localStorage fallback - main process config is single source of truth
+                  console.log('⚠️ Workspace config update failed, but no localStorage fallback for Step 1 fields')
                 })
             }
           } catch (syncError) {
             console.error('❌ Failed to sync workspace config immediately:', syncError)
-            localStorage.setItem('cantocap-config', JSON.stringify(updatedConfig))
-            console.log('💾 Config saved to localStorage as fallback')
+            // No localStorage fallback - main process config is single source of truth
+            console.log('⚠️ Workspace sync failed, but no localStorage fallback for Step 1 fields')
           }
         } else {
           // For non-critical changes, use async update as before
@@ -723,15 +791,20 @@ export const useAppStore = create<AppStore>()(
                 })
               }
               
-              // Fallback to localStorage if workspace update fails
-              localStorage.setItem('cantocap-config', JSON.stringify(updatedConfig))
-              console.log('💾 Config saved to localStorage as fallback')
+              // No localStorage fallback - main process config is single source of truth
+              console.log('⚠️ Workspace config update failed, but no localStorage fallback for Step 1 fields')
             })
         }
       } else if (isGlobal || !workspaceStore.currentWorkspace) {
-        // Save global settings or fallback to localStorage for persistence
-        localStorage.setItem('cantocap-config', JSON.stringify(updatedConfig))
-        console.log(`💾 Global config '${key}' saved to localStorage`)
+        // Steps 1-3: No localStorage, only main process + workspace IndexedDB
+        // Steps 4-5: Can use localStorage for UI state
+        if (!isSteps1to3) {
+          // This is a Steps 4-5 field or global setting - allow localStorage
+          localStorage.setItem('cantocap-config', JSON.stringify(updatedConfig))
+          console.log(`💾 Steps 4-5 or global config '${key}' saved to localStorage`)
+        } else {
+          console.log(`🔧 Steps 1-3 field '${key}' managed by main process + workspace IndexedDB only`)
+        }
       }
       
       // Also persist certain settings to main process config manager
@@ -745,7 +818,7 @@ export const useAppStore = create<AppStore>()(
         }
         
         // Save other relevant config sections
-        if (key === 'geminiKey' || key === 'hfToken' || key === 'apiKeys') {
+        if (key === 'geminiKey' || key === 'hfToken') {
           window.cantocapAPI.updateConfigSection('apiKeys', { 
             gemini: updatedConfig.geminiKey,
             huggingface: updatedConfig.hfToken
@@ -760,9 +833,10 @@ export const useAppStore = create<AppStore>()(
         
         // Save UI preferences
         if (['theme', 'showAdvanced'].includes(key)) {
+          const state = get()
           window.cantocapAPI.updateConfigSection('ui', {
-            theme: updatedConfig.theme || 'system',
-            showAdvanced: updatedConfig.showAdvanced !== undefined ? updatedConfig.showAdvanced : true
+            theme: state.ui.theme || 'system',
+            showAdvanced: state.ui.showAdvanced !== undefined ? state.ui.showAdvanced : true
           }).catch(console.error)
         }
         
@@ -783,11 +857,19 @@ export const useAppStore = create<AppStore>()(
           window.cantocapAPI.updateConfigSection('advancedSettings', advancedSettings).catch(console.error)
         }
         
-        // Save imported JSON file path
+        // Save imported JSON file path to main process
         if (key === 'importedJsonFile') {
           window.cantocapAPI.updateConfigSection('importedCaption', {
-            jsonFilePath: value
+            jsonFilePath: value,
+            lastImported: value ? Date.now() : undefined,
+            metadata: value ? {
+              fileName: (value as string).split('/').pop() || (value as string),
+              importedBy: 'renderer-app-store'
+            } : undefined
           }).catch(console.error)
+          
+          // Also update the direct field for consistency
+          window.cantocapAPI.updateConfigSection('importedJsonFile', value).catch(console.error)
         }
       } catch (error) {
         console.error('Failed to persist config to main process:', error)
@@ -842,9 +924,7 @@ export const useAppStore = create<AppStore>()(
         // First try to load from main process config manager
         const mainConfig = await window.cantocapAPI.getConfig().catch(() => null)
         
-        // Also load from localStorage as fallback
-        const localStorageConfig = localStorage.getItem('cantocap-config')
-        const localConfig = localStorageConfig ? JSON.parse(localStorageConfig) : null
+        // No localStorage fallback - only use main process config and IndexedDB workspace system
         
         // Map main process config structure to renderer structure
         let mappedMainConfig = null
@@ -856,8 +936,8 @@ export const useAppStore = create<AppStore>()(
             hfToken: mainConfig.apiKeys?.huggingface || '',
             // Map other nested structures as needed
             ffmpegPath: mainConfig.dependencies?.ffmpegPath || null,
-            // Map imported JSON file path
-            importedJsonFile: mainConfig.importedCaption?.jsonFilePath || null,
+            // Map imported JSON file path with fallback support
+            importedJsonFile: mainConfig.importedJsonFile || mainConfig.importedCaption?.jsonFilePath || null,
             // Remove nested structures to avoid conflicts
             apiKeys: undefined,
             dependencies: undefined,
@@ -869,11 +949,20 @@ export const useAppStore = create<AppStore>()(
           }
         }
         
-        // Merge configs with main process taking priority for certain settings
+        // Use only main process config (no localStorage for Steps 1-3)
         const mergedConfig = {
           ...get().config, // Start with defaults
-          ...localConfig,  // Apply localStorage config
-          ...mappedMainConfig    // Main process overrides (properly mapped)
+        }
+        
+        // Apply main process config only (Steps 1-3 managed by main process + IndexedDB workspace)
+        if (mappedMainConfig) {
+          Object.keys(mappedMainConfig).forEach(key => {
+            const configKey = key as keyof AppConfig
+            const value = mappedMainConfig[configKey]
+            if (value !== undefined) {
+              (mergedConfig as Record<string, unknown>)[configKey] = value
+            }
+          })
         }
         
         set((state: AppStore) => ({
@@ -909,35 +998,26 @@ export const useAppStore = create<AppStore>()(
           console.error('Failed to load temp subtitle data:', error);
         }
 
-        // Log final config state for debugging JSON file path restoration
-        console.log('🔧 Config loaded from storage:', {
+        // Log final config state for debugging
+        console.log('🔧 Config loaded from main process + IndexedDB workspace (no localStorage):', {
           importedJsonFile: get().config.importedJsonFile,
           hasMainConfig: !!mainConfig,
-          mainConfigJsonPath: mainConfig?.importedCaption?.jsonFilePath,
-          hasLocalConfig: !!localConfig,
-          localConfigJsonPath: localConfig?.importedJsonFile,
-          mergedJsonPath: mergedConfig.importedJsonFile
+          mainConfigJsonPath: mainConfig?.importedJsonFile || mainConfig?.importedCaption?.jsonFilePath,
+          finalMergedJsonPath: mergedConfig.importedJsonFile,
+          configSource: 'main-process + workspace-indexeddb',
+          localStorageUsage: 'steps-4-5-only'
         })
         
       } catch (error) {
-        console.error('Failed to load config from storage:', error)
-        // Fallback to localStorage only
-        try {
-          const saved = localStorage.getItem('cantocap-config')
-          if (saved) {
-            const config = JSON.parse(saved) as Partial<AppConfig>
-            set((state: AppStore) => ({
-              config: { ...state.config, ...config }
-            }))
-          }
-        } catch (localError) {
-          console.error('Failed to load from localStorage:', localError)
-        }
+        console.error('Failed to load config from main process:', error)
+        // No localStorage fallback - rely on workspace IndexedDB + default config
+        console.log('⚠️ Using default config + workspace IndexedDB only (no localStorage fallback)')
+        // Config will be restored from workspace system during initializeWorkspaces()
       }
     },
     
     resetProcessing: () =>
-      set((state: AppStore) => ({
+      set(() => ({
         processing: {
           isActive: false,
           stage: 'idle',
@@ -1032,7 +1112,7 @@ export const useAppStore = create<AppStore>()(
       await workflowStateManager.transitionState('config', StepState.Complete, {
         reason: 'Configuration completed - processing started'
       })
-      navigateToProcessing()
+      await navigateToProcessing()
 
       // Add to processing history
       get().addToHistory(config.inputFile, 'started')
@@ -1063,7 +1143,7 @@ export const useAppStore = create<AppStore>()(
       })
       
       // Navigate back to config step when cancelled
-      navigateToConfig()
+      await navigateToConfig()
     },
 
     checkHardware: async () => {
@@ -1140,12 +1220,12 @@ export const useAppStore = create<AppStore>()(
         }
       })),
 
-    addToHistory: (inputFile: string, status: string, outputFile: string | null = null) => {
+    addToHistory: (inputFile: string, status: 'started' | 'completed' | 'failed' | 'cancelled', outputFile: string | null = null) => {
       const entry: ProcessingHistoryEntry = {
         id: Date.now(),
         inputFile,
         outputFile,
-        status,
+        status ,
         timestamp: Date.now(),
         config: { ...get().config }
       }
@@ -1206,7 +1286,7 @@ export const useAppStore = create<AppStore>()(
     },
 
     // Testing and workspace integration methods
-    loadFromWorkspace: async (workspace: unknown) => {
+    loadFromWorkspace: async (workspace: { appConfig?: Partial<AppConfig> }) => {
       if (workspace && workspace.appConfig) {
         set((state: AppStore) => ({
           config: {
@@ -1284,7 +1364,7 @@ useWorkspaceStore.subscribe(
       // Ensure any pending config changes are saved to the previous workspace before switching
       if (previousWorkspace) {
         try {
-          const currentConfig = appStore.config
+          const currentConfig = useAppStore.getState().config
           const workspaceStore = useWorkspaceStore.getState()
           
           // Force save current config to previous workspace to prevent data loss
@@ -1305,7 +1385,6 @@ useWorkspaceStore.subscribe(
       }
       
       // Get the app store instance
-      const appStore = useAppStore.getState()
       
       // Simple workspace config loading
       const workspaceConfig = currentWorkspace.config || {}

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -33,7 +33,9 @@ import { useUIStore, selectSettingsUI } from '../../stores/ui-store';
 import { useWorkspaceStore } from '../../stores/workspace-store';
 import { useWorkflowState } from '../../contexts/WorkflowStateContext';
 import { useWorkflowNavigation } from '../../hooks/useWorkflowStateManager';
-import { StepState, AnyWorkflowStepState } from '../../types/workflow-state';
+import { useWorkspaceStateSync } from '../../hooks/useWorkspaceStateSync';
+import { workflowStateManager } from '../../services/workflow/workflow-state-manager';
+import { StepState, AnyWorkflowStepState, StateChangeEvent } from '../../types/workflow-state';
 
 export const StepNavigation: React.FC = () => {
   const { stepsArray, currentStepId } = useWorkflowState();
@@ -41,6 +43,13 @@ export const StepNavigation: React.FC = () => {
   const { processing } = useAppStore();
   const settingsUI = useUIStore(selectSettingsUI);
   const { currentWorkspace } = useWorkspaceStore();
+  
+  // Workspace state synchronization hook with optimized performance
+  const { syncToWorkspace, isInitialMount } = useWorkspaceStateSync({
+    syncDebounceMs: 500,
+    minSyncInterval: 1000,
+    enableLogging: process.env.NODE_ENV === 'development'
+  });
 
   // Enhanced state management for navigation feedback
   const [navigationState, setNavigationState] = useState<{
@@ -63,19 +72,34 @@ export const StepNavigation: React.FC = () => {
     }
   });
 
-  // Debug logging only in development
+  // Subscribe to workflow state changes for workspace sync
   useEffect(() => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('🔧 [STEP NAVIGATION] Step changed:', currentStepId);
-    }
-  }, [currentStepId]);
+    const unsubscribe = workflowStateManager.subscribe((event: StateChangeEvent) => {
+      // Only sync after initial mount to avoid syncing during restoration
+      if (!isInitialMount.current) {
+        syncToWorkspace(event);
+      }
+      
+      // Debug logging only in development
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🔧 [STEP NAVIGATION] Step state changed:', {
+          stepId: event.stepId,
+          previousState: event.previousState,
+          newState: event.newState,
+          currentStepId: currentStepId
+        });
+      }
+    });
+    
+    return unsubscribe;
+  }, [syncToWorkspace, currentStepId]);
 
 
   // Disable navigation when processing is active (except for the current processing step)
   const isProcessingActive =
     processing.isActive && processing.stage !== 'idle' && processing.stage !== 'completed';
 
-  // Enhanced handleStepClick with loading states, feedback, and accessibility
+  // Enhanced handleStepClick with workspace integration, loading states, feedback, and accessibility
   const handleStepClick = useCallback(
     async (stepId: string, event?: React.MouseEvent | React.KeyboardEvent) => {
       // Prevent rapid successive clicks
@@ -128,6 +152,8 @@ export const StepNavigation: React.FC = () => {
           if (process.env.NODE_ENV === 'development') {
             console.log(`✅ Navigation successful: ${stepId}`);
           }
+          
+          // Workspace sync will be handled automatically by the hook
           
           setNavigationState(prev => ({
             ...prev,
