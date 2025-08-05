@@ -23,7 +23,11 @@ export enum StepState {
   /** Step is blocked by incomplete prerequisites */
   Blocked = 'blocked',
   /** Step has been intentionally skipped */
-  Skip = 'skip'
+  Skip = 'skip',
+  /** Step is pending initialization or processing */
+  Pending = 'pending',
+  /** Step is currently being processed */
+  Processing = 'processing'
 }
 
 /**
@@ -145,32 +149,40 @@ export interface StepStateMetadata<T extends StepState = StepState> {
 export namespace StateTransitions {
   /** Valid states that can transition to the given state */
   export type ValidSourceStates<T extends StepState> = T extends StepState.Ready
-    ? StepState.Blocked | StepState.Error | StepState.Warning | StepState.Complete | StepState.Skip
+    ? StepState.Blocked | StepState.Error | StepState.Warning | StepState.Complete | StepState.Skip | StepState.Pending
     : T extends StepState.Complete
-    ? StepState.Ready | StepState.Warning
+    ? StepState.Ready | StepState.Warning | StepState.Processing
     : T extends StepState.Error
     ? never // Error states must be manually resolved
     : T extends StepState.Warning
-    ? StepState.Ready | StepState.Error
+    ? StepState.Ready | StepState.Error | StepState.Processing
     : T extends StepState.Blocked
-    ? StepState.Ready | StepState.Complete | StepState.Error
+    ? StepState.Ready | StepState.Complete | StepState.Error | StepState.Pending
     : T extends StepState.Skip
     ? StepState.Ready | StepState.Blocked
+    : T extends StepState.Pending
+    ? StepState.Ready | StepState.Blocked
+    : T extends StepState.Processing
+    ? StepState.Ready | StepState.Error
     : never
 
   /** Valid target states from the given state */
   export type ValidTargetStates<T extends StepState> = T extends StepState.Ready
-    ? StepState.Complete | StepState.Error | StepState.Warning | StepState.Blocked | StepState.Skip
+    ? StepState.Complete | StepState.Error | StepState.Warning | StepState.Blocked | StepState.Skip | StepState.Processing | StepState.Ready
     : T extends StepState.Complete
-    ? StepState.Ready | StepState.Error
+    ? StepState.Ready | StepState.Error | StepState.Complete | StepState.Blocked
     : T extends StepState.Error
     ? StepState.Ready | StepState.Warning
     : T extends StepState.Warning
     ? StepState.Ready | StepState.Complete | StepState.Error
     : T extends StepState.Blocked
-    ? StepState.Ready
+    ? StepState.Ready | StepState.Pending | StepState.Blocked
     : T extends StepState.Skip
     ? StepState.Ready
+    : T extends StepState.Pending
+    ? StepState.Ready | StepState.Blocked
+    : T extends StepState.Processing
+    ? StepState.Complete | StepState.Error | StepState.Warning
     : never
 
   /** Type-safe transition validator */
@@ -216,6 +228,8 @@ export type AnyWorkflowStepState =
   | WorkflowStepState<StepState.Warning>
   | WorkflowStepState<StepState.Blocked>
   | WorkflowStepState<StepState.Skip>
+  | WorkflowStepState<StepState.Pending>
+  | WorkflowStepState<StepState.Processing>
 
 /**
  * Type for step state factory functions
@@ -330,12 +344,12 @@ export interface WorkflowStatePersistence {
  */
 export interface StateChangeEvent<T extends StepState = StepState> {
   readonly stepId: StepId
-  readonly oldState: StepState
+  readonly previousState: StepState | null
   readonly newState: T
   readonly metadata: StepStateMetadata<T>
-  readonly timestamp: Timestamp
-  readonly transitionKey: StateTransitionKey
-  readonly isValid: boolean
+  readonly timestamp?: Timestamp
+  readonly transitionKey?: StateTransitionKey
+  readonly isValid?: boolean
 }
 
 /**
@@ -382,7 +396,7 @@ export interface BatchStateOperation<T extends StepState = StepState> {
  */
 export interface BatchOperationResult<T = unknown> {
   readonly success: boolean
-  readonly results: readonly Array<Readonly<{
+  readonly results: ReadonlyArray<Readonly<{
     stepId: StepId
     success: boolean
     error?: string

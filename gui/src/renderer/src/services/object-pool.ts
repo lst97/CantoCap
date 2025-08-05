@@ -4,6 +4,8 @@
  * Optimized for frequently created/destroyed objects in WorkflowStateManager
  */
 
+import { StepId, StepState, StepStateMetadata, Timestamp, StateTransitionKey, WorkflowTypes, createStepId, createTimestamp } from '../types/workflow-state'
+
 export interface PoolableObject {
   reset?(): void
   dispose?(): void
@@ -177,12 +179,12 @@ export class ObjectPool<T extends PoolableObject> {
  * State change event object for pooling
  */
 export interface PoolableStateChangeEvent extends PoolableObject {
-  stepId: string
-  oldState: string
-  newState: string
-  metadata: any
-  timestamp: number
-  transitionKey: string
+  stepId: StepId
+  oldState: StepState
+  newState: StepState
+  metadata: StepStateMetadata<any>
+  timestamp: Timestamp
+  transitionKey: StateTransitionKey
   isValid: boolean
 }
 
@@ -190,9 +192,9 @@ export interface PoolableStateChangeEvent extends PoolableObject {
  * State metadata object for pooling
  */
 export interface PoolableStateMetadata extends PoolableObject {
-  state: string
-  lastModified: number
-  previousState?: string
+  state: StepState
+  lastModified: Timestamp
+  previousState?: StepState
   reason?: string
   message?: string
   context?: Record<string, unknown>
@@ -214,26 +216,32 @@ export class WorkflowObjectPoolManager {
   private stateChangeEventPool: ObjectPool<PoolableStateChangeEvent>
   private stateMetadataPool: ObjectPool<PoolableStateMetadata>
   private notificationPool: ObjectPool<PoolableNotification>
-  private observerSetPool: ObjectPool<Set<Function>>
+  private observerSetPool: ObjectPool<Set<Function> & PoolableObject>
   
   constructor() {
     // State change event pool
     this.stateChangeEventPool = new ObjectPool<PoolableStateChangeEvent>(
       () => ({
-        stepId: '',
-        oldState: '',
-        newState: '',
-        metadata: null,
-        timestamp: 0,
-        transitionKey: '',
+        stepId: createStepId('input-file'),
+        oldState: StepState.Ready,
+        newState: StepState.Ready,
+        metadata: {
+          state: StepState.Ready,
+          lastModified: createTimestamp()
+        } as any,
+        timestamp: createTimestamp(),
+        transitionKey: 'ready-to-ready' as StateTransitionKey,
         isValid: false,
         reset() {
-          this.stepId = ''
-          this.oldState = ''
-          this.newState = ''
-          this.metadata = null
-          this.timestamp = 0
-          this.transitionKey = ''
+          this.stepId = createStepId('input-file')
+          this.oldState = StepState.Ready
+          this.newState = StepState.Ready
+          this.metadata = {
+            state: StepState.Ready,
+            lastModified: createTimestamp()
+          } as any
+          this.timestamp = createTimestamp()
+          this.transitionKey = 'ready-to-ready' as StateTransitionKey
           this.isValid = false
         }
       }),
@@ -243,11 +251,11 @@ export class WorkflowObjectPoolManager {
     // State metadata pool
     this.stateMetadataPool = new ObjectPool<PoolableStateMetadata>(
       () => ({
-        state: '',
-        lastModified: 0,
+        state: StepState.Ready,
+        lastModified: createTimestamp(),
         reset() {
-          this.state = ''
-          this.lastModified = 0
+          this.state = StepState.Ready
+          this.lastModified = createTimestamp()
           this.previousState = undefined
           this.reason = undefined
           this.message = undefined
@@ -273,8 +281,12 @@ export class WorkflowObjectPoolManager {
     )
     
     // Observer set pool
-    this.observerSetPool = new ObjectPool<Set<Function>>(
-      () => new Set(),
+    this.observerSetPool = new ObjectPool<Set<Function> & PoolableObject>(
+      () => {
+        const set = new Set<Function>() as Set<Function> & PoolableObject
+        set.reset = () => set.clear()
+        return set
+      },
       { 
         initialSize: 5, 
         maxSize: 50,
@@ -287,12 +299,12 @@ export class WorkflowObjectPoolManager {
    * Create pooled state change event
    */
   createStateChangeEvent(
-    stepId: string,
-    oldState: string,
-    newState: string,
-    metadata: any,
-    timestamp: number,
-    transitionKey: string,
+    stepId: StepId,
+    oldState: StepState,
+    newState: StepState,
+    metadata: StepStateMetadata<any>,
+    timestamp: Timestamp,
+    transitionKey: StateTransitionKey,
     isValid: boolean
   ): PoolableStateChangeEvent {
     const event = this.stateChangeEventPool.borrow()
@@ -317,9 +329,9 @@ export class WorkflowObjectPoolManager {
    * Create pooled state metadata
    */
   createStateMetadata(
-    state: string,
-    lastModified: number,
-    previousState?: string,
+    state: StepState,
+    lastModified: Timestamp,
+    previousState?: StepState,
     reason?: string,
     message?: string,
     context?: Record<string, unknown>
@@ -362,17 +374,17 @@ export class WorkflowObjectPoolManager {
   /**
    * Create pooled observer set
    */
-  createObserverSet(): Set<Function> {
+  createObserverSet(): Set<WorkflowTypes.StateChangeHandler> {
     const set = this.observerSetPool.borrow()
     set.clear() // Ensure it's empty
-    return set
+    return set as Set<WorkflowTypes.StateChangeHandler>
   }
   
   /**
    * Return observer set to pool
    */
-  returnObserverSet(set: Set<Function>): void {
-    this.observerSetPool.return(set)
+  returnObserverSet(set: Set<WorkflowTypes.StateChangeHandler>): void {
+    this.observerSetPool.return(set as any)
   }
   
   /**

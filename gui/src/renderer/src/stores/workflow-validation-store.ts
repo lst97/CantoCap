@@ -3,6 +3,7 @@ import { subscribeWithSelector } from 'zustand/middleware'
 import { useAppStore } from './app-store'
 import { workflowStateManager } from '../services/workflow-state-manager'
 import { StepState, type StepId } from '../types/workflow-state'
+import { atomicVideoRemoval } from '../utils/step-state-controller'
 
 /**
  * Modern Workflow Validation Store - Business Logic Layer
@@ -434,7 +435,6 @@ export const useWorkflowValidationStore = create<WorkflowValidationStore>()(
         set({ stepValidations: clearedValidations })
         
         // Use atomic video removal from step state controller
-        const { atomicVideoRemoval } = await import('../utils/step-state-controller')
         await atomicVideoRemoval()
         
       } else {

@@ -2,13 +2,7 @@ import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import { navigateToProcessing, navigateToConfig } from '../utils/workflow-navigation'
 import { generateDebugId } from '../utils/id-generator'
-import { 
-  handleVideoRemovalWithCleanup, 
-  performEnhancedSessionReset,
-  handleWorkspaceChangeWithSessionCoordination 
-} from '../utils/session-workflow-integration'
 import { useWorkspaceStore } from '../stores/workspace-store'
-import { useSubtitleEditStore } from '../stores/subtitle-edit-store'
 import { workflowStateManager } from '../services/workflow-state-manager'
 import { StepState } from '../types/workflow-state'
 import type { 
@@ -435,6 +429,7 @@ export const useAppStore = create<AppStore>()(
       
       // Handle explicit session resets for critical file changes ONLY if they're actually different
       try {
+        const { useSubtitleEditStore } = await import('./subtitle-edit-store')
         const subtitleStore = useSubtitleEditStore.getState()
         const workspaceStore = useWorkspaceStore.getState()
         
@@ -451,7 +446,8 @@ export const useAppStore = create<AppStore>()(
             console.log('🗑️ Video file removed, performing integrated cleanup operation')
             
             // Use the integrated atomic operation for comprehensive cleanup
-            handleVideoRemovalWithCleanup()
+            import('../utils/session-workflow-integration')
+              .then(({ handleVideoRemovalWithCleanup }) => handleVideoRemovalWithCleanup())
               .then(result => {
                 console.log('✅ Integrated video removal completed:', result)
               })
@@ -463,7 +459,10 @@ export const useAppStore = create<AppStore>()(
           } else if (hasExistingContent) {
             // Only reset if we have existing content that needs to be cleared
             console.log('🔄 Video upload with existing content, performing enhanced session reset')
-            performEnhancedSessionReset('step1_video_change', workspaceStore.currentWorkspace?.id)
+            import('../utils/session-workflow-integration')
+              .then(({ performEnhancedSessionReset }) => 
+                performEnhancedSessionReset('step1_video_change', workspaceStore.currentWorkspace?.id)
+              )
               .then(result => {
                 console.log('✅ Enhanced session reset completed for video change:', result)
               })
@@ -496,7 +495,10 @@ export const useAppStore = create<AppStore>()(
             console.log('📄 Significant JSON file change, triggering enhanced session reset')
             
             // Use enhanced session reset for better coordination
-            performEnhancedSessionReset('step1_import', workspaceStore.currentWorkspace?.id)
+            import('../utils/session-workflow-integration')
+              .then(({ performEnhancedSessionReset }) => 
+                performEnhancedSessionReset('step1_import', workspaceStore.currentWorkspace?.id)
+              )
               .then(result => {
                 console.log('✅ Enhanced session reset completed for JSON import:', result)
                 
@@ -532,7 +534,10 @@ export const useAppStore = create<AppStore>()(
           console.log('⚡ Config: Output file changed via updateConfig (generation), triggering enhanced session reset')
           
           // Use enhanced session reset for generation
-          performEnhancedSessionReset('step3_generation', workspaceStore.currentWorkspace?.id)
+          import('../utils/session-workflow-integration')
+            .then(({ performEnhancedSessionReset }) => 
+              performEnhancedSessionReset('step3_generation', workspaceStore.currentWorkspace?.id)
+            )
             .then(result => {
               console.log('✅ Enhanced session reset completed for generation:', result)
               
@@ -977,15 +982,20 @@ export const useAppStore = create<AppStore>()(
         console.log('⚡ User clicked generate subtitle button, triggering enhanced session reset')
         
         // Use the integrated enhanced session reset
-        performEnhancedSessionReset('step3_generation', workspaceStore.currentWorkspace?.id)
+        import('../utils/session-workflow-integration')
+          .then(({ performEnhancedSessionReset }) => 
+            performEnhancedSessionReset('step3_generation', workspaceStore.currentWorkspace?.id)
+          )
           .then(result => {
             console.log('✅ Enhanced session reset completed before transcription:', result)
           })
           .catch(error => {
             console.warn('⚠️ Enhanced session reset failed, using fallback:', error)
             // Fallback to standard reset if enhancement fails
-            const subtitleStore = useSubtitleEditStore.getState()
-            subtitleStore.resetSessionForNewContent('step3_generation')
+            import('./subtitle-edit-store').then(({ useSubtitleEditStore }) => {
+              const subtitleStore = useSubtitleEditStore.getState()
+              subtitleStore.resetSessionForNewContent('step3_generation')
+            })
           })
         
         console.log('✅ Pre-transcription session reset initiated')
@@ -1257,10 +1267,13 @@ useWorkspaceStore.subscribe(
       })
       
       // Use integrated session coordination for workspace changes
-      handleWorkspaceChangeWithSessionCoordination(
-        currentWorkspace.id,
-        previousWorkspace?.id
-      )
+      import('../utils/session-workflow-integration')
+        .then(({ handleWorkspaceChangeWithSessionCoordination }) => 
+          handleWorkspaceChangeWithSessionCoordination(
+            currentWorkspace.id,
+            previousWorkspace?.id
+          )
+        )
         .then(result => {
           console.log('✅ Integrated workspace change completed:', result)
         })

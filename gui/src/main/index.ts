@@ -9,7 +9,7 @@ import { getConfigManager } from "./config-manager";
 import { getWorkspaceManager } from "./workspace-manager";
 import { getMigrationCoordinator } from "./migration-coordinator";
 import { getSubtitleFileManager } from "./subtitle-file-manager";
-import { SUBTITLE_IPC_CHANNELS } from "../types/subtitle-ipc";
+import { SUBTITLE_IPC_CHANNELS, validateSubtitlePath } from "../types/subtitle-ipc";
 import type {
   DependencyStatus,
   AppConfig,
@@ -694,7 +694,6 @@ class CantoCap {
     // Validation operations
     ipcMain.handle(SUBTITLE_IPC_CHANNELS.VALIDATE_PATH, async (_event, params: { workspaceId: string, path: string, operation: 'read' | 'write' | 'delete' }) => {
       try {
-        const { validateSubtitlePath } = await import('../types/subtitle-ipc');
         return validateSubtitlePath(params.workspaceId, params.path);
       } catch (error) {
         safeError('Failed to validate path:', error);

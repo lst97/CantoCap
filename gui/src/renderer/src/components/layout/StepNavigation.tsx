@@ -36,7 +36,7 @@ import { useWorkflowNavigation } from '../../hooks/useWorkflowStateManager';
 import { StepState, AnyWorkflowStepState } from '../../types/workflow-state';
 
 export const StepNavigation: React.FC = () => {
-  const { stepsArray, currentStepId, _updateCount } = useWorkflowState();
+  const { stepsArray, currentStepId } = useWorkflowState();
   const { navigateToStep } = useWorkflowNavigation();
   const { processing } = useAppStore();
   const settingsUI = useUIStore(selectSettingsUI);
@@ -193,11 +193,11 @@ export const StepNavigation: React.FC = () => {
         }, 5000);
       }
     },
-    [navigateToStep, currentStepId, navigationState.isNavigating, navigationState.lastNavigationAttempt]
+    [navigateToStep, navigationState.isNavigating, navigationState.lastNavigationAttempt]
   );
 
   // Handler for closing feedback snackbar
-  const handleCloseFeedback = useCallback((event?: React.SyntheticEvent | Event, reason?: string) => {
+  const handleCloseFeedback = useCallback((_event?: React.SyntheticEvent | Event, reason?: string) => {
     if (reason === 'clickaway') {
       return;
     }
@@ -283,7 +283,7 @@ export const StepNavigation: React.FC = () => {
               sx={{
                 fontSize: '0.75rem',
                 fontWeight: 600,
-                opacity: state === StepState.Skip ? 0.7 : 1,
+                opacity: state === StepState.Pending ? 0.7 : 1,
               }}
             >
               {index + 1}
@@ -693,10 +693,6 @@ export const StepNavigation: React.FC = () => {
                           },
                         }),
                     }}
-                    aria-label={`Step ${index + 1}: ${step.title} - ${state}`}
-                    aria-disabled={isDisabled}
-                    role='button'
-                    tabIndex={isDisabled ? -1 : 0}
                   >
                     <ListItemIcon sx={{ minWidth: 32 }}>
                       <Box

@@ -15,19 +15,13 @@ import type {
   WorkspaceMetadata,
   WorkspaceSession,
   SessionType,
-  MigrationStatus,
-  WorkspaceStoreState,
-  WorkspaceStoreActions,
   WorkspaceError,
-  WorkspacePerformanceMetrics,
   AutoSaveStatus,
   AutoSaveConfig,
   WorkspaceBackup,
   WorkspaceExportData,
   WorkspaceImportOptions,
   WorkspaceValidationResult,
-  // Enhanced types for step configuration support
-  EnhancedWorkspaceStore,
   EnhancedWorkspaceStoreState,
   EnhancedWorkspaceStoreActions,
   WorkflowStepId,
@@ -48,14 +42,12 @@ import type {
   WorkspaceGroupingActions,
   GroupOperationResult,
   DragOperation,
-  WorkspaceDragState,
   EnhancedWorkspaceStoreWithGrouping
 } from '../types/workspace'
 import { 
   WORKSPACE_CONSTANTS,
   generateStepConfigCacheKey,
   isCacheEntryExpired,
-  DEFAULT_STEP_CONFIGS,
   createDefaultStepConfig,
   mergeStepConfigs,
   estimateConfigSize
