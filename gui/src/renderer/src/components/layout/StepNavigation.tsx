@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useState, useRef } from 'react';
+/**
+ * Step Navigation Component
+ * Uses centralized Zustand store system for step navigation and state management
+ * Maintains the same polished UI design with updated architecture
+ */
+
+import React, { useCallback, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -12,8 +18,6 @@ import {
   LinearProgress,
   Fade,
   Grow,
-  Snackbar,
-  Alert,
   CircularProgress,
 } from '@mui/material';
 import {
@@ -28,230 +32,112 @@ import {
   CheckCircleOutline as CompletedIcon,
   RadioButtonUnchecked as PendingIcon,
 } from '@mui/icons-material';
-import { useAppStore } from '../../stores/app-store';
-import { useUIStore, selectSettingsUI } from '../../stores/ui-store';
-import { useWorkspaceStore } from '../../stores/workspace-store';
-import { useWorkflowState } from '../../contexts/WorkflowStateContext';
-import { useWorkflowNavigation } from '../../hooks/useWorkflowStateManager';
-import { useWorkspaceStateSync } from '../../hooks/useWorkspaceStateSync';
-import { workflowStateManager } from '../../services/workflow/workflow-state-manager';
-import { StepState, AnyWorkflowStepState, StateChangeEvent } from '../../types/workflow-state';
 
-export const StepNavigation: React.FC = () => {
-  const { stepsArray, currentStepId } = useWorkflowState();
-  const { navigateToStep } = useWorkflowNavigation();
-  const { processing } = useAppStore();
-  const settingsUI = useUIStore(selectSettingsUI);
-  const { currentWorkspace } = useWorkspaceStore();
-  
-  // Workspace state synchronization hook with optimized performance
-  const { syncToWorkspace, isInitialMount } = useWorkspaceStateSync({
-    syncDebounceMs: 500,
-    minSyncInterval: 1000,
-    enableLogging: process.env.NODE_ENV === 'development'
-  });
+// Use centralized store system
+import {
+  useCurrentStep,
+  useWorkflowActions,
+  useStepState,
+  useWorkflowStore,
+} from '../../stores/useWorkflowStore';
+import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
+import { useInputStepContent } from '../../stores/useStepStore';
+import type { StepType, StepStatusType } from '../../stores/types/StoreTypes';
+import { StepStatus } from '../../stores/types/StoreTypes';
 
-  // Enhanced state management for navigation feedback
-  const [navigationState, setNavigationState] = useState<{
-    isNavigating: boolean;
-    navigatingToStep: string | null;
-    lastNavigationAttempt: { stepId: string; timestamp: number } | null;
-    feedback: {
-      open: boolean;
-      message: string;
-      severity: 'error' | 'warning' | 'info' | 'success';
-    };
-  }>({
-    isNavigating: false,
-    navigatingToStep: null,
-    lastNavigationAttempt: null,
-    feedback: {
-      open: false,
-      message: '',
-      severity: 'info'
-    }
-  });
+// Step metadata to provide titles and descriptions
+const STEP_METADATA: Record<StepType, { title: string; description: string }> = {
+  input: {
+    title: 'Select Input',
+    description: 'Choose your audio/video file to transcribe',
+  },
+  config: {
+    title: 'Configure Settings',
+    description: 'Set up transcription and translation options',
+  },
+  processing: {
+    title: 'Processing',
+    description: 'Transcribing and generating subtitles',
+  },
+  review: {
+    title: 'Review & Edit',
+    description: 'Review and edit generated subtitles',
+  },
+  export: {
+    title: 'Export Results',
+    description: 'Export subtitles in your preferred format',
+  },
+};
 
-  // Subscribe to workflow state changes for workspace sync
-  useEffect(() => {
-    const unsubscribe = workflowStateManager.subscribe((event: StateChangeEvent) => {
-      // Only sync after initial mount to avoid syncing during restoration
-      if (!isInitialMount.current) {
-        syncToWorkspace(event);
-      }
-      
-      // Debug logging only in development
-      if (process.env.NODE_ENV === 'development') {
-        console.log('🔧 [STEP NAVIGATION] Step state changed:', {
-          stepId: event.stepId,
-          previousState: event.previousState,
-          newState: event.newState,
-          currentStepId: currentStepId
-        });
-      }
-    });
+// Performance optimized component with centralized state
+export const StepNavigation: React.FC = React.memo(() => {
+  // Use centralized store hooks - optimized to prevent infinite renders
+  const currentStep = useCurrentStep();
+  const workflowActions = useWorkflowActions();
+  const workspaces = useWorkspaceStore(state => state.workspaces);
+  const currentWorkspaceId = useWorkspaceStore(state => state.currentWorkspaceId);
+  const inputStepContent = useInputStepContent();
+
+  // Get current workspace
+  const currentWorkspace = currentWorkspaceId ? workspaces[currentWorkspaceId] : null;
+
+  // Memoized processing state - check if processing step is active
+  const processingStepState = useStepState('processing');
+  const isProcessingActive = useMemo(() => {
+    return currentStep === 'processing' && processingStepState === StepStatus.READY;
+  }, [currentStep, processingStepState]);
+
+  // Get steps with states - memoized to prevent infinite renders
+  const stepsWithStates = useMemo(() => {
+    const stepStates = useWorkflowStore.getState().stepStates;
+    const canNavigate = useWorkflowStore.getState().canNavigate;
+    const STEP_ORDER: StepType[] = ['input', 'config', 'processing', 'review', 'export'];
     
-    return unsubscribe;
-  }, [syncToWorkspace, currentStepId]);
+    return STEP_ORDER.map((step) => ({
+      step,
+      state: stepStates[step],
+      canNavigate: canNavigate[step],
+      isCurrent: currentStep === step,
+    }));
+  }, [currentStep, processingStepState]); // Only depend on current step and processing state
 
-
-  // Disable navigation when processing is active (except for the current processing step)
-  const isProcessingActive =
-    processing.isActive && processing.stage !== 'idle' && processing.stage !== 'completed';
-
-  // Enhanced handleStepClick with workspace integration, loading states, feedback, and accessibility
+  // Enhanced handleStepClick with centralized navigation
   const handleStepClick = useCallback(
-    async (stepId: string, event?: React.MouseEvent | React.KeyboardEvent) => {
-      // Prevent rapid successive clicks
-      const now = Date.now();
-      if (navigationState.lastNavigationAttempt && 
-          now - navigationState.lastNavigationAttempt.timestamp < 500 &&
-          navigationState.lastNavigationAttempt.stepId === stepId) {
-        // Navigation throttled (silent in production)
-        return;
-      }
-
+    async (stepId: StepType, event?: React.MouseEvent | React.KeyboardEvent) => {
       // Accessibility support for keyboard navigation
       if (event && 'key' in event) {
         if (event.key !== 'Enter' && event.key !== ' ') {
-          return; // Only respond to Enter and Space keys
+          return;
         }
         event.preventDefault();
       }
 
-      // Check if currently navigating
-      if (navigationState.isNavigating) {
-        // Navigation in progress (silent in production)
-        setNavigationState(prev => ({
-          ...prev,
-          feedback: {
-            open: true,
-            message: 'Navigation already in progress, please wait...',
-            severity: 'info'
-          }
-        }));
-        return;
-      }
-
-      // Navigation initiated (silent in production)
-
-      // Set loading state
-      setNavigationState(prev => ({
-        ...prev,
-        isNavigating: true,
-        navigatingToStep: stepId,
-        lastNavigationAttempt: { stepId, timestamp: now },
-        feedback: { ...prev.feedback, open: false } // Close any existing feedback
-      }));
-
       try {
-        const result = await navigateToStep(stepId);
-        
-        if (result.success) {
-          // Success feedback (silent - no snackbar)
-          if (process.env.NODE_ENV === 'development') {
-            console.log(`✅ Navigation successful: ${stepId}`);
-          }
-          
-          // Workspace sync will be handled automatically by the hook
-          
-          setNavigationState(prev => ({
-            ...prev,
-            isNavigating: false,
-            navigatingToStep: null,
-            feedback: { ...prev.feedback, open: false } // Don't show success snackbar
-          }));
-
-        } else {
-          // Navigation blocked or failed
-          const isBlocked = result.stepState && ['blocked', 'pending'].includes(result.stepState);
-          const severity = isBlocked ? 'warning' : 'error';
-          const userMessage = result.details || result.error || 'Navigation failed';
-
-          console.warn(`⚠️ Navigation ${isBlocked ? 'blocked' : 'failed'}: ${stepId}`, {
-            error: result.error,
-            details: result.details,
-            stepState: result.stepState
-          });
-
-          setNavigationState(prev => ({
-            ...prev,
-            isNavigating: false,
-            navigatingToStep: null,
-            feedback: {
-              open: true,
-              message: userMessage,
-              severity
-            }
-          }));
-
-          // Auto-hide error/warning messages after 5 seconds
-          setTimeout(() => {
-            setNavigationState(prev => ({
-              ...prev,
-              feedback: { ...prev.feedback, open: false }
-            }));
-          }, 5000);
-        }
+        await workflowActions.navigateToStep(stepId);
       } catch (error) {
-        // Unexpected error handling
-        const errorMessage = error instanceof Error ? error.message : 'Unexpected navigation error';
-        
-        console.error(`🚨 Navigation error: ${stepId}`, error);
-        
-        setNavigationState(prev => ({
-          ...prev,
-          isNavigating: false,
-          navigatingToStep: null,
-          feedback: {
-            open: true,
-            message: `Navigation error: ${errorMessage}`,
-            severity: 'error'
-          }
-        }));
-
-        // Auto-hide error messages after 5 seconds
-        setTimeout(() => {
-          setNavigationState(prev => ({
-            ...prev,
-            feedback: { ...prev.feedback, open: false }
-          }));
-        }, 5000);
+        console.error(`Navigation error for ${stepId}:`, error);
       }
     },
-    [navigateToStep, navigationState.isNavigating, navigationState.lastNavigationAttempt]
+    [workflowActions]
   );
 
-  // Handler for closing feedback snackbar
-  const handleCloseFeedback = useCallback((_event?: React.SyntheticEvent | Event, reason?: string) => {
-    if (reason === 'clickaway') {
-      return;
-    }
-    setNavigationState(prev => ({
-      ...prev,
-      feedback: { ...prev.feedback, open: false }
-    }));
-  }, []);
-
+  // Memoized icon rendering function
   const getStepIcon = useCallback(
-    (step: AnyWorkflowStepState, index: number) => {
-      const state = step.stateMetadata.state;
-      const isCurrentStep = currentStepId === step.id;
-      const isProcessingStep = step.id === 'processing' && isProcessingActive;
+    (stepData: { step: StepType; state: StepStatusType; isCurrent: boolean }, index: number) => {
+      const { step, state, isCurrent } = stepData;
+      const isProcessingStep = step === 'processing' && isProcessingActive;
 
-      // Enhanced icon selection with processing awareness
       switch (state) {
-        case StepState.Complete:
+        case StepStatus.COMPLETE:
           return (
             <Grow in={true} timeout={300}>
               <CompletedIcon sx={{ fontSize: 16, color: 'inherit' }} />
             </Grow>
           );
-        case StepState.Error:
+        case StepStatus.ERROR:
           return (
             <Box sx={{ position: 'relative' }}>
               <ErrorIcon sx={{ fontSize: 16, color: 'inherit' }} />
-              {/* Subtle pulsing effect for errors */}
               <Box
                 sx={{
                   position: 'absolute',
@@ -272,17 +158,17 @@ export const StepNavigation: React.FC = () => {
               />
             </Box>
           );
-        case StepState.Warning:
+        case StepStatus.WARNING:
           return <WarningIcon sx={{ fontSize: 16, color: 'inherit' }} />;
-        case StepState.Blocked:
-          return isCurrentStep && isProcessingActive ? (
+        case StepStatus.BLOCK:
+          return isCurrent && isProcessingActive ? (
             <LockedIcon sx={{ fontSize: 16, color: 'inherit', opacity: 0.7 }} />
           ) : (
             <BlockedIcon sx={{ fontSize: 16, color: 'inherit', opacity: 0.6 }} />
           );
-        case StepState.Skip:
+        case StepStatus.SKIP:
           return <SkipIcon sx={{ fontSize: 16, color: 'inherit', opacity: 0.7 }} />;
-        case StepState.Ready:
+        case StepStatus.READY:
           return isProcessingStep ? (
             <Box sx={{ position: 'relative' }}>
               <ProcessingIcon
@@ -297,7 +183,7 @@ export const StepNavigation: React.FC = () => {
                 }}
               />
             </Box>
-          ) : isCurrentStep ? (
+          ) : isCurrent ? (
             <ReadyIcon sx={{ fontSize: 16, color: 'inherit' }} />
           ) : (
             <PendingIcon sx={{ fontSize: 16, color: 'inherit', opacity: 0.8 }} />
@@ -309,7 +195,7 @@ export const StepNavigation: React.FC = () => {
               sx={{
                 fontSize: '0.75rem',
                 fontWeight: 600,
-                opacity: state === StepState.Pending ? 0.7 : 1,
+                opacity: 0.7,
               }}
             >
               {index + 1}
@@ -317,91 +203,79 @@ export const StepNavigation: React.FC = () => {
           );
       }
     },
-    [currentStepId, isProcessingActive]
+    [isProcessingActive]
   );
 
+  // Memoized color determination
   const getStepColor = useCallback(
-    (step: AnyWorkflowStepState) => {
-      const state = step.stateMetadata.state;
-      const isCurrentStep = currentStepId === step.id;
-      const isProcessingStep = step.id === 'processing' && isProcessingActive;
+    (stepData: { step: StepType; state: StepStatusType; isCurrent: boolean }) => {
+      const { step, state, isCurrent } = stepData;
+      const isProcessingStep = step === 'processing' && isProcessingActive;
 
-      // Enhanced color logic with processing awareness
       switch (state) {
-        case StepState.Complete:
-          return isCurrentStep ? 'success.dark' : 'success.main';
-        case StepState.Error:
+        case StepStatus.COMPLETE:
+          return isCurrent ? 'success.dark' : 'success.main';
+        case StepStatus.ERROR:
           return 'error.main';
-        case StepState.Warning:
-          return isCurrentStep ? 'warning.dark' : 'warning.main';
-        case StepState.Blocked:
-          return isCurrentStep && isProcessingActive
-            ? 'warning.main' // Highlight blocked state during processing
-            : 'grey.700';
-        case StepState.Skip:
+        case StepStatus.WARNING:
+          return isCurrent ? 'warning.dark' : 'warning.main';
+        case StepStatus.BLOCK:
+          return isCurrent && isProcessingActive ? 'warning.main' : 'grey.700';
+        case StepStatus.SKIP:
           return 'grey.500';
-        case StepState.Ready:
+        case StepStatus.READY:
           if (isProcessingStep) {
-            return 'info.main'; // Special color for active processing
+            return 'info.main';
           }
-          return isCurrentStep ? 'primary.main' : 'grey.600';
+          return isCurrent ? 'primary.main' : 'grey.600';
         default:
-          return isCurrentStep ? 'primary.main' : 'grey.700';
+          return isCurrent ? 'primary.main' : 'grey.700';
       }
     },
-    [currentStepId, isProcessingActive]
+    [isProcessingActive]
   );
 
+  // Memoized tooltip content
   const getStepTooltip = useCallback(
-    (step: AnyWorkflowStepState) => {
-      const state = step.stateMetadata.state;
-      const metadata = step.stateMetadata;
-      const isCurrentStep = currentStepId === step.id;
-      const isProcessingStep = step.id === 'processing' && isProcessingActive;
+    (stepData: { step: StepType; state: StepStatusType; isCurrent: boolean }) => {
+      const { step, state, isCurrent } = stepData;
+      const isProcessingStep = step === 'processing' && isProcessingActive;
+      const description = STEP_METADATA[step].description;
 
-      // Enhanced context-aware tooltips
       switch (state) {
-        case StepState.Error:
-          return `❌ Error: ${metadata.message || 'This step encountered an error and needs attention'}`;
-        case StepState.Warning:
-          return `⚠️ Warning: ${metadata.message || 'This step completed with warnings'}`;
-        case StepState.Blocked:
+        case StepStatus.ERROR:
+          return `❌ Error: This step encountered an error and needs attention`;
+        case StepStatus.WARNING:
+          return `⚠️ Warning: This step completed with warnings`;
+        case StepStatus.BLOCK:
           if (isProcessingActive && !isProcessingStep) {
             return `⏸️ Blocked: Waiting for processing to complete before this step becomes available`;
           }
-          return `🚫 Blocked: ${metadata.message || 'Complete previous steps to unlock this step'}`;
-        case StepState.Skip:
-          return `⏭️ Skipped: ${metadata.message || 'This step was skipped based on your workflow'}`;
-        case StepState.Complete:
-          const completedAt =
-            metadata.stateSpecific && 'completedAt' in metadata.stateSpecific
-              ? metadata.stateSpecific.completedAt
-              : null;
-          const timeInfo = completedAt
-            ? ` (completed ${new Date(completedAt).toLocaleTimeString()})`
-            : '';
-          return `✅ Completed: ${step.description}${timeInfo}`;
-        case StepState.Ready:
+          return `🚫 Blocked: Complete previous steps to unlock this step`;
+        case StepStatus.SKIP:
+          return `⏭️ Skipped: This step was skipped based on your workflow`;
+        case StepStatus.COMPLETE:
+          return `✅ Completed: ${description}`;
+        case StepStatus.READY:
           if (isProcessingStep) {
             return `⚙️ Processing: Currently processing your content - this may take a moment`;
           }
-          if (isCurrentStep) {
-            return `▶️ Current: ${step.description} - Click to continue or navigate to other available steps`;
+          if (isCurrent) {
+            return `▶️ Current: ${description} - Click to continue or navigate to other available steps`;
           }
-          return `✋ Ready: ${step.description} - Click to navigate to this step`;
+          return `✋ Ready: ${description} - Click to navigate to this step`;
         default:
-          return step.description;
+          return description;
       }
     },
-    [currentStepId, isProcessingActive]
+    [isProcessingActive]
   );
 
-  // Get the appropriate chip based on StepState enum with enhanced styling
+  // Memoized chip rendering
   const getStepChip = useCallback(
-    (step: AnyWorkflowStepState) => {
-      const state = step.stateMetadata.state;
-      const isCurrentStep = currentStepId === step.id;
-      const isProcessingStep = step.id === 'processing' && isProcessingActive;
+    (stepData: { step: StepType; state: StepStatusType; isCurrent: boolean }) => {
+      const { step, state, isCurrent } = stepData;
+      const isProcessingStep = step === 'processing' && isProcessingActive;
 
       const baseChipProps = {
         size: 'small' as const,
@@ -414,13 +288,13 @@ export const StepNavigation: React.FC = () => {
       };
 
       switch (state) {
-        case StepState.Error:
+        case StepStatus.ERROR:
           return (
             <Fade in={true} timeout={300}>
               <Chip
                 label='Error'
                 color='error'
-                variant={isCurrentStep ? 'filled' : 'outlined'}
+                variant={isCurrent ? 'filled' : 'outlined'}
                 {...baseChipProps}
                 sx={{
                   ...baseChipProps.sx,
@@ -433,16 +307,16 @@ export const StepNavigation: React.FC = () => {
               />
             </Fade>
           );
-        case StepState.Warning:
+        case StepStatus.WARNING:
           return (
             <Chip
               label='Warning'
               color='warning'
-              variant={isCurrentStep ? 'filled' : 'outlined'}
+              variant={isCurrent ? 'filled' : 'outlined'}
               {...baseChipProps}
             />
           );
-        case StepState.Blocked:
+        case StepStatus.BLOCK:
           return (
             <Chip
               label={isProcessingActive && !isProcessingStep ? 'Waiting' : 'Blocked'}
@@ -456,7 +330,7 @@ export const StepNavigation: React.FC = () => {
               }}
             />
           );
-        case StepState.Skip:
+        case StepStatus.SKIP:
           return (
             <Chip
               label='Skipped'
@@ -470,13 +344,13 @@ export const StepNavigation: React.FC = () => {
               }}
             />
           );
-        case StepState.Complete:
+        case StepStatus.COMPLETE:
           return (
             <Grow in={true} timeout={500}>
               <Chip
                 label='Done'
                 color='success'
-                variant={isCurrentStep ? 'filled' : 'outlined'}
+                variant={isCurrent ? 'filled' : 'outlined'}
                 {...baseChipProps}
                 sx={{
                   ...baseChipProps.sx,
@@ -488,7 +362,7 @@ export const StepNavigation: React.FC = () => {
               />
             </Grow>
           );
-        case StepState.Ready:
+        case StepStatus.READY:
           if (isProcessingStep) {
             return (
               <Chip
@@ -509,19 +383,38 @@ export const StepNavigation: React.FC = () => {
               />
             );
           }
-          return isCurrentStep ? (
+          return isCurrent ? (
             <Chip label='Current' color='primary' variant='filled' {...baseChipProps} />
           ) : null;
         default:
           return null;
       }
     },
-    [currentStepId, isProcessingActive]
+    [isProcessingActive]
   );
 
-  // Hide step navigation when in settings mode
-  if (settingsUI.isSettingsMode) {
-    return null;
+  // Show loading state if no steps available
+  if (stepsWithStates.length === 0) {
+    return (
+      <Box
+        sx={{
+          width: 280,
+          backgroundColor: 'rgba(0, 0, 0, 0.1)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderRight: 1,
+          borderColor: 'divider',
+          minHeight: 400,
+        }}
+      >
+        <CircularProgress size={24} />
+        <Typography variant='caption' sx={{ mt: 2, color: 'text.secondary' }}>
+          Loading workflow...
+        </Typography>
+      </Box>
+    );
   }
 
   return (
@@ -559,7 +452,7 @@ export const StepNavigation: React.FC = () => {
         />
       )}
 
-      {/* Header */}
+      {/* Header with workspace info and import context indicator */}
       <Box
         sx={{
           height: 48,
@@ -572,14 +465,33 @@ export const StepNavigation: React.FC = () => {
           position: 'relative',
         }}
       >
-        <Typography variant='subtitle2' sx={{ fontWeight: 600 }}>
-          {currentWorkspace?.name || 'Subtitle Workflow'}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Typography variant='subtitle2' sx={{ fontWeight: 600 }}>
+            {currentWorkspace?.name || 'Subtitle Workflow'}
+          </Typography>
+
+          {/* Import context indicator */}
+          {inputStepContent?.importedJsonFile && (
+            <Tooltip title={`Imported: ${inputStepContent.importedJsonFile.split('/').pop()}`}>
+              <Chip
+                label='JSON'
+                size='small'
+                color='info'
+                variant='outlined'
+                sx={{
+                  height: 16,
+                  fontSize: '0.6rem',
+                  fontWeight: 500,
+                }}
+              />
+            </Tooltip>
+          )}
+
           {isProcessingActive && (
             <Typography
               component='span'
               variant='caption'
               sx={{
-                ml: 1,
                 color: 'info.main',
                 fontStyle: 'italic',
                 fontSize: '0.7rem',
@@ -588,7 +500,7 @@ export const StepNavigation: React.FC = () => {
               (Processing...)
             </Typography>
           )}
-        </Typography>
+        </Box>
         <IconButton size='small'>
           <MoreIcon fontSize='small' />
         </IconButton>
@@ -611,25 +523,22 @@ export const StepNavigation: React.FC = () => {
             Processing Steps
           </Typography>
           <List dense sx={{ mt: 0.5 }}>
-            {stepsArray.map((step, index) => {
-              const state = step.stateMetadata.state;
-              const isDisabled =
-                state === StepState.Blocked ||
-                state === StepState.Skip ||
-                (isProcessingActive && step.id !== 'processing');
-              const isSelected = currentStepId === step.id;
+            {stepsWithStates.map((stepData, index) => {
+              const { step, state, canNavigate, isCurrent } = stepData;
+              const isDisabled = !canNavigate || (isProcessingActive && step !== 'processing');
+              const isSelected = isCurrent;
 
               return (
-                <Tooltip key={step.id} title={getStepTooltip(step)} placement='right' arrow>
+                <Tooltip key={step} title={getStepTooltip(stepData)} placement='right' arrow>
                   <ListItemButton
                     selected={isSelected}
-                    disabled={isDisabled || navigationState.isNavigating}
-                    onClick={(event) => handleStepClick(step.id, event)}
-                    onKeyDown={(event) => handleStepClick(step.id, event)}
-                    role="button"
+                    disabled={isDisabled}
+                    onClick={(event) => handleStepClick(step, event)}
+                    onKeyDown={(event) => handleStepClick(step, event)}
+                    role='button'
                     tabIndex={isDisabled ? -1 : 0}
-                    aria-label={`Navigate to ${step.id} step - ${getStepTooltip(step).replace(/[^a-zA-Z0-9\s]/g, '')}`}
-                    aria-disabled={isDisabled || navigationState.isNavigating}
+                    aria-label={`Navigate to ${step} step - ${getStepTooltip(stepData).replace(/[^a-zA-Z0-9\s]/g, '')}`}
+                    aria-disabled={isDisabled}
                     aria-current={isSelected ? 'step' : undefined}
                     sx={{
                       borderRadius: 1,
@@ -681,13 +590,12 @@ export const StepNavigation: React.FC = () => {
 
                       // Enhanced disabled state
                       '&.Mui-disabled': {
-                        opacity: state === StepState.Blocked && isProcessingActive ? 0.6 : 0.4,
+                        opacity: state === StepStatus.BLOCK && isProcessingActive ? 0.6 : 0.4,
                         cursor: 'not-allowed',
                         backgroundColor:
-                          state === StepState.Error ? 'rgba(211, 47, 47, 0.05)' : 'transparent',
+                          state === StepStatus.ERROR ? 'rgba(211, 47, 47, 0.05)' : 'transparent',
                         '&::before': {
-                          content:
-                            state === StepState.Blocked && isProcessingActive ? '""' : 'none',
+                          content: state === StepStatus.BLOCK && isProcessingActive ? '""' : 'none',
                           position: 'absolute',
                           left: 0,
                           top: 0,
@@ -699,7 +607,7 @@ export const StepNavigation: React.FC = () => {
                       },
 
                       // Processing step special styling
-                      ...(step.id === 'processing' &&
+                      ...(step === 'processing' &&
                         isProcessingActive && {
                           backgroundColor: 'rgba(33, 150, 243, 0.08)',
                           '&::after': {
@@ -729,21 +637,21 @@ export const StepNavigation: React.FC = () => {
                           width: 28,
                           height: 28,
                           borderRadius: '50%',
-                          backgroundColor: getStepColor(step),
+                          backgroundColor: getStepColor(stepData),
                           color: 'white',
                           fontSize: '0.75rem',
                           fontWeight: 600,
                           transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                          opacity: state === StepState.Skip ? 0.7 : 1,
+                          opacity: state === StepStatus.SKIP ? 0.7 : 1,
                           position: 'relative',
 
                           // Enhanced state-specific styling
-                          ...(state === StepState.Complete && {
+                          ...(state === StepStatus.COMPLETE && {
                             boxShadow: '0 0 0 2px rgba(76, 175, 80, 0.3)',
                             transform: 'scale(1.05)',
                           }),
 
-                          ...(state === StepState.Error && {
+                          ...(state === StepStatus.ERROR && {
                             boxShadow: '0 0 0 2px rgba(211, 47, 47, 0.4)',
                             animation: 'errorPulse 2s infinite',
                             '@keyframes errorPulse': {
@@ -756,19 +664,19 @@ export const StepNavigation: React.FC = () => {
                             },
                           }),
 
-                          ...(step.id === 'processing' &&
+                          ...(step === 'processing' &&
                             isProcessingActive && {
                               boxShadow: '0 0 0 2px rgba(33, 150, 243, 0.4)',
                               transform: 'scale(1.1)',
                             }),
 
                           ...(isSelected &&
-                            state !== StepState.Error && {
+                            state !== 'error' && {
                               boxShadow: '0 0 0 2px rgba(245, 158, 11, 0.5)',
                               transform: 'scale(1.08)',
                             }),
 
-                          ...(state === StepState.Blocked &&
+                          ...(state === StepStatus.BLOCK &&
                             isProcessingActive && {
                               backgroundColor: 'warning.main',
                               animation: 'waitingPulse 3s ease-in-out infinite',
@@ -779,10 +687,10 @@ export const StepNavigation: React.FC = () => {
                             }),
                         }}
                       >
-                        {getStepIcon(step, index)}
+                        {getStepIcon(stepData, index)}
 
                         {/* Processing progress indicator */}
-                        {step.id === 'processing' && isProcessingActive && (
+                        {step === 'processing' && isProcessingActive && (
                           <Box
                             sx={{
                               position: 'absolute',
@@ -801,31 +709,6 @@ export const StepNavigation: React.FC = () => {
                             }}
                           />
                         )}
-
-                        {/* Navigation loading indicator */}
-                        {navigationState.isNavigating && navigationState.navigatingToStep === step.id && (
-                          <Box
-                            sx={{
-                              position: 'absolute',
-                              top: 10,
-                              right: 10,
-                              zIndex: 10,
-                            }}
-                          >
-                            <CircularProgress
-                              size={16}
-                              thickness={4}
-                              sx={{
-                                color: 'primary.main',
-                                animation: 'fadeInOut 1s ease-in-out infinite',
-                                '@keyframes fadeInOut': {
-                                  '0%, 100%': { opacity: 0.7 },
-                                  '50%': { opacity: 1 },
-                                },
-                              }}
-                            />
-                          </Box>
-                        )}
                       </Box>
                     </ListItemIcon>
                     <ListItemText
@@ -836,16 +719,16 @@ export const StepNavigation: React.FC = () => {
                             sx={{
                               fontWeight: isSelected ? 700 : 600,
                               fontSize: '0.875rem',
-                              opacity: state === StepState.Skip ? 0.7 : 1,
-                              textDecoration: state === StepState.Skip ? 'line-through' : 'none',
+                              opacity: state === StepStatus.SKIP ? 0.7 : 1,
+                              textDecoration: state === StepStatus.SKIP ? 'line-through' : 'none',
                               transition: 'all 0.2s ease-in-out',
-                              color: state === StepState.Error ? 'error.main' : 'inherit',
+                              color: state === StepStatus.ERROR ? 'error.main' : 'inherit',
                               flexGrow: 1,
                             }}
                           >
-                            {step.title}
+                            {STEP_METADATA[step].title}
                           </Typography>
-                          {getStepChip(step)}
+                          {getStepChip(stepData)}
                         </Box>
                       }
                       secondary={
@@ -854,17 +737,17 @@ export const StepNavigation: React.FC = () => {
                             variant='caption'
                             sx={{
                               fontSize: '0.75rem',
-                              color: state === StepState.Error ? 'error.main' : 'text.secondary',
-                              opacity: state === StepState.Skip ? 0.7 : 1,
+                              color: state === 'error' ? 'error.main' : 'text.secondary',
+                              opacity: state === StepStatus.SKIP ? 0.7 : 1,
                               lineHeight: 1.2,
                               transition: 'color 0.2s ease-in-out',
                             }}
                           >
-                            {step.description}
+                            {STEP_METADATA[step].description}
                           </Typography>
 
                           {/* Additional context for processing state */}
-                          {step.id === 'processing' && isProcessingActive && (
+                          {step === 'processing' && isProcessingActive && (
                             <Box sx={{ mt: 0.5 }}>
                               <LinearProgress
                                 sx={{
@@ -893,7 +776,7 @@ export const StepNavigation: React.FC = () => {
                           )}
 
                           {/* Error details */}
-                          {state === StepState.Error && step.stateMetadata.message && (
+                          {state === StepStatus.ERROR && (
                             <Typography
                               variant='caption'
                               sx={{
@@ -907,12 +790,12 @@ export const StepNavigation: React.FC = () => {
                                 border: '1px solid rgba(211, 47, 47, 0.2)',
                               }}
                             >
-                              {step.stateMetadata.message}
+                              Step encountered an error
                             </Typography>
                           )}
 
                           {/* Warning details */}
-                          {state === StepState.Warning && step.stateMetadata.message && (
+                          {state === StepStatus.WARNING && (
                             <Typography
                               variant='caption'
                               sx={{
@@ -926,7 +809,7 @@ export const StepNavigation: React.FC = () => {
                                 border: '1px solid rgba(245, 124, 0, 0.2)',
                               }}
                             >
-                              {step.stateMetadata.message}
+                              Step completed with warnings
                             </Typography>
                           )}
                         </Box>
@@ -939,56 +822,10 @@ export const StepNavigation: React.FC = () => {
           </List>
         </Box>
       </Box>
-
-      {/* Navigation feedback snackbar */}
-      <Snackbar
-        open={navigationState.feedback.open}
-        autoHideDuration={navigationState.feedback.severity === 'success' ? 2000 : 5000}
-        onClose={handleCloseFeedback}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-        sx={{
-          zIndex: 9999,
-          '& .MuiSnackbarContent-root': {
-            borderRadius: 2,
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12)',
-          }
-        }}
-      >
-        <Alert
-          onClose={handleCloseFeedback}
-          severity={navigationState.feedback.severity}
-          variant="filled"
-          sx={{
-            width: '100%',
-            borderRadius: 2,
-            fontWeight: 500,
-            '& .MuiAlert-icon': {
-              fontSize: '1.2rem',
-            },
-            '& .MuiAlert-message': {
-              fontSize: '0.875rem',
-              lineHeight: 1.4,
-            },
-            // Custom styling based on severity
-            ...(navigationState.feedback.severity === 'success' && {
-              backgroundColor: 'success.main',
-              color: 'success.contrastText',
-            }),
-            ...(navigationState.feedback.severity === 'warning' && {
-              backgroundColor: 'warning.main',
-              color: 'warning.contrastText',
-            }),
-            ...(navigationState.feedback.severity === 'error' && {
-              backgroundColor: 'error.main',
-              color: 'error.contrastText',
-            }),
-          }}
-        >
-          {navigationState.feedback.message}
-        </Alert>
-      </Snackbar>
     </Box>
   );
-};
+});
 
-StepNavigation.displayName = 'StepNavigation';
+StepNavigation.displayName = 'EnhancedStepNavigation';
+
+export default StepNavigation;
