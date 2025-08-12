@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Box,
   Typography,
@@ -12,87 +12,61 @@ import {
   VolumeUp as VolumeIcon,
 } from "@mui/icons-material";
 import { BasicVideoPlayer } from "../../VideoPlayer/BasicVideoPlayer";
-import { useSubtitleEditStore } from "../../../stores/subtitle-edit-store";
-import { useAppStore } from "../../../stores/app-store";
-import { SubtitleEntry } from "../../../types/subtitle";
+import { 
+  useVideoState,
+  useSelectedSubtitle,
+  useSubtitleActions 
+} from "../../../stores/useSubtitleEditStore";
+import { useInputFile, useSubtitles } from "../../../stores/useStepStore";
+import { Subtitle } from "../../../stores/types/StoreTypes";
 import { ActionButton } from "./styles";
 import { formatTime } from "./utils";
-import { VideoPreviewSectionProps } from "./types";
 
-export const VideoPreviewSection: React.FC<VideoPreviewSectionProps> = () => {
-  const {
-    session,
-    setCurrentTime,
-    setVideoPlaying,
-    jumpToSubtitle,
-    setVideoDuration,
-  } = useSubtitleEditStore();
-  const { config } = useAppStore();
+export const VideoPreviewSection: React.FC = () => {
+  const subtitles = useSubtitles();
+  const selectedSubtitle = useSelectedSubtitle();
+  const { currentTime, isVideoPlaying, videoPath } = useVideoState();
+  const { setCurrentTime, setVideoPlaying, jumpToSubtitle, setVideoDuration } = useSubtitleActions();
+  const inputFile = useInputFile();
   const [duration, setDuration] = useState(0);
+  const lastUpdateRef = useRef<number>(0);
 
   // Video path resolution with fallback logic
-  const resolvedVideoPath = session?.videoPath || config.inputFile || '';
+  const resolvedVideoPath = videoPath || inputFile || '';
   
-  // Video path resolution (debug logging removed for performance)
-
-  const isPlaying = session?.isVideoPlaying || false;
-  const shouldAutoPause = session?.shouldAutoPause || false;
-  const currentTime = session?.currentTime || 0;
+  const isPlaying = isVideoPlaying;
 
   const handleTimeUpdate = (time: number) => {
     // Throttle time updates to improve performance (update every ~100ms)
     const now = Date.now();
-    const lastUpdate = handleTimeUpdate._lastUpdate || 0;
-    if (now - lastUpdate < 100) return;
-    handleTimeUpdate._lastUpdate = now;
+    if (now - lastUpdateRef.current < 100) return;
+    lastUpdateRef.current = now;
 
     setCurrentTime(time);
-
-    // Auto-pause when subtitle selection ends
-    if (shouldAutoPause && session?.selectedSubtitleId && session.currentSubtitles && Array.isArray(session.currentSubtitles)) {
-      const selectedSubtitle = session.currentSubtitles.find(
-        (s) => s.id === session.selectedSubtitleId
-      );
-      if (selectedSubtitle && time >= selectedSubtitle.endTime) {
-        setVideoPlaying(false);
-        // Disable auto-pause after it triggers
-        if (session && useSubtitleEditStore.getState().session) {
-          useSubtitleEditStore.setState((state) => ({
-            ...state,
-            session: state.session
-              ? {
-                  ...state.session,
-                  shouldAutoPause: false,
-                }
-              : null,
-          }));
-        }
-      }
-    }
   };
 
   const handleLoadedMetadata = (dur: number) => {
     setDuration(dur);
-    setVideoDuration(dur); // Store in the session for other components to access
+    setVideoDuration(dur);
   };
 
   // Sync video player time when store currentTime changes (for jumpToSubtitle)
   useEffect(() => {
     // This ensures the video player receives the updated currentTime from store
     // particularly important when jumpToSubtitle updates the store time
-  }, [session?.currentTime]);
+  }, [currentTime]);
 
   const jumpToSelected = () => {
-    if (session?.selectedSubtitleId) {
-      jumpToSubtitle(session.selectedSubtitleId);
+    if (selectedSubtitle?.id) {
+      jumpToSubtitle(selectedSubtitle.id);
     }
   };
 
-  const getCurrentSubtitle = (): SubtitleEntry | null => {
-    if (!session || !session.currentSubtitles || !Array.isArray(session.currentSubtitles)) return null;
+  const getCurrentSubtitle = (): Subtitle | null => {
+    if (!subtitles || !Array.isArray(subtitles)) return null;
 
     return (
-      session.currentSubtitles.find(
+      subtitles.find(
         (subtitle) =>
           currentTime >= subtitle.startTime && currentTime <= subtitle.endTime
       ) || null
@@ -128,7 +102,7 @@ export const VideoPreviewSection: React.FC<VideoPreviewSectionProps> = () => {
       </Typography>
 
       {/* Video player - fixed height to prevent subtitle expansion from affecting it */}
-      {(session || resolvedVideoPath) ? (
+      {resolvedVideoPath ? (
         <Box
           sx={{
             height: "calc(100% - 190px)", // Adjusted height: total minus header(40px), controls(40px), and subtitle preview(110px)
@@ -186,7 +160,7 @@ export const VideoPreviewSection: React.FC<VideoPreviewSectionProps> = () => {
           color="primary"
           size="small"
           onClick={() => setVideoPlaying(!isPlaying)}
-          disabled={!session && !resolvedVideoPath}
+          disabled={!resolvedVideoPath}
         >
           {isPlaying ? <PauseIcon /> : <PlayIcon />}
         </IconButton>
@@ -204,7 +178,7 @@ export const VideoPreviewSection: React.FC<VideoPreviewSectionProps> = () => {
         <ActionButton
           size="small"
           onClick={jumpToSelected}
-          disabled={!session?.selectedSubtitleId}
+          disabled={!selectedSubtitle}
           sx={{ fontSize: "0.75rem", py: 0.5, px: 1 }}
         >
           Jump to Selected
@@ -281,31 +255,11 @@ export const VideoPreviewSection: React.FC<VideoPreviewSectionProps> = () => {
                   color: "white",
                   textAlign: "center",
                   whiteSpace: "pre-line",
-                  mb: currentSubtitle.translation && currentSubtitle.translation.trim() && currentSubtitle.translation !== currentSubtitle.text ? 0.5 : 0,
+                  mb: 0,
                 }}
               >
                 {currentSubtitle.text}
               </Typography>
-              
-              {/* Display translation if available */}
-              {currentSubtitle.translation && 
-               currentSubtitle.translation.trim() && 
-               currentSubtitle.translation !== currentSubtitle.text && (
-                <Typography
-                  variant="body2"
-                  sx={{
-                    fontWeight: 400,
-                    fontSize: "0.9rem",
-                    lineHeight: 1.2,
-                    color: "rgba(255, 255, 255, 0.8)",
-                    textAlign: "center",
-                    whiteSpace: "pre-line",
-                    fontStyle: "italic",
-                  }}
-                >
-                  {currentSubtitle.translation}
-                </Typography>
-              )}
             </Box>
           </>
         ) : (

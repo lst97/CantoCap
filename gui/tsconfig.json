@@ -23,8 +23,7 @@
       "@main/*": ["src/main/*"],
       "@preload/*": ["src/preload/*"],
       "@renderer/*": ["src/renderer/*"]
-    },
-    "types": ["node", "@types/node"]
+    }
   },
   "include": [
     "src/**/*.ts",

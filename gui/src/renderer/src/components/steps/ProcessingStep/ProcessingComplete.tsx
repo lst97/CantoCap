@@ -20,12 +20,16 @@ import {
   Info as InfoIcon,
   Celebration as CelebrationIcon,
 } from "@mui/icons-material";
-import { useAppStore } from "../../../stores/app-store";
+import { 
+  useProcessingStepContent,
+  useConfigStepContent 
+} from "../../../stores/useStepStore";
 import { SuccessCard, InfoSection, CelebrationHeader } from "./styles";
 import { formatTime } from "./utils";
 
 export const ProcessingComplete: React.FC = () => {
-  const { processing, config, hardware } = useAppStore();
+  const processing = useProcessingStepContent();
+  const config = useConfigStepContent();
 
   // Extract quality metrics from processing statistics
   const statistics = processing.statistics;
@@ -170,7 +174,9 @@ export const ProcessingComplete: React.FC = () => {
                   variant="h6"
                   sx={{ fontWeight: 700, fontFamily: "monospace" }}
                 >
-                  {formatTime(processing.timeElapsed)}
+                  {formatTime(processing.startTime && processing.endTime 
+                    ? Math.floor((new Date(processing.endTime).getTime() - new Date(processing.startTime).getTime()) / 1000)
+                    : processing.timeElapsed || 0)}
                 </Typography>
               </Box>
             </Box>
@@ -198,7 +204,7 @@ export const ProcessingComplete: React.FC = () => {
                 </Typography>
               </Box>
             </Box>
-            {hardware.info?.gpuAcceleration && (
+            {processing.hardwareInfo?.gpuAcceleration && (
               <Box
                 sx={{
                   display: "flex",
@@ -227,7 +233,7 @@ export const ProcessingComplete: React.FC = () => {
                 </Box>
               </Box>
             )}
-            {hardware.info?.memoryUsage && (
+            {processing.hardwareInfo?.memoryUsage && (
               <Box
                 sx={{
                   display: "flex",
@@ -248,7 +254,7 @@ export const ProcessingComplete: React.FC = () => {
                     PEAK MEMORY
                   </Typography>
                   <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                    {hardware.info.memoryUsage}
+                    {processing.hardwareInfo.memoryUsage}
                   </Typography>
                 </Box>
               </Box>

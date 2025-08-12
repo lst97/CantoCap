@@ -9,12 +9,11 @@ import {
   Block as BlockIcon,
 } from "@mui/icons-material";
 import { Chip } from "@mui/material";
-import { useAppStore } from "../../stores/app-store";
-import { AppConfig } from "@/types";
-import { triggerUserInteraction } from '../../services/bridge/workflow-config-bridge';
+import { useConfigStepContent, useStepActions } from "../../stores/useStepStore";
+import type { ConfigStepData } from "../../stores/types/StoreTypes";
 
 interface QuickOption {
-  key: keyof AppConfig;
+  key: keyof Pick<ConfigStepData, 'speakers' | 'written' | 'music'>;
   label: string;
   icon: React.ReactNode;
   description: string;
@@ -24,12 +23,13 @@ interface QuickOption {
 }
 
 export const QuickOptionsSelector: React.FC = () => {
-  const { config, updateConfig } = useAppStore();
+  const config = useConfigStepContent();
+  const { updateStepContent } = useStepActions();
 
   const hasGeminiKey = config.geminiKey && config.geminiKey.trim().length > 0;
 
   const handleOptionChange = useCallback(
-    (key: keyof AppConfig) => {
+    async (key: keyof Pick<ConfigStepData, 'speakers' | 'written' | 'music'>) => {
       // Written style logic:
       // - Without Gemini: Always enabled, cannot be disabled
       // - With Gemini: Can be toggled freely
@@ -37,12 +37,14 @@ export const QuickOptionsSelector: React.FC = () => {
         // If no Gemini key, written style cannot be disabled (always enabled)
         return;
       }
-      // Trigger immediate config update through event system
-      triggerUserInteraction('setting-change', key, !config[key]);
       
-      updateConfig(key, !config[key]);
+      try {
+        await updateStepContent('config', { [key]: !config[key] });
+      } catch (err) {
+        console.error(`Failed to update ${key} configuration:`, err);
+      }
     },
-    [config, updateConfig, hasGeminiKey]
+    [config, updateStepContent, hasGeminiKey]
   );
 
   const options: QuickOption[] = [
@@ -52,7 +54,7 @@ export const QuickOptionsSelector: React.FC = () => {
       icon: <PeopleIcon />,
       description: "Identify and label different speakers in the audio",
       example: "Example: [SPEAKER_01] 我知道!",
-      enabled: config.speakers,
+      enabled: config.speakers ?? false,
       experimental: true,
     },
     {
@@ -65,7 +67,7 @@ export const QuickOptionsSelector: React.FC = () => {
       example: hasGeminiKey
         ? 'Example: "咩料？" → "什麼情況？" (Enhanced with Gemini AI)'
         : 'Example: "咩料？" → "什麼情況？" (Built-in conversion)',
-      enabled: hasGeminiKey ? config.written : true, // Always enabled without Gemini
+      enabled: hasGeminiKey ? (config.written ?? false) : true, // Always enabled without Gemini
     },
     {
       key: "music",
@@ -73,7 +75,7 @@ export const QuickOptionsSelector: React.FC = () => {
       icon: <MusicIcon />,
       description: "Detect and label music segments in the audio",
       example: "Example: [MUSIC]",
-      enabled: config.music,
+      enabled: config.music ?? false,
       experimental: true,
     },
   ];

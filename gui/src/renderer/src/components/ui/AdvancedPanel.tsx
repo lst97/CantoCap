@@ -14,7 +14,7 @@ import {
 } from '@mui/icons-material'
 import { ModelSettings } from './ModelSettings'
 import { AdvancedSettings } from './AdvancedSettings'
-import { useAppStore } from '../../stores/app-store'
+import { useAppStore } from '../../stores/useAppStore'
 
 interface AccordionSection {
   id: string

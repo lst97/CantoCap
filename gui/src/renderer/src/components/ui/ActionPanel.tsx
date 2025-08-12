@@ -22,7 +22,7 @@ import {
   ErrorOutline as ErrorIcon,
   InfoOutlined as InfoIcon
 } from '@mui/icons-material'
-import { useAppStore } from '../../stores/app-store'
+import { useAppStore } from '../../stores/useAppStore'
 
 export const ActionPanel = () => {
   const { 

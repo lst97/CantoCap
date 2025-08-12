@@ -1,5 +1,5 @@
 import React from 'react'
-import { useAppStore } from '../../stores/app-store'
+import { useAppStore } from '../../stores/useAppStore'
 
 export const HardwareModal = () => {
   const { hardware, closeModal } = useAppStore()

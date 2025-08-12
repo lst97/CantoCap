@@ -8,12 +8,7 @@ import {
   Paper,
   Stack
 } from '@mui/material'
-import {
-  Language as LanguageIcon
-} from '@mui/icons-material'
-import { useAppStore } from '../../stores/app-store'
-import { useUnifiedConfig } from '../../contexts/EnhancedWorkspaceConfigContext'
-import { triggerUserInteraction } from '../../services/bridge/workflow-config-bridge'
+import { useConfigStepContent, useStepActions } from '../../stores/useStepStore'
 
 interface CharsetOption {
   value: string
@@ -23,24 +18,18 @@ interface CharsetOption {
 }
 
 export const CharsetSelector: React.FC = () => {
-  const { config } = useAppStore()
-  const { setValue, isReady } = useUnifiedConfig()
+  const config = useConfigStepContent()
+  const { updateStepContent } = useStepActions()
 
   const handleCharsetChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (!isReady) {
-      console.warn('Configuration manager not ready, skipping charset update')
-      return
-    }
+    const newCharset = event.target.value as 'traditional' | 'simplified'
     
     try {
-      // Trigger immediate config update through event system
-      triggerUserInteraction('setting-change', 'charset', event.target.value);
-      
-      await setValue('charset', event.target.value)
+      await updateStepContent('config', { charset: newCharset })
     } catch (err) {
       console.error('Failed to update charset configuration:', err)
     }
-  }, [setValue, isReady])
+  }, [updateStepContent])
 
   const charsets: CharsetOption[] = [
     {

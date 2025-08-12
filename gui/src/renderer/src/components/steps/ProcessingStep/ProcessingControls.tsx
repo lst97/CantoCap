@@ -9,14 +9,23 @@ import {
   Memory as MemoryIcon,
   Speed as SpeedIcon,
 } from "@mui/icons-material";
-import { useAppStore } from "../../../stores/app-store";
+import { 
+  useProcessingStepContent,
+  useStepActions 
+} from "../../../stores/useStepStore";
 import { ProcessingCard, TerminateButton } from "./styles";
 import { CancelConfirmationDialog } from "./CancelConfirmationDialog";
 import { formatTime } from "./utils";
 
 export const ProcessingControls: React.FC = () => {
-  const { processing, cancelTranscription, hardware } = useAppStore();
+  const processing = useProcessingStepContent();
+  const { cancelTranscription } = useStepActions();
   const [showCancelDialog, setShowCancelDialog] = useState(false);
+
+  // Calculate elapsed time for display
+  const timeElapsed = processing.startTime && processing.endTime 
+    ? Math.floor((new Date(processing.endTime).getTime() - new Date(processing.startTime).getTime()) / 1000)
+    : processing.timeElapsed || 0;
 
   const handleCancelClick = () => {
     setShowCancelDialog(true);
@@ -43,12 +52,12 @@ export const ProcessingControls: React.FC = () => {
             startIcon={<StopIcon />}
             fullWidth
             onClick={handleCancelClick}
-            disabled={!processing.isActive}
+            disabled={processing.status !== 'running'}
           >
             Cancel Processing
           </TerminateButton>
 
-          {hardware.info && (
+          {processing.hardwareInfo && (
             <Box>
               <Typography
                 variant="subtitle2"
@@ -57,7 +66,7 @@ export const ProcessingControls: React.FC = () => {
                 System Resources
               </Typography>
               <Stack spacing={1.5}>
-                {hardware.info.gpuAcceleration && (
+                {processing.hardwareInfo.gpuAcceleration && (
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                     <MemoryIcon fontSize="small" sx={{ color: "#57F287" }} />
                     <Typography variant="body2">
@@ -65,19 +74,19 @@ export const ProcessingControls: React.FC = () => {
                     </Typography>
                   </Box>
                 )}
-                {hardware.info.memoryUsage && (
+                {processing.hardwareInfo.memoryUsage && (
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                     <MemoryIcon fontSize="small" color="primary" />
                     <Typography variant="body2">
-                      Memory: {hardware.info.memoryUsage}
+                      Memory: {processing.hardwareInfo.memoryUsage}
                     </Typography>
                   </Box>
                 )}
-                {hardware.info.cpuUsage && (
+                {processing.hardwareInfo.processingSpeed && (
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                     <SpeedIcon fontSize="small" color="primary" />
                     <Typography variant="body2">
-                      CPU Usage: {hardware.info.cpuUsage}
+                      Processing Speed: {processing.hardwareInfo.processingSpeed}
                     </Typography>
                   </Box>
                 )}
@@ -85,7 +94,7 @@ export const ProcessingControls: React.FC = () => {
             </Box>
           )}
 
-          {processing.timeElapsed > 0 && (
+          {timeElapsed > 0 && (
             <Box>
               <Typography
                 variant="subtitle2"
@@ -94,11 +103,11 @@ export const ProcessingControls: React.FC = () => {
                 Processing Time
               </Typography>
               <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
-                Elapsed: {formatTime(processing.timeElapsed)}
+                Elapsed: {formatTime(timeElapsed)}
               </Typography>
-              {processing.timeRemaining > 0 && (
+              {processing.estimatedTimeRemaining && processing.estimatedTimeRemaining > 0 && (
                 <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
-                  Remaining: ~{formatTime(processing.timeRemaining)}
+                  Remaining: ~{formatTime(processing.estimatedTimeRemaining)}
                 </Typography>
               )}
             </Box>

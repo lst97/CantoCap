@@ -25,106 +25,45 @@ import {
   Terminal as ConsoleIcon,
   PowerSettingsNew as PowerIcon,
 } from "@mui/icons-material";
-import { useAppStore } from "../../../stores/app-store";
-import { workflowStateManager } from "../../../services/workflow/workflow-state-manager";
+import { 
+  useProcessingStepContent,
+  useStepActions,
+  useStepError 
+} from "../../../stores/useStepStore";
+import { useWorkflowActions } from "../../../stores/useWorkflowStore";
 import { ErrorCategory } from "../../../types/error";
 import { errorHandler } from "../../../utils/errorHandler";
 import { ErrorCard, InfoSection } from "./styles";
 
-interface ProcessingErrorProps {
-  error: string | null;
-}
-
-export const ProcessingError: React.FC<ProcessingErrorProps> = ({ error }) => {
-  const { processing, resetProcessing } = useAppStore();
+export const ProcessingError: React.FC = () => {
+  const processing = useProcessingStepContent();
+  const { resetStepContent } = useStepActions();
+  const error = useStepError();
+  const workflowActions = useWorkflowActions();
   // Modern workflow navigation using WorkflowStateManager
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
   const [recoveryAttempts, setRecoveryAttempts] = useState(0);
 
-  // Debug logging to understand processing state
-  console.log('ProcessingError - Current processing state:', {
-    stage: processing.stage,
-    currentStep: processing.currentStep,
-    totalSteps: processing.totalSteps,
-    progress: processing.progress,
-    timeElapsed: processing.timeElapsed,
-    startTime: processing.startTime,
-    engineStage: processing.engineStage,
-    substage: processing.substage,
-    message: processing.message
-  });
+  // Calculate elapsed time for display
+  const timeElapsed = processing.startTime && processing.endTime 
+    ? Math.floor((new Date(processing.endTime).getTime() - new Date(processing.startTime).getTime()) / 1000)
+    : processing.timeElapsed || 0;
 
-  // Helper functions to check if values are meaningful
-  const hasValidEngineStage = () => {
-    const stage = processing.engineStage || processing.substage;
-    return stage && stage !== 'Error' && stage.toLowerCase() !== 'n/a';
-  };
+  // Use logs from processing step
+  const recentMessages = processing.logs?.slice(-20) || [];
+  const errorMessages = recentMessages.filter((msg) => 
+    typeof msg === 'string' ? msg.toLowerCase().includes('error') : false
+  );
+  
+  // Get last activity from logs
+  const lastActivity = processing.logs && processing.logs.length > 0 
+    ? processing.logs[processing.logs.length - 1] 
+    : null;
 
-  const hasValidCurrentStep = () => {
-    if (processing.currentStep && processing.totalSteps) return true;
-    if (processing.currentStep) return true;
-    if (processing.substage && processing.substage !== 'Error') return true;
-    if (processing.engineStage && processing.engineStage !== 'Error') return true;
-    return false;
-  };
+  // Get error message from step error or processing logs
+  const errorMessage = error || (errorMessages.length > 0 ? errorMessages[errorMessages.length - 1] : null);
 
-  const hasValidMessage = () => {
-    const msg = processing.message || lastActivity?.message;
-    return msg && msg.toLowerCase() !== 'n/a' && !msg.startsWith('Error: ');
-  };
-
-  const hasValidProgress = () => {
-    return processing.progress && processing.progress > 0;
-  };
-
-  const hasValidTimeElapsed = () => {
-    if (processing.timeElapsed && processing.timeElapsed > 0) return true;
-    if (processing.startTime) return true;
-    return false;
-  };
-
-  const getFormattedCurrentStep = () => {
-    if (processing.currentStep && processing.totalSteps) {
-      return `${processing.currentStep} / ${processing.totalSteps}`;
-    } else if (processing.currentStep) {
-      return `${processing.currentStep}`;
-    } else if (processing.substage && processing.substage !== 'Error') {
-      return processing.substage;
-    } else if (processing.engineStage && processing.engineStage !== 'Error') {
-      return processing.engineStage;
-    }
-    return null;
-  };
-
-  const getFormattedTimeElapsed = () => {
-    if (processing.timeElapsed && processing.timeElapsed > 0) {
-      return `${Math.floor(processing.timeElapsed / 1000)}s`;
-    } else if (processing.startTime) {
-      return `${Math.floor((Date.now() - processing.startTime) / 1000)}s`;
-    }
-    return null;
-  };
-
-  // Use debug messages from app store instead of capturing separately
-  const debugMessages = processing.debugMessages || [];
-
-  // Get recent messages (last 20 for better context)
-  const recentMessages = debugMessages.slice(-20);
-
-  // Get error messages specifically
-  const errorMessages = debugMessages.filter((msg) => msg.level === "error");
-
-  // Get the last activity (most recent message)
-  const lastActivity =
-    recentMessages.length > 0
-      ? recentMessages[recentMessages.length - 1]
-      : null;
-
-  // Get the most recent error for detailed display
-  const primaryError =
-    errorMessages.length > 0 ? errorMessages[errorMessages.length - 1] : null;
-
-  if (!error && errorMessages.length === 0) return null;
+  if (!errorMessage) return null;
 
   // Determine error type and severity based on debug messages
   const getErrorCategory = (errorMsg: string): ErrorCategory => {
@@ -158,9 +97,7 @@ export const ProcessingError: React.FC<ProcessingErrorProps> = ({ error }) => {
     return ErrorCategory.PROCESSING;
   };
 
-  // Get error category and message
-  const errorMessage =
-    error || primaryError?.message || "Unknown processing error";
+  // Get error category
   const errorCategory = getErrorCategory(errorMessage);
 
   // Get engine-specific color scheme - Updated to match current design
@@ -269,9 +206,9 @@ export const ProcessingError: React.FC<ProcessingErrorProps> = ({ error }) => {
   // Recovery actions
   const handleRetry = () => {
     setRecoveryAttempts((prev) => prev + 1);
-    resetProcessing();
+    resetStepContent('processing');
     setTimeout(() => {
-      workflowStateManager.setCurrentStep("config");
+      workflowActions.navigateToStep("config");
     }, 500);
   };
 
@@ -285,8 +222,8 @@ export const ProcessingError: React.FC<ProcessingErrorProps> = ({ error }) => {
       setRecoveryAttempts((prev) => prev + 1);
       if (window.cantocapAPI?.runEngineSetup) {
         await window.cantocapAPI.runEngineSetup();
-        resetProcessing();
-        workflowStateManager.setCurrentStep("config");
+        resetStepContent('processing');
+        workflowActions.navigateToStep("config");
       }
     } catch (setupError) {
       console.error("Engine setup failed:", setupError);
@@ -297,21 +234,19 @@ export const ProcessingError: React.FC<ProcessingErrorProps> = ({ error }) => {
     const errorData = {
       error: errorMessage,
       category: errorCategory,
-      processingStage: processing.stage,
+      processingStage: processing.status,
       timestamp: new Date().toISOString(),
       recoveryAttempts,
       errorMessages: errorMessages,
       recentMessages: recentMessages,
-      lastActivity: lastActivity,
       processingInfo: {
-        stage: processing.stage,
-        engineStage: processing.engineStage,
-        substage: processing.substage,
-        currentStep: processing.currentStep,
-        totalSteps: processing.totalSteps,
+        status: processing.status,
+        currentPhase: processing.currentPhase,
         progress: processing.progress,
-        timeElapsed: processing.timeElapsed,
-        message: processing.message,
+        timeElapsed: timeElapsed,
+        startTime: processing.startTime,
+        endTime: processing.endTime,
+        logs: processing.logs,
       },
     };
 
@@ -325,26 +260,24 @@ export const ProcessingError: React.FC<ProcessingErrorProps> = ({ error }) => {
     const errorData = {
       error: errorMessage,
       category: errorCategory,
-      processingStage: processing.stage,
+      processingStage: processing.status,
       timestamp: new Date().toISOString(),
       recoveryAttempts,
       errorMessages: errorMessages,
       recentMessages: recentMessages,
-      lastActivity: lastActivity,
       processingInfo: {
-        stage: processing.stage,
-        engineStage: processing.engineStage,
-        substage: processing.substage,
-        currentStep: processing.currentStep,
-        totalSteps: processing.totalSteps,
+        status: processing.status,
+        currentPhase: processing.currentPhase,
         progress: processing.progress,
-        timeElapsed: processing.timeElapsed,
-        message: processing.message,
+        timeElapsed: timeElapsed,
+        startTime: processing.startTime,
+        endTime: processing.endTime,
+        logs: processing.logs,
+        hardwareInfo: processing.hardwareInfo,
       },
       systemInfo: {
         userAgent: navigator.userAgent,
-        platform:
-          navigator.platform,
+        platform: navigator.platform,
         language: navigator.language,
         online: navigator.onLine,
         memory: (navigator as any).deviceMemory,
@@ -404,10 +337,10 @@ export const ProcessingError: React.FC<ProcessingErrorProps> = ({ error }) => {
                     border: `1px solid ${colors.primary}40`,
                   }}
                 />
-                {primaryError?.message.includes("Exit Code:") && (
+                {errorMessage.includes("Exit Code:") && (
                   <Chip
                     label={
-                      primaryError.message.match(/Exit Code: (\d+)/)?.[0] ||
+                      errorMessage.match(/Exit Code: (\d+)/)?.[0] ||
                       "Exit Code: Unknown"
                     }
                     size="small"
@@ -484,49 +417,34 @@ export const ProcessingError: React.FC<ProcessingErrorProps> = ({ error }) => {
               </Typography>
             </Alert>
 
-            {/* Additional Error Messages - Show only the last one if multiple exist */}
+            {/* Additional Error Messages */}
             {errorMessages.length > 1 && (
               <Box sx={{ mb: 3 }}>
                 <Typography variant="h6" sx={{ mb: 2, color: "text.primary" }}>
-                  Additional Engine Error
+                  Additional Errors
                 </Typography>
-                {(() => {
-                  // Get the second to last error (most recent additional error)
-                  const additionalError = errorMessages[errorMessages.length - 2];
-                  return (
-                    <Alert
-                      severity="warning"
-                      sx={{
-                        backgroundColor: "rgba(245, 158, 11, 0.1)",
-                        border: "1px solid rgba(245, 158, 11, 0.3)",
-                        mb: 2,
-                      }}
-                    >
-                      <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-                        {additionalError.stage.toUpperCase()} -{" "}
-                        {new Date(additionalError.timestamp).toLocaleTimeString()}
-                      </Typography>
-                      <Typography
-                        variant="body2"
-                        sx={{
-                          color: "text.secondary",
-                          fontFamily: "monospace",
-                          fontSize: "0.8rem",
-                        }}
-                      >
-                        {additionalError.message}
-                      </Typography>
-                      {additionalError.source && (
-                        <Typography
-                          variant="caption"
-                          sx={{ color: "text.secondary", opacity: 0.7 }}
-                        >
-                          Source: {additionalError.source}
-                        </Typography>
-                      )}
-                    </Alert>
-                  );
-                })()}
+                <Alert
+                  severity="warning"
+                  sx={{
+                    backgroundColor: "rgba(245, 158, 11, 0.1)",
+                    border: "1px solid rgba(245, 158, 11, 0.3)",
+                    mb: 2,
+                  }}
+                >
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                    PROCESSING ERROR - {new Date().toLocaleTimeString()}
+                  </Typography>
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      color: "text.secondary",
+                      fontFamily: "monospace",
+                      fontSize: "0.8rem",
+                    }}
+                  >
+                    {errorMessages[errorMessages.length - 2]}
+                  </Typography>
+                </Alert>
                 <Typography
                   variant="body2"
                   sx={{
@@ -535,7 +453,7 @@ export const ProcessingError: React.FC<ProcessingErrorProps> = ({ error }) => {
                     textAlign: "center",
                   }}
                 >
-                  {errorMessages.length - 1} total error{errorMessages.length - 1 !== 1 ? "s" : ""} recorded.{" "}
+                  {errorMessages.length} total error{errorMessages.length !== 1 ? "s" : ""} recorded.{" "}
                   <strong>See Technical Details below for complete error history.</strong>
                 </Typography>
               </Box>
@@ -550,7 +468,7 @@ export const ProcessingError: React.FC<ProcessingErrorProps> = ({ error }) => {
                 🔍 Possible Causes
               </Typography>
               <Stack spacing={1}>
-                {errorExplanation.possibleCauses.map((cause, index) => (
+                {errorExplanation.possibleCauses.map((cause: string, index: number) => (
                   <Box
                     key={index}
                     sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}
@@ -578,7 +496,7 @@ export const ProcessingError: React.FC<ProcessingErrorProps> = ({ error }) => {
                 💡 Suggested Actions
               </Typography>
               <Stack spacing={1}>
-                {errorExplanation.suggestedActions.map((action, index) => (
+                {errorExplanation.suggestedActions.map((action: string, index: number) => (
                   <Box
                     key={index}
                     sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}
@@ -737,7 +655,6 @@ export const ProcessingError: React.FC<ProcessingErrorProps> = ({ error }) => {
                       }}
                     >
                       <Stack spacing={1}>
-                        {/* Always show category and processing stage */}
                         <Typography
                           variant="body2"
                           sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}
@@ -748,43 +665,17 @@ export const ProcessingError: React.FC<ProcessingErrorProps> = ({ error }) => {
                           variant="body2"
                           sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}
                         >
-                          <strong>Processing Stage:</strong> {processing.stage}
+                          <strong>Processing Status:</strong> {processing.status}
                         </Typography>
-
-                        {/* Only show engine stage if meaningful */}
-                        {hasValidEngineStage() && (
+                        {processing.currentPhase && (
                           <Typography
                             variant="body2"
                             sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}
                           >
-                            <strong>Engine Stage:</strong>{" "}
-                            {processing.engineStage || processing.substage}
+                            <strong>Current Phase:</strong> {processing.currentPhase}
                           </Typography>
                         )}
-
-                        {/* Only show current step if meaningful */}
-                        {hasValidCurrentStep() && (
-                          <Typography
-                            variant="body2"
-                            sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}
-                          >
-                            <strong>Current Step:</strong> {getFormattedCurrentStep()}
-                          </Typography>
-                        )}
-
-                        {/* Only show last message if meaningful */}
-                        {hasValidMessage() && (
-                          <Typography
-                            variant="body2"
-                            sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}
-                          >
-                            <strong>Last Message:</strong>{" "}
-                            {processing.message || lastActivity?.message}
-                          </Typography>
-                        )}
-
-                        {/* Only show progress if > 0 */}
-                        {hasValidProgress() && (
+                        {processing.progress > 0 && (
                           <Typography
                             variant="body2"
                             sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}
@@ -792,18 +683,14 @@ export const ProcessingError: React.FC<ProcessingErrorProps> = ({ error }) => {
                             <strong>Progress:</strong> {Math.round(processing.progress)}%
                           </Typography>
                         )}
-
-                        {/* Only show time elapsed if meaningful */}
-                        {hasValidTimeElapsed() && (
+                        {timeElapsed > 0 && (
                           <Typography
                             variant="body2"
                             sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}
                           >
-                            <strong>Time Elapsed:</strong> {getFormattedTimeElapsed()}
+                            <strong>Time Elapsed:</strong> {timeElapsed}s
                           </Typography>
                         )}
-
-                        {/* Only show recovery attempts if > 0 */}
                         {recoveryAttempts > 0 && (
                           <Typography
                             variant="body2"
@@ -812,8 +699,6 @@ export const ProcessingError: React.FC<ProcessingErrorProps> = ({ error }) => {
                             <strong>Recovery Attempts:</strong> {recoveryAttempts}
                           </Typography>
                         )}
-
-                        {/* Always show error count if > 0 */}
                         {errorMessages.length > 0 && (
                           <Typography
                             variant="body2"
@@ -822,21 +707,15 @@ export const ProcessingError: React.FC<ProcessingErrorProps> = ({ error }) => {
                             <strong>Error Count:</strong> {errorMessages.length}
                           </Typography>
                         )}
-
-                        {/* Only show exit code if available */}
-                        {primaryError?.message.includes("Exit Code:") && (
+                        {errorMessage.includes("Exit Code:") && (
                           <Typography
                             variant="body2"
                             sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}
                           >
                             <strong>Exit Code:</strong>{" "}
-                            {primaryError.message.match(
-                              /Exit Code: (\d+)/
-                            )?.[1] || "Unknown"}
+                            {errorMessage.match(/Exit Code: (\d+)/)?.[1] || "Unknown"}
                           </Typography>
                         )}
-
-                        {/* Always show error timestamp */}
                         <Typography
                           variant="body2"
                           sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}
@@ -903,43 +782,32 @@ export const ProcessingError: React.FC<ProcessingErrorProps> = ({ error }) => {
                         }}
                       >
                         <Stack spacing={0.5}>
-                          {recentMessages.map((msg) => (
+                          {recentMessages.map((msg, index) => (
                             <Typography
-                              key={msg.id}
+                              key={index}
                               variant="body2"
                               sx={{
                                 fontFamily: "monospace",
                                 fontSize: "0.75rem",
-                                color:
-                                  msg.level === "error"
-                                    ? "#FF6B6B"
-                                    : msg.level === "warning"
-                                    ? "#F59E0B"
-                                    : "#96989D",
+                                color: typeof msg === 'string' && msg.toLowerCase().includes('error')
+                                  ? "#FF6B6B"
+                                  : typeof msg === 'string' && msg.toLowerCase().includes('warning')
+                                  ? "#F59E0B"
+                                  : "#96989D",
                                 wordBreak: "break-word",
                               }}
                             >
                               <span
                                 style={{ color: "#7DD3FC", fontSize: "0.7rem" }}
                               >
-                                [{new Date(msg.timestamp).toLocaleTimeString()}]
+                                [{new Date().toLocaleTimeString()}]
                               </span>{" "}
                               <span
                                 style={{ color: "#A855F7", fontSize: "0.7rem" }}
                               >
-                                [{msg.stage}]
+                                [{processing.currentPhase || processing.status}]
                               </span>{" "}
-                              {msg.source && (
-                                <span
-                                  style={{
-                                    color: "#22C55E",
-                                    fontSize: "0.7rem",
-                                  }}
-                                >
-                                  [{msg.source}]
-                                </span>
-                              )}{" "}
-                              {msg.message}
+                              {typeof msg === 'string' ? msg : JSON.stringify(msg)}
                             </Typography>
                           ))}
                         </Stack>
@@ -967,8 +835,8 @@ export const ProcessingError: React.FC<ProcessingErrorProps> = ({ error }) => {
                         }}
                       >
                         <Stack spacing={1}>
-                          {errorMessages.map((errorMsg) => (
-                            <Box key={errorMsg.id}>
+                          {errorMessages.map((errorMsg, index) => (
+                            <Box key={index}>
                               <Typography
                                 variant="body2"
                                 sx={{
@@ -978,11 +846,7 @@ export const ProcessingError: React.FC<ProcessingErrorProps> = ({ error }) => {
                                   fontWeight: 600,
                                 }}
                               >
-                                [
-                                {new Date(
-                                  errorMsg.timestamp
-                                ).toLocaleTimeString()}
-                                ] {errorMsg.stage.toUpperCase()}
+                                [{new Date().toLocaleTimeString()}] {(processing.currentPhase || processing.status).toUpperCase()}
                               </Typography>
                               <Typography
                                 variant="body2"
@@ -994,21 +858,8 @@ export const ProcessingError: React.FC<ProcessingErrorProps> = ({ error }) => {
                                   wordBreak: "break-word",
                                 }}
                               >
-                                {errorMsg.message}
+                                {typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg)}
                               </Typography>
-                              {errorMsg.source && (
-                                <Typography
-                                  variant="caption"
-                                  sx={{
-                                    fontFamily: "monospace",
-                                    fontSize: "0.7rem",
-                                    color: "#96989D",
-                                    ml: 1,
-                                  }}
-                                >
-                                  Source: {errorMsg.source}
-                                </Typography>
-                              )}
                             </Box>
                           ))}
                         </Stack>
@@ -1038,37 +889,25 @@ export const ProcessingError: React.FC<ProcessingErrorProps> = ({ error }) => {
                           sx={{
                             fontFamily: "monospace",
                             fontSize: "0.8rem",
-                            color:
-                              lastActivity.level === "error"
-                                ? "#FF6B6B"
-                                : lastActivity.level === "warning"
-                                ? "#F59E0B"
-                                : "#96989D",
+                            color: typeof lastActivity === 'string' && lastActivity.toLowerCase().includes('error')
+                              ? "#FF6B6B"
+                              : typeof lastActivity === 'string' && lastActivity.toLowerCase().includes('warning')
+                              ? "#F59E0B"
+                              : "#96989D",
                             wordBreak: "break-word",
                           }}
                         >
                           <span
                             style={{ color: "#7DD3FC", fontSize: "0.75rem" }}
                           >
-                            [
-                            {new Date(
-                              lastActivity.timestamp
-                            ).toLocaleTimeString()}
-                            ]
+                            [{new Date().toLocaleTimeString()}]
                           </span>{" "}
                           <span
                             style={{ color: "#A855F7", fontSize: "0.75rem" }}
                           >
-                            [{lastActivity.stage}]
+                            [{processing.currentPhase || processing.status}]
                           </span>{" "}
-                          {lastActivity.source && (
-                            <span
-                              style={{ color: "#22C55E", fontSize: "0.75rem" }}
-                            >
-                              [{lastActivity.source}]
-                            </span>
-                          )}{" "}
-                          {lastActivity.message}
+                          {typeof lastActivity === 'string' ? lastActivity : JSON.stringify(lastActivity)}
                         </Typography>
                       </Box>
                     </Box>

@@ -7,12 +7,12 @@ import {
 import {
   Info as InfoIcon,
 } from "@mui/icons-material";
-import { useAppStore } from "../../../stores/app-store";
+import { useProcessingStepContent } from "../../../stores/useStepStore";
 import { ProcessingCard } from "./styles";
 import { getStageEmoji, getStageDescription } from "./utils";
 
 export const ProcessingStatus: React.FC = () => {
-  const { processing } = useAppStore();
+  const processing = useProcessingStepContent();
 
   return (
     <ProcessingCard>
@@ -45,30 +45,30 @@ export const ProcessingStatus: React.FC = () => {
             }}
           >
             <Typography sx={{ fontSize: 24 }}>
-              {getStageEmoji(processing.stage)}
+              {getStageEmoji(processing.status)}
             </Typography>
             <Box>
               <Typography
                 variant="body1"
                 sx={{ fontWeight: 600, textTransform: "capitalize" }}
               >
-                {processing.stage}
+                {processing.currentPhase || processing.status}
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                {getStageDescription(processing.stage)}
+                {getStageDescription(processing.status)}
               </Typography>
             </Box>
           </Box>
         </Box>
 
-        {/* Current Message */}
-        {processing.message && (
+        {/* Current Message/Logs */}
+        {processing.logs && processing.logs.length > 0 && (
           <Box>
             <Typography
               variant="subtitle2"
               sx={{ mb: 1, color: "text.secondary" }}
             >
-              Current Activity
+              Recent Activity
             </Typography>
             <Typography
               variant="body2"
@@ -79,7 +79,7 @@ export const ProcessingStatus: React.FC = () => {
                 fontStyle: "italic",
               }}
             >
-              {processing.message}
+              {processing.logs[processing.logs.length - 1]}
             </Typography>
           </Box>
         )}

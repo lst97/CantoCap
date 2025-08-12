@@ -7,16 +7,15 @@ import {
   CheckCircle as CheckCircleIcon,
 } from "@mui/icons-material";
 
-import { useExportStore } from "../../../stores/export-store";
-import { useAppStore } from "../../../stores/app-store";
-import type { ExportSettings } from "../../../stores/export-store";
-import {
-  analyzeSubtitleEntries,
-  getLanguageDisplayName,
-} from "../../../utils/subtitle-parser";
+import { 
+  useExportActions,
+  useExportUserSelections,
+  useSubtitles
+} from "../../../stores/useStepStore";
+import type { Subtitle } from "../../../stores/types/StoreTypes";
 
 interface QuickOption {
-  key: keyof ExportSettings;
+  key: string;
   label: string;
   icon: React.ReactNode;
   description: string;
@@ -27,66 +26,114 @@ interface QuickOption {
   disabledReason?: string;
 }
 
+// Simple analysis function without external dependencies
+const analyzeSubtitleEntries = (subtitles: Subtitle[]) => {
+  if (!subtitles || subtitles.length === 0) {
+    return {
+      totalCount: 0,
+      chineseCount: 0,
+      translationCount: 0,
+    };
+  }
+  
+  return {
+    totalCount: subtitles.length,
+    chineseCount: subtitles.filter(sub => sub.text && sub.text.trim()).length,
+    translationCount: subtitles.filter(sub => sub.translation && sub.translation.trim()).length,
+  };
+};
+
 export const LanguageOptions: React.FC = () => {
-  const { settings, updateSettings, getSubtitleData } = useExportStore();
-  const { config } = useAppStore();
-  const subtitles = getSubtitleData();
+  const { updateUserSelections } = useExportActions();
+  const userSelections = useExportUserSelections();
+  const subtitles = useSubtitles();
 
   const analysis = useMemo(() => {
-    return analyzeSubtitleEntries(subtitles, config.language);
-  }, [subtitles, config.language]);
-
-  const translationLanguage = useMemo(() => {
-    return getLanguageDisplayName(config.language);
-  }, [config.language]);
+    return analyzeSubtitleEntries(subtitles);
+  }, [subtitles]);
 
   const handleOptionChange = useCallback(
-    (key: keyof ExportSettings) => {
-      // Prevent unchecking if it would leave no language options selected
-      if (key === 'includeCantonese' || key === 'includeEnglish') {
-        const newValue = !settings[key];
-        const otherKey = key === 'includeCantonese' ? 'includeEnglish' : 'includeCantonese';
-        
-        // If trying to uncheck and the other option is also unchecked, prevent the action
-        if (!newValue && !settings[otherKey]) {
-          return; // Do nothing - at least one language option must remain selected
-        }
+    (key: string) => {
+      switch (key) {
+        case 'includeOriginal':
+          const currentLanguages = userSelections.selectedLanguages;
+          const hasOriginal = currentLanguages.includes('original');
+          const newLanguages = hasOriginal 
+            ? currentLanguages.filter(lang => lang !== 'original')
+            : [...currentLanguages, 'original'];
+          
+          // Prevent removing all languages
+          if (newLanguages.length === 0) return;
+          
+          updateUserSelections({ selectedLanguages: newLanguages });
+          break;
+          
+        case 'includeTranslation':
+          const currentLangs = userSelections.selectedLanguages;
+          const hasTranslation = currentLangs.includes('translation');
+          const newLangs = hasTranslation 
+            ? currentLangs.filter(lang => lang !== 'translation')
+            : [...currentLangs, 'translation'];
+          
+          // Prevent removing all languages  
+          if (newLangs.length === 0) return;
+          
+          updateUserSelections({ selectedLanguages: newLangs });
+          break;
+          
+        case 'includeMetadata':
+          updateUserSelections({ includeMetadata: !userSelections.includeMetadata });
+          break;
+          
+        case 'includeTimestamps':
+          updateUserSelections({ showTimestamps: !userSelections.showTimestamps });
+          break;
       }
-      
-      updateSettings({ [key]: !settings[key] });
     },
-    [settings, updateSettings]
+    [userSelections, updateUserSelections]
   );
 
-  const options: QuickOption[] = useMemo(() => [
-    {
-      key: "includeCantonese",
-      label: "Caption",
-      icon: <LanguageIcon />,
-      description: "Include original Chinese text in the exported subtitles",
-      example: `Available: ${analysis.chineseCount}/${analysis.totalCount} subtitles`,
-      enabled: settings.includeCantonese,
-      disabled: settings.includeCantonese && !settings.includeEnglish,
-      disabledReason: settings.includeCantonese && !settings.includeEnglish ? "At least one language option must be selected" : undefined,
-    },
-    {
-      key: "includeEnglish",
-      label: "Translation",
-      icon: <TranslateIcon />,
-      description: `Include ${translationLanguage} translation text in the exported subtitles`,
-      example: `Available: ${analysis.translationCount}/${analysis.totalCount} subtitles`,
-      enabled: settings.includeEnglish,
-      disabled: settings.includeEnglish && !settings.includeCantonese,
-      disabledReason: settings.includeEnglish && !settings.includeCantonese ? "At least one language option must be selected" : undefined,
-    },
-    {
-      key: "includeTimestampMetadata",
-      label: "Timestamp Metadata",
-      icon: <ScheduleIcon />,
-      description: "Add detailed timing information and frame data to export",
-      enabled: settings.includeTimestampMetadata,
-    },
-  ], [analysis, translationLanguage, settings]);
+  const options: QuickOption[] = useMemo(() => {
+    const hasOriginal = userSelections.selectedLanguages.includes('original');
+    const hasTranslation = userSelections.selectedLanguages.includes('translation');
+    
+    return [
+      {
+        key: "includeOriginal",
+        label: "Original Text",
+        icon: <LanguageIcon />,
+        description: "Include original subtitle text in the exported file",
+        example: `Available: ${analysis.chineseCount}/${analysis.totalCount} subtitles`,
+        enabled: hasOriginal,
+        disabled: hasOriginal && !hasTranslation,
+        disabledReason: hasOriginal && !hasTranslation ? "At least one language option must be selected" : undefined,
+      },
+      {
+        key: "includeTranslation",
+        label: "Translation",
+        icon: <TranslateIcon />,
+        description: "Include translation text in the exported file",
+        example: `Available: ${analysis.translationCount}/${analysis.totalCount} subtitles`,
+        enabled: hasTranslation,
+        disabled: hasTranslation && !hasOriginal,
+        disabledReason: hasTranslation && !hasOriginal ? "At least one language option must be selected" : undefined,
+      },
+      {
+        key: "includeMetadata",
+        label: "Confidence Scores",
+        icon: <CheckCircleIcon />,
+        description: "Include confidence scores and metadata in export",
+        enabled: userSelections.includeMetadata,
+      },
+      {
+        key: "includeTimestamps",
+        label: "Show Timestamps",
+        icon: <ScheduleIcon />,
+        description: "Include timing information in plain text exports",
+        enabled: userSelections.showTimestamps,
+      },
+    ];
+  }, [analysis, userSelections]);
 
   return (
     <Box>

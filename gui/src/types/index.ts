@@ -280,6 +280,22 @@ export interface ElectronAPI {
   }) => Promise<SaveFileDialogResult>
   writeExportFile: (filePath: string, content: string) => Promise<{ success: boolean }>
   readJsonFile: (filePath: string) => Promise<any>
+  
+  // Video Processing
+  getVideoMetadata: (filePath: string) => Promise<{
+    metadata: {
+      duration: number;
+      width: number;
+      height: number;
+      framerate: number;
+      size: number;
+      format: string;
+    } | null;
+    thumbnail: string | null;
+    error?: string;
+  }>
+  clearVideoCache: () => Promise<void>
+  getVideoDataUrl: (filePath: string) => Promise<string | null>
   getConfig: () => Promise<any>
   setConfig: (section: string, value: any) => Promise<void>
   updateConfig: (updates: any) => Promise<void>

@@ -23,7 +23,7 @@ import {
   Memory as MemoryIcon,
   Speed as SpeedIcon
 } from '@mui/icons-material'
-import { useAppStore } from '../../stores/app-store'
+import { useAppStore } from '../../stores/useAppStore'
 
 export const ProgressPanel = () => {
   const { processing } = useAppStore()

@@ -1,7 +1,6 @@
 import React, { Component, ReactNode } from 'react';
 import { Box, Typography, Button, Alert } from '@mui/material';
-import { useAppStore } from '../../../stores/app-store';
-import { useSubtitleEditStore } from '../../../stores/subtitle-edit-store';
+import { useSubtitleEditStore } from '../../../stores/useSubtitleEditStore';
 
 interface Props {
   children: ReactNode;
@@ -31,24 +30,28 @@ export class ReviewStepErrorBoundary extends Component<Props, State> {
       errorInfo
     });
 
-    // Try to clear the subtitle editing session to prevent further issues
+    // Try to clear the subtitle editing workspace to prevent further issues
     try {
       const subtitleStore = useSubtitleEditStore.getState();
-      subtitleStore.clearSession();
+      if (subtitleStore.actions?.clearWorkspace) {
+        subtitleStore.actions.clearWorkspace();
+      }
     } catch (clearError) {
-      console.error('Failed to clear subtitle session after error:', clearError);
+      console.error('Failed to clear subtitle workspace after error:', clearError);
     }
   }
 
   handleReset = () => {
     this.setState({ hasError: false, error: null, errorInfo: null });
     
-    // Clear subtitle editing session
+    // Clear subtitle editing workspace
     try {
       const subtitleStore = useSubtitleEditStore.getState();
-      subtitleStore.clearSession();
+      if (subtitleStore.actions?.clearWorkspace) {
+        subtitleStore.actions.clearWorkspace();
+      }
     } catch (error) {
-      console.error('Failed to clear session during reset:', error);
+      console.error('Failed to clear workspace during reset:', error);
     }
   };
 
@@ -77,7 +80,7 @@ export class ReviewStepErrorBoundary extends Component<Props, State> {
               Review Step Error
             </Typography>
             <Typography variant="body2" sx={{ mb: 2 }}>
-              The subtitle review interface encountered an error. This often happens when processing large JSON files or during session initialization.
+              The subtitle review interface encountered an error. This often happens when processing large files or during workspace initialization.
             </Typography>
             {this.state.error && (
               <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem', mb: 2 }}>
@@ -92,7 +95,7 @@ export class ReviewStepErrorBoundary extends Component<Props, State> {
               color="primary"
               onClick={this.handleReset}
             >
-              Reset Review Session
+              Reset Review Workspace
             </Button>
             <Button
               variant="outlined"
@@ -103,7 +106,7 @@ export class ReviewStepErrorBoundary extends Component<Props, State> {
           </Box>
 
           <Typography variant="body2" color="text.secondary" sx={{ mt: 2, maxWidth: 500 }}>
-            If this error persists, try importing a smaller JSON file or restart the application.
+            If this error persists, try loading a smaller file or restart the application.
           </Typography>
         </Box>
       );

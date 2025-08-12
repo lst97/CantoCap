@@ -1,12 +1,14 @@
-import React, { useState, useEffect } from 'react'
+import React from 'react'
 import { Box, Chip, Tooltip, CircularProgress } from '@mui/material'
 import {
-  CloudDone as SavedIcon,
-  CloudSync as SavingIcon,
-  CloudOff as ErrorIcon,
-  Warning as WarningIcon
-} from '@mui/icons-material'
-import { useWorkspaceStore } from '../../stores/workspace-store'
+  CheckCircle as ActiveIcon,
+  CloudOff as ErrorIcon} from '@mui/icons-material'
+import { 
+  useCurrentWorkspace, 
+  useWorkspaceLoading, 
+  useWorkspaceError,
+  useWorkspaceList 
+} from '../../stores/useWorkspaceStore'
 
 interface WorkspaceStatusIndicatorProps {
   showFullStatus?: boolean
@@ -15,67 +17,26 @@ interface WorkspaceStatusIndicatorProps {
 
 /**
  * WorkspaceStatusIndicator - Real-time workspace status indicator
- * Shows auto-save status, migration status, and workspace health
+ * Shows workspace status and health information
  */
 export const WorkspaceStatusIndicator: React.FC<WorkspaceStatusIndicatorProps> = ({
-  showFullStatus = false,
   compact = true
 }) => {
-  const {
-    currentWorkspace,
-    autoSaveStatus,
-    migrationStatus,
-    lastError,
-    isLoading
-  } = useWorkspaceStore()
-
-  const [lastSaveTime, setLastSaveTime] = useState<string>('')
-
-  // Update last save time display
-  useEffect(() => {
-    if (autoSaveStatus?.lastSaveTime) {
-      const updateTime = () => {
-        const now = Date.now()
-        const diff = now - autoSaveStatus.lastSaveTime!
-        
-        if (diff < 60000) { // Less than 1 minute
-          setLastSaveTime('just now')
-        } else if (diff < 3600000) { // Less than 1 hour
-          const minutes = Math.floor(diff / 60000)
-          setLastSaveTime(`${minutes}m ago`)
-        } else { // More than 1 hour
-          const hours = Math.floor(diff / 3600000)
-          setLastSaveTime(`${hours}h ago`)
-        }
-      }
-
-      updateTime()
-      const interval = setInterval(updateTime, 30000) // Update every 30 seconds
-      return () => clearInterval(interval)
-    }
-  }, [autoSaveStatus?.lastSaveTime])
+  // Get workspace state from new store
+  const currentWorkspace = useCurrentWorkspace()
+  const isLoading = useWorkspaceLoading()
+  const error = useWorkspaceError()
 
   // Determine status
   const getStatus = () => {
-    // Migration in progress
-    if (migrationStatus?.isActive) {
-      return {
-        type: 'migrating' as const,
-        label: 'Migrating',
-        color: 'info' as const,
-        icon: <CircularProgress size={16} />,
-        tooltip: `Migration ${migrationStatus.currentPhase}: ${migrationStatus.progress}%`
-      }
-    }
-
     // Error state
-    if (lastError) {
+    if (error) {
       return {
         type: 'error' as const,
         label: 'Error',
         color: 'error' as const,
         icon: <ErrorIcon fontSize="small" />,
-        tooltip: `Error: ${lastError.message || 'Unknown error'}`
+        tooltip: `Error: ${error}`
       }
     }
 
@@ -90,52 +51,33 @@ export const WorkspaceStatusIndicator: React.FC<WorkspaceStatusIndicatorProps> =
       }
     }
 
-    // Auto-save states
-    if (autoSaveStatus?.isEnabled) {
-      if (autoSaveStatus.pendingSaves > 0) {
-        return {
-          type: 'saving' as const,
-          label: 'Saving',
-          color: 'warning' as const,
-          icon: <SavingIcon fontSize="small" />,
-          tooltip: `Auto-saving... (${autoSaveStatus.pendingSaves} pending)`
-        }
-      }
-
-      if (autoSaveStatus.failedSaves > 0) {
-        return {
-          type: 'save-error' as const,
-          label: 'Save Error',
-          color: 'error' as const,
-          icon: <WarningIcon fontSize="small" />,
-          tooltip: `${autoSaveStatus.failedSaves} failed saves. Check connection.`
-        }
-      }
-
+    // Active workspace state
+    if (currentWorkspace) {
       return {
-        type: 'saved' as const,
-        label: 'Saved',
+        type: 'active' as const,
+        label: 'Active',
         color: 'success' as const,
-        icon: <SavedIcon fontSize="small" />,
-        tooltip: `Last saved ${lastSaveTime || 'recently'}`
+        icon: <ActiveIcon fontSize="small" />,
+        tooltip: `Active workspace: ${currentWorkspace.name}`
       }
     }
 
-    // Auto-save disabled
+    // No workspace selected
     return {
-      type: 'disabled' as const,
-      label: 'Manual',
+      type: 'inactive' as const,
+      label: 'No workspace',
       color: 'default' as const,
-      icon: <CloudOff fontSize="small" />,
-      tooltip: 'Auto-save disabled'
+      icon: <ErrorIcon fontSize="small" />,
+      tooltip: 'No workspace selected'
     }
   }
 
   const status = getStatus()
 
-  if (!currentWorkspace && !migrationStatus?.isActive) {
-    return null
-  }
+  // Always show some status
+  // if (!currentWorkspace && !isLoading) {
+  //   return null
+  // }
 
   if (compact) {
     return (
@@ -183,14 +125,10 @@ export const WorkspaceStatusIndicator: React.FC<WorkspaceStatusIndicatorProps> =
  * For use in settings or debug panels
  */
 export const WorkspaceHealthStatus: React.FC = () => {
-  const {
-    currentWorkspace,
-    availableWorkspaces,
-    autoSaveStatus,
-    performanceMetrics,
-    migrationStatus,
-    lastError
-  } = useWorkspaceStore()
+  const currentWorkspace = useCurrentWorkspace()
+  const workspaces = useWorkspaceList()
+  const isLoading = useWorkspaceLoading()
+  const error = useWorkspaceError()
 
   return (
     <Box sx={{ p: 2, borderRadius: 2, bgcolor: 'background.paper' }}>
@@ -206,44 +144,18 @@ export const WorkspaceHealthStatus: React.FC = () => {
         
         <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
           <span>Total Workspaces:</span>
-          <span>{availableWorkspaces.length}</span>
+          <span>{workspaces.length}</span>
         </Box>
         
         <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-          <span>Auto-save:</span>
-          <span>{autoSaveStatus?.isEnabled ? 'Enabled' : 'Disabled'}</span>
+          <span>Loading:</span>
+          <span>{isLoading ? 'Yes' : 'No'}</span>
         </Box>
         
-        {autoSaveStatus?.isEnabled && (
-          <>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>Pending Saves:</span>
-              <span>{autoSaveStatus.pendingSaves}</span>
-            </Box>
-            
-            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>Failed Saves:</span>
-              <span>{autoSaveStatus.failedSaves}</span>
-            </Box>
-          </>
-        )}
-        
-        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-          <span>Performance Metrics:</span>
-          <span>{performanceMetrics.length} entries</span>
-        </Box>
-        
-        {migrationStatus?.isActive && (
-          <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span>Migration:</span>
-            <span>{migrationStatus.currentPhase} ({migrationStatus.progress}%)</span>
-          </Box>
-        )}
-        
-        {lastError && (
+        {error && (
           <Box sx={{ display: 'flex', justifyContent: 'space-between', color: 'error.main' }}>
-            <span>Last Error:</span>
-            <span>{lastError.message}</span>
+            <span>Error:</span>
+            <span>{error}</span>
           </Box>
         )}
       </Box>

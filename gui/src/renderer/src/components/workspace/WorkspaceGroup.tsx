@@ -1,24 +1,22 @@
 import React, { useState } from 'react'
-import { Box, IconButton, Typography, Collapse, Tooltip } from '@mui/material'
+import { Box, IconButton, Typography, Collapse } from '@mui/material'
 import { 
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   Folder as FolderIcon,
   FolderOpen as FolderOpenIcon
 } from '@mui/icons-material'
-import { useSortable } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
 import { WorkspaceAvatar } from './WorkspaceAvatar'
-import type { WorkspaceGroup, WorkspaceWithGrouping, WorkspaceGroupColor } from '../../types/workspace'
+import type { WorkspaceGroup as WorkspaceGroupType, WorkspaceWithGrouping, WorkspaceGroupColor } from '../../stores/types/StoreTypes'
 
 interface WorkspaceGroupProps {
-  group: WorkspaceGroup
+  group: WorkspaceGroupType
   workspaces: WorkspaceWithGrouping[]
   isActive?: boolean
   onToggleExpansion: (groupId: string) => void
   onWorkspaceClick: (workspace: WorkspaceWithGrouping) => void
-  onWorkspaceContextMenu: (event: React.MouseEvent, workspace: WorkspaceWithGrouping) => void
-  onGroupContextMenu?: (event: React.MouseEvent, group: WorkspaceGroup) => void
+  onWorkspaceContextMenu: (event: React.MouseEvent<HTMLElement>, workspace: WorkspaceWithGrouping) => void
+  onGroupContextMenu?: (event: React.MouseEvent, group: WorkspaceGroupType) => void
 }
 
 const GROUP_COLORS: Record<WorkspaceGroupColor, string> = {
@@ -26,12 +24,10 @@ const GROUP_COLORS: Record<WorkspaceGroupColor, string> = {
   blue: '#3b82f6',
   green: '#10b981',
   yellow: '#f59e0b',
-  orange: '#f97316',
   red: '#ef4444',
   purple: '#8b5cf6',
   pink: '#ec4899',
-  teal: '#14b8a6',
-  cyan: '#06b6d4'
+  indigo: '#6366f1'
 }
 
 export const WorkspaceGroup: React.FC<WorkspaceGroupProps> = ({
@@ -45,29 +41,8 @@ export const WorkspaceGroup: React.FC<WorkspaceGroupProps> = ({
 }) => {
   const [isHovered, setIsHovered] = useState(false)
   
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging
-  } = useSortable({
-    id: group.id,
-    data: {
-      type: 'group',
-      group
-    }
-  })
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1
-  }
-
   const groupColor = GROUP_COLORS[group.color]
-  const sortedWorkspaces = workspaces.sort((a, b) => a.positionInGroup - b.positionInGroup)
+  const sortedWorkspaces = workspaces.sort((a, b) => (a.position || 0) - (b.position || 0))
 
   const handleGroupClick = (event: React.MouseEvent) => {
     event.stopPropagation()
@@ -81,43 +56,32 @@ export const WorkspaceGroup: React.FC<WorkspaceGroupProps> = ({
   }
 
   return (
-    <div
-      ref={setNodeRef}
-      style={{ 
-        ...style, 
-        width: '100%'
-      }}
-      {...attributes}
+    <Box
+      sx={{ width: '100%' }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
       {/* Group Header */}
-      <div
-        {...listeners}
+      <Box
         onClick={handleGroupClick}
         onContextMenu={handleGroupContextMenu}
-        style={{
+        sx={{
           display: 'flex',
           alignItems: 'center',
           width: '100%',
-          height: '48px',
-          padding: '0 8px',
+          height: 48,
+          px: 1,
           cursor: 'pointer',
-          backgroundColor: isHovered ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
-          borderRadius: '4px',
-          transition: 'all 0.2s ease'
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'
-        }}
-        onMouseLeave={(e) => {
-          if (!isHovered) {
-            e.currentTarget.style.backgroundColor = 'transparent'
+          backgroundColor: isHovered ? 'action.hover' : 'transparent',
+          borderRadius: 1,
+          transition: 'all 0.2s ease',
+          '&:hover': {
+            backgroundColor: 'action.hover'
           }
         }}
       >
         {/* Group Icon and Expansion Toggle */}
-        <div style={{ display: 'flex', alignItems: 'center', marginRight: '8px' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}>
           <IconButton
             size="small"
             sx={{ 
@@ -150,10 +114,10 @@ export const WorkspaceGroup: React.FC<WorkspaceGroupProps> = ({
               <ExpandMoreIcon fontSize="inherit" />
             )}
           </IconButton>
-        </div>
+        </Box>
 
         {/* Group Name and Count */}
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography
             variant="caption"
             sx={{
@@ -176,27 +140,27 @@ export const WorkspaceGroup: React.FC<WorkspaceGroupProps> = ({
               display: 'block'
             }}
           >
-            {workspaces.length} workspace{workspaces.length !== 1 ? 's' : ''}
+            {group.metadata.workspaceCount} workspace{group.metadata.workspaceCount !== 1 ? 's' : ''}
           </Typography>
-        </div>
+        </Box>
 
         {/* Group Color Indicator */}
-        <div
-          style={{
-            width: '3px',
-            height: '24px',
+        <Box
+          sx={{
+            width: 3,
+            height: 24,
             backgroundColor: groupColor,
-            borderRadius: '1.5px',
+            borderRadius: 0.75,
             opacity: isActive ? 1 : 0.6
           }}
         />
-      </div>
+      </Box>
 
       {/* Workspaces in Group */}
       <Collapse in={group.isExpanded} timeout={200}>
-        <div style={{ paddingLeft: '16px', paddingTop: '4px' }}>
+        <Box sx={{ pl: 2, pt: 0.5 }}>
           {sortedWorkspaces.map((workspace) => (
-            <div key={workspace.id} style={{ marginBottom: '8px' }}>
+            <Box key={workspace.id} sx={{ mb: 1 }}>
               <WorkspaceAvatar
                 workspace={workspace}
                 size="small"
@@ -208,10 +172,10 @@ export const WorkspaceGroup: React.FC<WorkspaceGroupProps> = ({
                   height: 40
                 }}
               />
-            </div>
+            </Box>
           ))}
-        </div>
+        </Box>
       </Collapse>
-    </div>
+    </Box>
   )
 }

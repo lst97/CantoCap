@@ -5,10 +5,14 @@ import {
   LinearProgress,
   Alert,
   Snackbar} from "@mui/material";
-import { useAppStore } from "../../stores/app-store";
-import { workflowStateManager } from "../../services/workflow/workflow-state-manager";
-import { StepState } from "../../types/workflow-state";
-import { useProcessingStepConfig, useWorkspaceConfig } from '../../contexts/WorkspaceConfigContext';
+import { 
+  useProcessingStepContent,
+  useConfigStepContent,
+  useStepActions,
+  useStepLoading,
+  useStepError
+} from "../../stores/useStepStore";
+import { useWorkflowActions } from "../../stores/useWorkflowStore";
 import { ProcessingErrorBoundary } from "../common/ProcessingErrorBoundary";
 import { IdleState } from "./ProcessingStep/IdleState";
 import { ProcessingControls } from "./ProcessingStep/ProcessingControls";
@@ -19,63 +23,49 @@ import { ErrorDisplay } from "./ProcessingStep/ErrorDisplay";
 import { getStageInfo } from "./ProcessingStep/utils";
 
 export const ProcessingStep: React.FC = () => {
-  const { processing, updateProcessing } = useAppStore();
-  // Modern workflow state management with WorkflowStateManager
-  const [config, updateConfig, { isLoading, error, isReady }] = useProcessingStepConfig()
-  const { lastError, clearError } = useWorkspaceConfig()
-  const [showErrorNotification, setShowErrorNotification] = useState(false)
+  const processing = useProcessingStepContent();
+  const config = useConfigStepContent();
+  const { updateStepContent, setError, clearError } = useStepActions();
+  const workflowActions = useWorkflowActions();
+  const isLoading = useStepLoading();
+  const error = useStepError();
+  const [showErrorNotification, setShowErrorNotification] = useState(false);
 
 
   // Handle errors
   useEffect(() => {
-    if (lastError || error) {
+    if (error) {
       setShowErrorNotification(true)
     }
-  }, [lastError, error])
+  }, [error])
 
-  // Save processing state changes to workspace
-  useEffect(() => {
-    if (isReady && processing) {
-      updateConfig({
-        processingState: {
-          stage: processing.stage,
-          progress: processing.progress,
-          timeElapsed: processing.timeElapsed,
-          isActive: processing.isActive,
-          startTime: processing.startTime,
-          error: processing.error
-        },
-        lastModified: Date.now()
-      }).catch(error => {
-        console.error('Failed to save processing state:', error)
-      })
-    }
-  }, [processing, updateConfig, isReady])
+  // Calculate time elapsed for display
+  const timeElapsed = processing.startTime && processing.endTime 
+    ? Math.floor((new Date(processing.endTime).getTime() - new Date(processing.startTime).getTime()) / 1000)
+    : processing.timeElapsed || 0;
 
   // Complete the processing step when processing finishes successfully
   useEffect(() => {
-    if (processing.stage === 'completed' && !processing.error) {
-      workflowStateManager.transitionState('processing', StepState.Complete, {
-        reason: 'Processing completed successfully'
-      });
+    if (processing.status === 'completed') {
+      workflowActions.setStepState('processing', 'complete');
     }
-  }, [processing.stage, processing.error]);
+  }, [processing.status, workflowActions]);
 
   // Real-time timer that updates elapsed time every second
   useEffect(() => {
-    if (!processing.isActive || !processing.startTime || processing.stage === 'error') return;
+    if (processing.status !== 'running' || !processing.startTime) return;
 
     const interval = setInterval(() => {
       const now = Date.now();
-      const elapsed = Math.floor((now - processing.startTime!) / 1000);
-      updateProcessing({ timeElapsed: elapsed });
+      const elapsed = Math.floor((now - new Date(processing.startTime!).getTime()) / 1000);
+      updateStepContent('processing', { timeElapsed: elapsed });
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [processing.isActive, processing.startTime, processing.stage, updateProcessing]);
+  }, [processing.status, processing.startTime, updateStepContent]);
 
   // Show loading state while workspace is initializing
-  if (!isReady) {
+  if (isLoading) {
     return (
       <Box sx={{ 
         p: 3,
@@ -98,20 +88,19 @@ export const ProcessingStep: React.FC = () => {
       <ProcessingErrorBoundary
         enableEngineRecovery={true}
         enableIpcMonitoring={true}
-        processingStep={processing.stage}
+        processingStep={processing.status}
         onEngineError={(error, errorInfo) => {
           console.error('Engine error in ProcessingStep:', error, errorInfo)
           // Update processing state to show error while preserving existing values
-          updateProcessing({ 
-            ...processing, // Preserve all existing values
-            stage: 'error', 
-            error: error.message,
-            isActive: false,
+          updateStepContent('processing', { 
+            status: 'error',
+            endTime: new Date().toISOString(),
             // Calculate final time elapsed if we have a start time
             timeElapsed: processing.startTime 
-              ? Math.floor((Date.now() - processing.startTime) / 1000)
-              : processing.timeElapsed
-          })
+              ? Math.floor((Date.now() - new Date(processing.startTime).getTime()) / 1000)
+              : timeElapsed
+          });
+          setError(error.message);
         }}
       >
         <Box
@@ -123,13 +112,6 @@ export const ProcessingStep: React.FC = () => {
             p: 3,
           }}
         >
-          {/* Configuration Loading State */}
-          {isLoading && (
-            <Alert severity="info" sx={{ mb: 2 }}>
-              Loading processing configuration...
-            </Alert>
-          )}
-
           {/* Configuration Error State */}
           {error && (
             <Alert 
@@ -137,17 +119,17 @@ export const ProcessingStep: React.FC = () => {
               sx={{ mb: 2 }}
               onClose={() => clearError()}
             >
-              Failed to load configuration: {error.message}
+              Configuration error: {error}
             </Alert>
           )}
         {/* Progress Header - Hidden in idle state and error state */}
-        {processing.stage !== "idle" && processing.stage !== "error" && (
+        {processing.status !== "idle" && processing.status !== "error" && (
           <Box sx={{ textAlign: "center", mb: 2 }}>
             <Typography
               variant="h4"
               sx={{ mb: 3, fontWeight: 600, color: "#FFFFFF" }}
             >
-              {processing.stage === "completed"
+              {processing.status === "completed"
                 ? "Processing Complete!"
                 : "Generating Subtitles"}
             </Typography>
@@ -164,10 +146,7 @@ export const ProcessingStep: React.FC = () => {
                 }}
               >
                 {/* Stage Indicator */}
-                {(processing.stage === "preparing" ||
-                  processing.stage === "transcribing" ||
-                  processing.stage === "refining" ||
-                  processing.stage === "cancelled") && (
+                {processing.status === "running" && processing.currentPhase && (
                   <Box
                     sx={{
                       display: "flex",
@@ -195,7 +174,7 @@ export const ProcessingStep: React.FC = () => {
                         textTransform: "capitalize",
                       }}
                     >
-                      {getStageInfo(processing.stage).name}
+                      {processing.currentPhase}
                     </Typography>
                   </Box>
                 )}
@@ -212,11 +191,11 @@ export const ProcessingStep: React.FC = () => {
                     "& .MuiLinearProgress-bar": {
                       borderRadius: 4,
                       background:
-                        processing.stage === "completed"
+                        processing.status === "completed"
                           ? "linear-gradient(90deg, #57F287 0%, #22C55E 50%, #16A34A 100%)"
                           : "linear-gradient(90deg, #F59E0B 0%, #EAB308 50%, #D97706 100%)",
                       boxShadow:
-                        processing.stage === "completed"
+                        processing.status === "completed"
                           ? "0 0 12px rgba(87, 242, 135, 0.4)"
                           : "0 0 12px rgba(245, 158, 11, 0.4)",
                     },
@@ -237,7 +216,7 @@ export const ProcessingStep: React.FC = () => {
                       fontWeight: 700,
                       fontFamily: "monospace",
                       color:
-                        processing.stage === "completed" ? "#57F287" : "#F59E0B",
+                        processing.status === "completed" ? "#57F287" : "#F59E0B",
                     }}
                   >
                     {processing.progress}%
@@ -265,17 +244,17 @@ export const ProcessingStep: React.FC = () => {
             display: "flex",
             flexDirection: "column",
             gap: 3,
-            maxWidth: processing.stage === "completed" || (processing.stage === "error" && processing.error) ? 900 : 600,
+            maxWidth: processing.status === "completed" || processing.status === "error" ? 900 : 600,
             mx: "auto",
             width: "100%",
           }}
         >
-          {processing.stage === "completed" ? (
+          {processing.status === "completed" ? (
             <ProcessingComplete />
-          ) : processing.stage === "idle" ? (
+          ) : processing.status === "idle" ? (
             <IdleState />
-          ) : processing.stage === "error" && processing.error ? (
-            <ProcessingError error={processing.error} />
+          ) : processing.status === "error" ? (
+            <ProcessingError />
           ) : (
             <>
               <ProcessingStatus />
@@ -285,7 +264,7 @@ export const ProcessingStep: React.FC = () => {
         </Box>
 
         {/* Legacy Error Display - Only show if no main error state */}
-        {processing.stage !== "error" && <ErrorDisplay error={processing.error} />}
+        {processing.status !== "error" && error && <ErrorDisplay error={error} />}
       </Box>
     </ProcessingErrorBoundary>
 
@@ -308,7 +287,7 @@ export const ProcessingStep: React.FC = () => {
         severity="error"
         variant="filled"
       >
-        {lastError?.message || error?.message || 'Failed to save processing state'}
+        {error || 'Failed to save processing state'}
       </Alert>
     </Snackbar>
   </>

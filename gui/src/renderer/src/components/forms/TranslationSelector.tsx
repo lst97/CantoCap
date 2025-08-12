@@ -8,15 +8,16 @@ import {
   Alert,
   Paper,
   Stack,
-  Chip
+  Chip,
+  SelectChangeEvent
 } from '@mui/material'
 import {
   Translate as TranslateIcon,
   Key as KeyIcon,
   Warning as WarningIcon
 } from '@mui/icons-material'
-import { useAppStore } from '../../stores/app-store'
-import { triggerUserInteraction } from '../../services/bridge/workflow-config-bridge'
+import { useConfigStepContent, useStepActions } from '../../stores/useStepStore'
+import type { TranslationLanguage } from '../../stores/types/StoreTypes'
 
 interface TranslationOption {
   value: string
@@ -25,21 +26,19 @@ interface TranslationOption {
 }
 
 export const TranslationSelector: React.FC = () => {
-  const { config, updateConfig } = useAppStore()
+  const config = useConfigStepContent()
+  const { updateStepContent } = useStepActions()
 
-  const handleTranslationChange = useCallback((event: any) => {
-    const value = event.target.value
-    const newValue = value === 'none' ? null : value;
+  const handleTranslationChange = useCallback(async (event: SelectChangeEvent<TranslationLanguage | 'none'>) => {
+    const value = event.target.value as TranslationLanguage | 'none'
+    const newValue: TranslationLanguage | null = value === 'none' ? null : (value as TranslationLanguage)
     
-    // Trigger immediate config update through event system
-    triggerUserInteraction('setting-change', 'subtitle', newValue);
-    
-    if (value === 'none') {
-      updateConfig('subtitle', null)
-    } else {
-      updateConfig('subtitle', value)
+    try {
+      await updateStepContent('config', { subtitle: newValue })
+    } catch (err) {
+      console.error('Failed to update translation configuration:', err)
     }
-  }, [updateConfig, config.subtitle])
+  }, [updateStepContent])
 
   const translationOptions: TranslationOption[] = [
     { value: 'none', label: 'No Translation', description: 'Output in original language only' },
@@ -64,7 +63,7 @@ export const TranslationSelector: React.FC = () => {
   }
 
   const hasGeminiKey = Boolean(config.geminiKey)
-  const isGeminiRefinementEnabled = !config.noGeminiRefinement
+  const isGeminiRefinementEnabled = !(config.noGeminiRefinement ?? false)
   const isTranslationAvailable = hasGeminiKey && isGeminiRefinementEnabled
 
   return (
@@ -192,7 +191,7 @@ export const TranslationSelector: React.FC = () => {
               Single language output
             </Typography>
             <Typography variant="body2">
-              Subtitles will be generated in the original language only ({config.charset === 'traditional' ? 'Traditional' : 'Simplified'} Chinese)
+              Subtitles will be generated in the original language only ({(config.charset ?? 'traditional') === 'traditional' ? 'Traditional' : 'Simplified'} Chinese)
             </Typography>
           </Alert>
         )}

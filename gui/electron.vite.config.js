@@ -73,6 +73,7 @@ export default defineConfig({
     // Build optimizations
     build: {
       sourcemap: true,
+      minify: false, // Disable minification for better debugging
       // Chunk splitting for better caching
       rollupOptions: {
         output: {

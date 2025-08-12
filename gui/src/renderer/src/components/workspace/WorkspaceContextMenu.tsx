@@ -10,20 +10,24 @@ import {
   DialogContent,
   DialogActions,
   TextField,
-  Button
+  Button,
+  Typography,
+  Box
 } from '@mui/material'
 import {
   Edit as EditIcon,
   ContentCopy as DuplicateIcon,
   Delete as DeleteIcon,
-  RadioButtonChecked as ActiveIcon
-} from '@mui/icons-material'
+  RadioButtonChecked as ActiveIcon,
+  Folder as GroupIcon,
+  Remove as RemoveIcon} from '@mui/icons-material'
 import { WorkspaceContextMenuProps } from './types'
 import { WorkspaceDeleteDialog } from './WorkspaceDeleteDialog'
 
 /**
  * WorkspaceContextMenu - Context menu for workspace management actions
- * Features: Rename, duplicate, delete, set active with confirmation dialogs
+ * Features: Rename, duplicate, group management, delete, set active with confirmation dialogs
+ * Group Management: Add to existing groups, remove from groups, create new groups
  */
 export const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
   workspace,
@@ -32,18 +36,26 @@ export const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
   onRename,
   onDuplicate,
   onDelete,
-  onSetActive
+  onSetActive,
+  onAddToGroup,
+  onRemoveFromGroup,
+  onCreateGroup,
+  availableGroups = []
 }) => {
   const [renameDialog, setRenameDialog] = useState(false)
   const [deleteDialog, setDeleteDialog] = useState(false)
+  const [groupDialog, setGroupDialog] = useState(false)
   const [newName, setNewName] = useState(workspace.name)
+  const [newGroupName, setNewGroupName] = useState('')
   const [loading, setLoading] = useState(false)
 
   const handleClose = () => {
     onClose()
     setRenameDialog(false)
     setDeleteDialog(false)
+    setGroupDialog(false)
     setNewName(workspace.name)
+    setNewGroupName('')
     setLoading(false)
   }
 
@@ -99,6 +111,41 @@ export const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
       handleClose()
     } catch (error) {
       console.error('Failed to set active workspace:', error)
+      setLoading(false)
+    }
+  }
+
+  const handleAddToGroup = async (groupId: string) => {
+    setLoading(true)
+    try {
+      await onAddToGroup?.(workspace.id, groupId)
+      handleClose()
+    } catch (error) {
+      console.error('Failed to add workspace to group:', error)
+      setLoading(false)
+    }
+  }
+
+  const handleRemoveFromGroup = async () => {
+    setLoading(true)
+    try {
+      await onRemoveFromGroup?.(workspace.id)
+      handleClose()
+    } catch (error) {
+      console.error('Failed to remove workspace from group:', error)
+      setLoading(false)
+    }
+  }
+
+  const handleCreateGroup = async () => {
+    if (newGroupName.trim().length === 0) return
+    
+    setLoading(true)
+    try {
+      await onCreateGroup?.(newGroupName.trim(), workspace.id)
+      handleClose()
+    } catch (error) {
+      console.error('Failed to create group:', error)
       setLoading(false)
     }
   }
@@ -182,6 +229,81 @@ export const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
 
         <Divider sx={{ my: 0.5 }} />
 
+        {/* Group Management Section - Show existing groups for selection */}
+        {availableGroups.length > 0 && (
+          <>
+            {/* Header for group section */}
+            <Box sx={{ px: 2, py: 1, bgcolor: 'action.hover' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                Add to Group
+              </Typography>
+            </Box>
+            
+            {/* List available groups */}
+            {availableGroups.map(group => (
+              <MenuItem
+                key={group.id}
+                onClick={() => handleAddToGroup(group.id)}
+                disabled={loading || workspace.groupId === group.id}
+                sx={{ pl: 3 }}
+              >
+                <ListItemIcon sx={{ minWidth: 32 }}>
+                  <Box
+                    sx={{
+                      width: 16,
+                      height: 16,
+                      borderRadius: '50%',
+                      backgroundColor: `${group.color || 'primary'}.main`
+                    }}
+                  />
+                </ListItemIcon>
+                <ListItemText 
+                  primary={group.name}
+                  secondary={workspace.groupId === group.id ? 'Current group' : `${group.metadata.workspaceCount} workspaces`}
+                  secondaryTypographyProps={{
+                    variant: 'caption',
+                    sx: { fontSize: '0.7rem', color: 'text.secondary' }
+                  }}
+                />
+              </MenuItem>
+            ))}
+          </>
+        )}
+
+        {availableGroups.length === 0 && (
+          <MenuItem onClick={() => setGroupDialog(true)} disabled={loading}>
+            <ListItemIcon>
+              <GroupIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText 
+              primary="Create Group"
+              secondary="Create a new workspace group"
+              secondaryTypographyProps={{
+                variant: 'caption',
+                sx: { fontSize: '0.7rem', color: 'text.secondary' }
+              }}
+            />
+          </MenuItem>
+        )}
+
+        {workspace.groupId && (
+          <MenuItem onClick={handleRemoveFromGroup} disabled={loading}>
+            <ListItemIcon>
+              <RemoveIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText 
+              primary="Remove from Group"
+              secondary="Ungroup this workspace"
+              secondaryTypographyProps={{
+                variant: 'caption',
+                sx: { fontSize: '0.7rem', color: 'text.secondary' }
+              }}
+            />
+          </MenuItem>
+        )}
+
+        <Divider sx={{ my: 0.5 }} />
+
         <MenuItem 
           onClick={() => setDeleteDialog(true)} 
           disabled={loading || workspace.isActive}
@@ -245,11 +367,52 @@ export const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
         </DialogActions>
       </Dialog>
 
+      {/* Create Group Dialog */}
+      <Dialog 
+        open={groupDialog} 
+        onClose={handleClose}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Create New Group</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            label="Group Name"
+            value={newGroupName}
+            onChange={(e) => setNewGroupName(e.target.value)}
+            inputProps={{ maxLength: 25 }}
+            helperText={`${newGroupName.length}/25 characters`}
+            sx={{ mt: 1 }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && newGroupName.trim()) {
+                handleCreateGroup()
+              }
+            }}
+          />
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+            This workspace will be automatically added to the new group.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleClose} disabled={loading}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleCreateGroup} 
+            disabled={loading || !newGroupName.trim()}
+            variant="contained"
+          >
+            {loading ? 'Creating...' : 'Create Group'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Enhanced Delete Confirmation Dialog */}
       <WorkspaceDeleteDialog
         open={deleteDialog}
         workspace={workspace}
-        loading={loading}
         onClose={handleClose}
         onConfirm={handleDelete}
       />

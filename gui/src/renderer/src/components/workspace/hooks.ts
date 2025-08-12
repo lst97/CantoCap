@@ -1,396 +1,281 @@
 /**
- * Phase 3: Integrated Workspace Store Hooks
- * Connects Phase 1 UI components to backend storage infrastructure
- * Integrates with the workspace-store.ts created by backend-architect
+ * Simplified Workspace Hooks
+ * Clean integration with new Zustand-based workspace store
+ * Removes legacy migration complexity and performance utilities
  */
 
-import { useState, useEffect, useCallback } from 'react'
-import { useWorkspaceStore } from '../../stores/workspace-store'
-import type { Workspace as WorkspaceStoreType } from '../../types/workspace'
-import type { Workspace } from './types'
+import { useCallback, useMemo } from 'react'
 import { 
-  PerformanceMonitor, 
-  useFastWorkspaceSwitch, 
-  useOptimisticUpdate,
-  WorkspacePreloader
-} from './performance-utils'
-import { useWorkspaceErrorHandler } from './WorkspaceErrorBoundary'
-
-// Global migration state to prevent multiple simultaneous attempts
-let globalMigrationAttempted = false
-let globalMigrationInProgress = false
-
-// Transform store workspace to UI workspace format
-const transformWorkspaceForUI = (workspace: WorkspaceStoreType): Workspace => {
-  return {
-    id: workspace.id,
-    name: workspace.name,
-    emoji: workspace.name.charAt(0).toUpperCase(), // Generate emoji from name
-    createdAt: new Date(workspace.createdAt),
-    updatedAt: new Date(workspace.updatedAt),
-    isActive: workspace.isActive,
-    sessionData: {
-      currentStep: 'input-file', // Default step for UI
-      // Add any session data transformation here
-    }
-  }
-}
-
-// Real workspace store interface for integration
-interface IntegratedWorkspaceStore {
-  workspaces: Workspace[]
-  activeWorkspace: Workspace | null
-  isMigrating: boolean
-  migrationPhase: string
-  migrationProgress: number
-  canRollback: boolean
-  isLoading: boolean
-  lastError: any
-  
-  // Actions
-  createWorkspace: (name: string, copyFromId?: string) => Promise<void>
-  switchWorkspace: (workspaceId: string) => Promise<void>
-  renameWorkspace: (workspaceId: string, newName: string) => Promise<void>
-  duplicateWorkspace: (workspaceId: string) => Promise<void>
-  deleteWorkspace: (workspaceId: string) => Promise<void>
-  initializeMigration: () => Promise<void>
-  rollbackMigration: () => Promise<void>
-}
-
-// Real implementation connecting to workspace store with performance optimizations
-const useIntegratedWorkspaceStore = (): IntegratedWorkspaceStore => {
-  const store = useWorkspaceStore()
-  const [isInitialized, setIsInitialized] = useState(false)
-  const { handleError, handleAsyncError } = useWorkspaceErrorHandler()
-  const { fastSwitch, isSwitching } = useFastWorkspaceSwitch()
-
-  // Initialize workspace system on first load with performance monitoring
-  useEffect(() => {
-    const initializeSystem = async () => {
-      if (!store.isInitialized) {
-        const measureEnd = PerformanceMonitor.startMeasurement('workspace-initialization')
-        
-        try {
-          await store.initializeWorkspaces()
-          setIsInitialized(true)
-          
-          const duration = measureEnd()
-          console.log(`✅ Workspace system initialized in ${duration.toFixed(2)}ms`)
-        } catch (error) {
-          measureEnd()
-          handleError(error as Error, 'workspace initialization')
-        }
-      } else {
-        setIsInitialized(true)
-      }
-    }
-
-    initializeSystem()
-  }, [store.isInitialized, handleError])
-
-  // Preload workspace data for faster switching
-  useEffect(() => {
-    if (store.availableWorkspaces.length > 0) {
-      // Preload the first few workspaces for faster switching
-      const workspacesToPreload = store.availableWorkspaces.slice(0, 3)
-      
-      workspacesToPreload.forEach(workspace => {
-        if (workspace.id !== store.currentWorkspace?.id) {
-          WorkspacePreloader.prefetchWorkspace(workspace.id, async () => {
-            // Preload workspace config and step configurations (sessions removed)
-            return {
-              config: workspace.config,
-              metadata: workspace.metadata || {}
-            }
-          })
-        }
-      })
-    }
-  }, [store.availableWorkspaces, store.currentWorkspace?.id])
-
-  // Transform workspaces for UI
-  const transformedWorkspaces = store.availableWorkspaces.map(transformWorkspaceForUI)
-  const transformedActiveWorkspace = store.currentWorkspace ? transformWorkspaceForUI(store.currentWorkspace) : null
-
-  // Migration status derivation
-  const migrationStatus = store.migrationStatus
-  const isMigrating = migrationStatus?.isActive || false
-  const migrationPhase = migrationStatus?.currentPhase || 'completed'
-  const migrationProgress = migrationStatus?.progress || 100
-  const canRollback = migrationStatus?.canRollback || false
-
-  return {
-    workspaces: transformedWorkspaces,
-    activeWorkspace: transformedActiveWorkspace,
-    isMigrating,
-    migrationPhase,
-    migrationProgress,
-    canRollback,
-    isLoading: store.isLoading || isSwitching,
-    lastError: store.lastError,
-    
-    createWorkspace: async (name: string, copyFromId?: string) => {
-      try {
-        if (copyFromId) {
-          // Find the original workspace and duplicate it
-          const originalWorkspace = store.availableWorkspaces.find(w => w.id === copyFromId)
-          if (originalWorkspace) {
-            await store.duplicateWorkspace(copyFromId, name)
-          } else {
-            await store.createWorkspace(name)
-          }
-        } else {
-          await store.createWorkspace(name)
-        }
-      } catch (error) {
-        console.error('Failed to create workspace:', error)
-        throw error
-      }
-    },
-    
-    switchWorkspace: async (workspaceId: string) => {
-      return await handleAsyncError(
-        () => fastSwitch(workspaceId, (id) => store.switchWorkspace(id)),
-        'workspace switching'
-      )
-    },
-    
-    renameWorkspace: async (workspaceId: string, newName: string) => {
-      try {
-        const workspace = store.availableWorkspaces.find(w => w.id === workspaceId)
-        if (workspace && workspace.name !== newName) {
-          workspace.name = newName
-          workspace.updatedAt = Date.now()
-          await store.updateWorkspaceMetadata(workspaceId, { description: '' }) // Trigger update
-          // Temporarily update name directly through config
-          await store.updateWorkspaceConfig(workspaceId, { lastModified: Date.now() })
-        }
-      } catch (error) {
-        console.error('Failed to rename workspace:', error)
-        throw error
-      }
-    },
-    
-    duplicateWorkspace: async (workspaceId: string) => {
-      try {
-        const originalWorkspace = store.availableWorkspaces.find(w => w.id === workspaceId)
-        if (originalWorkspace) {
-          await store.duplicateWorkspace(workspaceId, `${originalWorkspace.name} (Copy)`)
-        }
-      } catch (error) {
-        console.error('Failed to duplicate workspace:', error)
-        throw error
-      }
-    },
-    
-    deleteWorkspace: async (workspaceId: string) => {
-      try {
-        await store.deleteWorkspace(workspaceId)
-      } catch (error) {
-        console.error('Failed to delete workspace:', error)
-        throw error
-      }
-    },
-    
-    initializeMigration: async () => {
-      try {
-        await store.startMigration()
-      } catch (error) {
-        console.error('Failed to start migration:', error)
-        throw error
-      }
-    },
-    
-    rollbackMigration: async () => {
-      try {
-        await store.rollbackMigration()
-      } catch (error) {
-        console.error('Failed to rollback migration:', error)
-        throw error
-      }
-    }
-  }
-}
+  useWorkspaceStore,
+  useWorkspaceList,
+  useCurrentWorkspace,
+  useWorkspaceLoading,
+  useWorkspaceError,
+  useWorkspaceCount,
+  useCreateWorkspace,
+  useDeleteWorkspace,
+  useSwitchWorkspace,
+  useRenameWorkspace,
+  useDuplicateWorkspace,
+  useCreateGroup,
+  useAddWorkspaceToGroup,
+  useRemoveWorkspaceFromGroup
+} from '../../stores/useWorkspaceStore'
+import type { WorkspaceWithGrouping, WorkspaceGroupColor } from '../../stores/types/StoreTypes'
 
 /**
  * Primary hook for workspace management
  * Provides all workspace state and actions needed by components
- * Now fully integrated with backend storage infrastructure
+ * Simplified to use new store architecture
  */
-export const useWorkspaceManagement = () => {
-  const store = useIntegratedWorkspaceStore()
+export const useWorkspaceManagement = (): {
+  workspaces: WorkspaceWithGrouping[];
+  activeWorkspace: WorkspaceWithGrouping | null;
+  isLoading: boolean;
+  error: string | null;
+  workspaceCount: number;
+  createWorkspace: (name: string) => Promise<string>;
+  switchWorkspace: (id: string) => Promise<void>;
+  renameWorkspace: (id: string, newName: string) => Promise<boolean>;
+  duplicateWorkspace: (id: string, newName: string) => Promise<string | null>;
+  deleteWorkspace: (id: string) => Promise<boolean>;
+  createGroup: (name: string, color?: WorkspaceGroupColor) => Promise<string>;
+  addWorkspaceToGroup: (workspaceId: string, groupId: string) => Promise<void>;
+  removeWorkspaceFromGroup: (workspaceId: string) => Promise<void>;
+} => {
+  const workspaces = useWorkspaceList() as WorkspaceWithGrouping[]
+  const currentWorkspace = useCurrentWorkspace() as WorkspaceWithGrouping | null
+  const isLoading = useWorkspaceLoading()
+  const error = useWorkspaceError()
+  const workspaceCount = useWorkspaceCount()
   
-  // DISABLED: Migration system causes persistent loops
-  // Simply mark as attempted to prevent any migration attempts
-  useEffect(() => {
-    if (!globalMigrationAttempted) {
-      globalMigrationAttempted = true
-      console.log('Migration system disabled - workspace system will initialize without migration')
-    }
-  }, [])
-  
-  return store
-}
+  // Individual action hooks to prevent reference changes
+  const createWorkspace = useCreateWorkspace()
+  const switchWorkspace = useSwitchWorkspace()
+  const renameWorkspace = useRenameWorkspace()
+  const duplicateWorkspace = useDuplicateWorkspace()
+  const deleteWorkspace = useDeleteWorkspace()
+  const createGroup = useCreateGroup()
+  const addWorkspaceToGroup = useAddWorkspaceToGroup()
+  const removeWorkspaceFromGroup = useRemoveWorkspaceFromGroup()
 
-/**
- * Hook for workspace panel integration
- * Provides simplified interface specifically for WorkspacePanel components
- * Now with real-time updates and performance optimizations
- */
-export const useWorkspacePanelIntegration = () => {
-  const {
+  // Memoize the returned object to prevent infinite re-renders
+  return useMemo(() => ({
+    // State
     workspaces,
-    activeWorkspace,
-    isMigrating,
-    migrationPhase,
-    migrationProgress,
-    canRollback,
+    activeWorkspace: currentWorkspace,
     isLoading,
-    lastError,
+    error,
+    workspaceCount,
+    
+    // Actions
     createWorkspace,
     switchWorkspace,
     renameWorkspace,
     duplicateWorkspace,
     deleteWorkspace,
-    rollbackMigration
-  } = useWorkspaceManagement()
+    
+    // Group management actions
+    createGroup,
+    addWorkspaceToGroup,
+    removeWorkspaceFromGroup
+  }), [
+    workspaces,
+    currentWorkspace,
+    isLoading,
+    error,
+    workspaceCount,
+    createWorkspace,
+    switchWorkspace,
+    renameWorkspace,
+    duplicateWorkspace,
+    deleteWorkspace,
+    createGroup,
+    addWorkspaceToGroup,
+    removeWorkspaceFromGroup
+  ])
+}
 
-  // Workspace panel specific actions with performance optimizations
-  const panelActions = {
-    onCreateWorkspace: useCallback(async (name: string, copyFromId?: string) => {
-      const startTime = performance.now()
-      try {
-        await createWorkspace(name, copyFromId)
-        const endTime = performance.now()
-        console.log(`Workspace creation took ${endTime - startTime}ms`)
-      } catch (error) {
-        console.error('Failed to create workspace in panel:', error)
-        throw error
+/**
+ * Hook for workspace panel integration
+ * Provides simplified interface specifically for WorkspacePanel components
+ * Simplified to avoid complex memoization and potential infinite loops
+ */
+export const useWorkspacePanelIntegration = (): {
+  workspaces: WorkspaceWithGrouping[];
+  activeWorkspace: WorkspaceWithGrouping | null;
+  isLoading: boolean;
+  error: string | null;
+  workspaceCount: number;
+  onCreateWorkspace: (name: string, copyFromId?: string) => Promise<void>;
+  onSwitchWorkspace: (workspaceId: string) => Promise<void>;
+  onRenameWorkspace: (workspaceId: string, newName: string) => Promise<void>;
+  onDuplicateWorkspace: (workspaceId: string, newName?: string) => Promise<void>;
+  onDeleteWorkspace: (workspaceId: string) => Promise<void>;
+  onCreateGroup: (name: string, workspaceId: string) => Promise<string>;
+  onAddToGroup: (workspaceId: string, groupId: string) => Promise<void>;
+  onRemoveFromGroup: (workspaceId: string) => Promise<void>;
+} => {
+  // Use store hooks directly to avoid complex memoization chains
+  const workspaces = useWorkspaceList() as WorkspaceWithGrouping[]
+  const activeWorkspace = useCurrentWorkspace() as WorkspaceWithGrouping | null
+  const isLoading = useWorkspaceLoading()
+  const error = useWorkspaceError()
+  const workspaceCount = useWorkspaceCount()
+  
+  // Get action hooks directly
+  const createWorkspace = useCreateWorkspace()
+  const switchWorkspace = useSwitchWorkspace()
+  const renameWorkspace = useRenameWorkspace()
+  const duplicateWorkspace = useDuplicateWorkspace()
+  const deleteWorkspace = useDeleteWorkspace()
+  const createGroup = useCreateGroup()
+  const addWorkspaceToGroup = useAddWorkspaceToGroup()
+  const removeWorkspaceFromGroup = useRemoveWorkspaceFromGroup()
+
+  // Workspace panel specific actions with error handling
+  const onCreateWorkspace = useCallback(async (name: string, copyFromId?: string) => {
+    try {
+      if (copyFromId) {
+        await duplicateWorkspace(copyFromId, name)
+      } else {
+        await createWorkspace(name)
       }
-    }, [createWorkspace]),
+    } catch (error) {
+      console.error('Failed to create workspace in panel:', error)
+      throw error
+    }
+  }, [createWorkspace, duplicateWorkspace])
 
-    onSwitchWorkspace: useCallback(async (workspaceId: string) => {
-      const startTime = performance.now()
-      try {
-        await switchWorkspace(workspaceId)
-        const endTime = performance.now()
-        console.log(`Workspace switching took ${endTime - startTime}ms`)
-        
-        // Ensure switching is under 500ms requirement
-        if (endTime - startTime > 500) {
-          console.warn(`Workspace switching exceeded 500ms target: ${endTime - startTime}ms`)
-        }
-      } catch (error) {
-        console.error('Failed to switch workspace in panel:', error)
-        throw error
-      }
-    }, [switchWorkspace]),
+  const onSwitchWorkspace = useCallback(async (workspaceId: string) => {
+    try {
+      await switchWorkspace(workspaceId)
+    } catch (error) {
+      console.error('Failed to switch workspace in panel:', error)
+      throw error
+    }
+  }, [switchWorkspace])
 
-    onRenameWorkspace: useCallback(async (workspaceId: string, newName: string) => {
-      try {
-        await renameWorkspace(workspaceId, newName)
-      } catch (error) {
-        console.error('Failed to rename workspace in panel:', error)
-        throw error
-      }
-    }, [renameWorkspace]),
+  const onRenameWorkspace = useCallback(async (workspaceId: string, newName: string) => {
+    try {
+      await renameWorkspace(workspaceId, newName)
+    } catch (error) {
+      console.error('Failed to rename workspace in panel:', error)
+      throw error
+    }
+  }, [renameWorkspace])
 
-    onDuplicateWorkspace: useCallback(async (workspaceId: string) => {
-      try {
-        await duplicateWorkspace(workspaceId)
-      } catch (error) {
-        console.error('Failed to duplicate workspace in panel:', error)
-        throw error
-      }
-    }, [duplicateWorkspace]),
+  const onDuplicateWorkspace = useCallback(async (workspaceId: string, newName?: string) => {
+    try {
+      // Get current workspaces inside callback to avoid dependency
+      const currentWorkspaces = useWorkspaceStore.getState().workspaces;
+      const workspace = currentWorkspaces[workspaceId];
+      const defaultName = `Copy of ${workspace?.name || 'Workspace'}`;
+      await duplicateWorkspace(workspaceId, newName || defaultName)
+    } catch (error) {
+      console.error('Failed to duplicate workspace in panel:', error)
+      throw error
+    }
+  }, [duplicateWorkspace])
 
-    onDeleteWorkspace: useCallback(async (workspaceId: string) => {
-      try {
-        await deleteWorkspace(workspaceId)
-      } catch (error) {
-        console.error('Failed to delete workspace in panel:', error)
-        throw error
-      }
-    }, [deleteWorkspace]),
+  const onDeleteWorkspace = useCallback(async (workspaceId: string) => {
+    try {
+      await deleteWorkspace(workspaceId)
+    } catch (error) {
+      console.error('Failed to delete workspace in panel:', error)
+      throw error
+    }
+  }, [deleteWorkspace])
 
-    onRollback: useCallback(async () => {
-      try {
-        await rollbackMigration()
-      } catch (error) {
-        console.error('Failed to rollback migration in panel:', error)
-        throw error
-      }
-    }, [rollbackMigration])
-  }
+  const onCreateGroup = useCallback(async (name: string, workspaceId: string) => {
+    try {
+      const groupId = await createGroup(name)
+      await addWorkspaceToGroup(workspaceId, groupId)
+      return groupId
+    } catch (error) {
+      console.error('Failed to create group in panel:', error)
+      throw error
+    }
+  }, [createGroup, addWorkspaceToGroup])
 
+  const onAddToGroup = useCallback(async (workspaceId: string, groupId: string) => {
+    try {
+      await addWorkspaceToGroup(workspaceId, groupId)
+    } catch (error) {
+      console.error('Failed to add workspace to group in panel:', error)
+      throw error
+    }
+  }, [addWorkspaceToGroup])
+
+  const onRemoveFromGroup = useCallback(async (workspaceId: string) => {
+    try {
+      await removeWorkspaceFromGroup(workspaceId)
+    } catch (error) {
+      console.error('Failed to remove workspace from group in panel:', error)
+      throw error
+    }
+  }, [removeWorkspaceFromGroup])
+
+  // Return simple object without complex memoization to avoid infinite loops
   return {
     // State
-    workspaces,
+    workspaces: workspaces || [],
     activeWorkspace,
-    isMigrating,
-    migrationPhase,
-    migrationProgress,
-    canRollback,
     isLoading,
-    lastError,
+    error,
+    workspaceCount,
     
     // Actions
-    ...panelActions
+    onCreateWorkspace,
+    onSwitchWorkspace,
+    onRenameWorkspace,
+    onDuplicateWorkspace,
+    onDeleteWorkspace,
+    onCreateGroup,
+    onAddToGroup,
+    onRemoveFromGroup
   }
 }
 
 /**
  * Hook for workspace session integration
- * Manages workspace session data (current step, config, etc.)
- * Now integrated with real session persistence
+ * Simplified session data management for current workspace
  */
 export const useWorkspaceSession = () => {
-  const { activeWorkspace } = useWorkspaceManagement()
-  const store = useWorkspaceStore()
-  
-  const updateSessionData = useCallback(async (data: Partial<NonNullable<Workspace['sessionData']>>) => {
-    if (!activeWorkspace) return
-    
-    try {
-      // UPDATED: Use step configuration instead of legacy sessions
-      await store.setStepConfig(activeWorkspace.id, 'config', {
-        uiState: {
-          currentStep: data.currentStep || 'input-file',
-          ...data
-        }
-      })
-      
-      console.log('Updated session data via step config for workspace:', activeWorkspace.id, data)
-    } catch (error) {
-      console.error('Failed to update session data:', error)
-    }
-  }, [activeWorkspace, store])
-  
-  const getSessionData = useCallback(async () => {
-    if (!activeWorkspace) return {}
-    
-    try {
-      // UPDATED: Use step configuration instead of legacy sessions
-      const stepConfig = await store.getStepConfig(activeWorkspace.id, 'config')
-      return stepConfig?.data?.uiState || { currentStep: 'input-file' }
-    } catch (error) {
-      console.error('Failed to load session data:', error)
-      return { currentStep: 'input-file' }
-    }
-  }, [activeWorkspace, store])
-  
-  // Load session data on workspace change
-  const [sessionData, setSessionData] = useState<any>({ currentStep: 'input-file' })
-  
-  useEffect(() => {
-    if (activeWorkspace) {
-      getSessionData().then(setSessionData)
-    }
-  }, [activeWorkspace, getSessionData])
+  const activeWorkspace = useCurrentWorkspace()
   
   return {
     activeWorkspace,
-    sessionData,
-    updateSessionData
+    sessionData: {
+      currentStep: 'input-file' // Default step
+    },
+    updateSessionData: useCallback(async (data: Record<string, unknown>) => {
+      // Session data updates can be handled by workflow store
+      console.log('Session data update requested:', data)
+    }, [])
   }
 }
+
+/**
+ * Hook for workspace grouping functionality
+ * 
+ * DEPRECATED: This hook has been removed to fix React Error #185 (infinite loops).
+ * The grouping functionality has been moved directly into the workspace store
+ * with pre-computed stable references.
+ * 
+ * Use these store hooks instead:
+ * - useGroupedWorkspaces() - Get grouped workspaces with stable references
+ * - useAvailableGroups() - Get available groups with stable references
+ */
+export const useWorkspaceGrouping = () => {
+  console.warn('useWorkspaceGrouping is deprecated. Use useGroupedWorkspaces() and useAvailableGroups() instead.');
+  
+  return {
+    groupedWorkspaces: {},
+    availableGroups: [],
+    createGroup: async () => '',
+    deleteGroup: async () => false,
+    addToGroup: async () => {},
+    removeFromGroup: async () => {}
+  };
+};

@@ -5,56 +5,54 @@ import {
   Settings as SettingsIcon,
   PlayArrow as ProcessingIcon
 } from '@mui/icons-material'
-import { getPlatform, type Platform } from '../../services/platform'
-import { useUIStore, selectDynamicTitle, selectSettingsUI } from '../../stores/ui-store'
-import { useWorkspaceStore } from '../../stores/workspace-store'
-import { useAppStore } from '../../stores/app-store'
+import { useAppStore } from '../../stores/useAppStore'
+import { useCurrentWorkspace } from '../../stores/useWorkspaceStore'
 
 /**
  * Enhanced CustomTitleBar with dynamic title support
  * 
  * Features:
- * - Context-aware title display (workspace name, settings, processing)
+ * - Context-aware title display (workspace name, processing)
  * - Processing status indication
- * - Settings mode indication
  * - Platform-specific styling
  */
 export const CustomTitleBar: React.FC = () => {
-  const [platform, setPlatform] = useState<Platform>('windows')
+  const [platform, setPlatform] = useState<'macos' | 'windows' | 'linux'>('windows')
   
   // Store subscriptions
-  const dynamicTitle = useUIStore(selectDynamicTitle)
-  const settingsUI = useUIStore(selectSettingsUI)
-  const { currentWorkspace } = useWorkspaceStore()
-  const { processing } = useAppStore()
+  const currentWorkspace = useCurrentWorkspace()
+  const { isLoading } = useAppStore()
 
   useEffect(() => {
-    getPlatform().then(setPlatform)
+    // Simple platform detection using window.electronAPI
+    const detectPlatform = async () => {
+      try {
+        if (window.electronAPI?.getPlatform) {
+          const detectedPlatform = await window.electronAPI.getPlatform()
+          setPlatform(detectedPlatform as 'macos' | 'windows' | 'linux')
+        }
+      } catch (error) {
+        console.log('Platform detection failed, using default')
+      }
+    }
+    detectPlatform()
   }, [])
 
   // Dynamic title logic
   const getTitleContent = () => {
-    if (settingsUI.isSettingsMode) {
-      return {
-        icon: <SettingsIcon color="primary" sx={{ fontSize: 24 }} />,
-        title: dynamicTitle.currentTitle, // Use preserved title instead of hardcoded 'Settings'
-        subtitle: dynamicTitle.metadata?.settingsSection || 'Global Settings'
-      }
-    }
-    
-    if (processing.isActive && processing.stage !== 'idle') {
+    if (isLoading) {
       return {
         icon: <ProcessingIcon color="warning" sx={{ fontSize: 24 }} />,
-        title: 'Processing',
-        subtitle: processing.message || 'Generating subtitles...'
+        title: 'Loading',
+        subtitle: 'Initializing application...'
       }
     }
     
-    // Default application title (workspace name is now shown in workflow panel)
+    // Default application title with workspace name if available
     return {
       icon: <MovieIcon color="primary" sx={{ fontSize: 24 }} />,
       title: 'CantoCap',
-      subtitle: 'Cantonese Caption Generator'
+      subtitle: currentWorkspace?.name || 'Cantonese Caption Generator'
     }
   }
 
@@ -117,10 +115,10 @@ export const CustomTitleBar: React.FC = () => {
           </Typography>
         )}
         
-        {/* Processing Status Chip */}
-        {processing.isActive && processing.stage !== 'idle' && (
+        {/* Loading Status Chip */}
+        {isLoading && (
           <Chip
-            label={processing.stage}
+            label="Loading"
             size="small"
             color="warning"
             variant="outlined"
@@ -128,20 +126,6 @@ export const CustomTitleBar: React.FC = () => {
               height: 20,
               fontSize: '0.65rem',
               textTransform: 'capitalize'
-            }}
-          />
-        )}
-        
-        {/* Settings Mode Chip */}
-        {settingsUI.isSettingsMode && (
-          <Chip
-            label="Settings"
-            size="small"
-            color="primary"
-            variant="outlined"
-            sx={{ 
-              height: 20,
-              fontSize: '0.65rem'
             }}
           />
         )}

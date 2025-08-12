@@ -27,16 +27,19 @@ import {
   Settings as SettingsIcon
 } from '@mui/icons-material'
 import { WorkspaceCreationDialog } from './WorkspaceCreationDialog'
+import { useWorkspaceActions, useWorkspaceLoading, useWorkspaceCount } from '../../stores/useWorkspaceStore'
 
 interface EmptyWorkspaceStateProps {
-  onCreateWorkspace: (name: string, copyFromId?: string) => Promise<void>
-  isLoading?: boolean
+  onCreateWorkspace?: (name: string, copyFromId?: string) => Promise<void> // Optional - will use store action
 }
 
 export const EmptyWorkspaceState: React.FC<EmptyWorkspaceStateProps> = ({
-  onCreateWorkspace,
-  isLoading = false
+  onCreateWorkspace
 }) => {
+  // Get store actions and state
+  const { createWorkspace } = useWorkspaceActions()
+  const isLoading = useWorkspaceLoading()
+  const workspaceCount = useWorkspaceCount()
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const theme = useTheme()
 
@@ -60,12 +63,23 @@ export const EmptyWorkspaceState: React.FC<EmptyWorkspaceStateProps> = ({
 
   const handleCreateWorkspace = async (name: string, copyFromId?: string) => {
     try {
-      await onCreateWorkspace(name, copyFromId)
+      if (onCreateWorkspace) {
+        // Use provided callback
+        await onCreateWorkspace(name, copyFromId)
+      } else {
+        // Use store action
+        await createWorkspace(name)
+      }
       setIsDialogOpen(false)
     } catch (error) {
       console.error('Failed to create workspace:', error)
-      // Error handling will be done by the parent component
+      // Error handling will be done by the store
     }
+  }
+
+  // Don't show empty state if there are workspaces
+  if (workspaceCount > 0) {
+    return null
   }
 
   return (

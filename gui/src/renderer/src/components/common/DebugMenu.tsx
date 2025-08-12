@@ -44,7 +44,7 @@ export const DebugMenu: React.FC<DebugMenuProps> = ({ show = false }) => {
         startIcon={<BugReportIcon />}
         sx={{
           position: 'fixed',
-          top: 16,
+          top: 64,
           right: 16,
           zIndex: 9998,
           backgroundColor: 'background.paper',

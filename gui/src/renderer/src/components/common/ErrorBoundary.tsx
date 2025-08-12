@@ -53,7 +53,7 @@ export class ErrorBoundary extends Component<Props, State> {
     isRecovering: false
   }
 
-  public static getDerivedStateFromError(error: Error): State {
+  public static getDerivedStateFromError(error: Error): Partial<State> {
     return {
       hasError: true,
       error,
@@ -74,6 +74,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
     // Add breadcrumb for error boundary catch
     errorHandler.addBreadcrumb({
+      timestamp: Date.now(),
       category: 'error',
       message: `ErrorBoundary caught: ${error.message}`,
       level: 'error',
@@ -84,8 +85,8 @@ export class ErrorBoundary extends Component<Props, State> {
     })
 
     // Report error to debug panel if available
-    if (window.electronAPI?.logError) {
-      window.electronAPI.logError({
+    if ((window as any).electronAPI?.logError) {
+      (window as any).electronAPI.logError({
         message: error.message,
         stack: error.stack,
         componentStack: errorInfo.componentStack,
@@ -210,7 +211,7 @@ export class ErrorBoundary extends Component<Props, State> {
     ]
   }
 
-  private getCategoryColor(category: ErrorCategory): string {
+  private getCategoryColor(category: ErrorCategory | undefined): string {
     const colors = {
       [ErrorCategory.RUNTIME]: '#ED4245', // Discord Red
       [ErrorCategory.NETWORK]: '#7DD3FC', // Light Blue
@@ -225,17 +226,17 @@ export class ErrorBoundary extends Component<Props, State> {
       [ErrorCategory.ENGINE_SETUP]: '#1E40AF', // Blue - Setup Issues
       [ErrorCategory.UNKNOWN]: '#96989D' // Discord Medium Text
     }
-    return colors[category] || colors[ErrorCategory.UNKNOWN]
+    return colors[category || ErrorCategory.UNKNOWN] || colors[ErrorCategory.UNKNOWN]
   }
 
-  private getSeverityColor(severity: ErrorSeverity): string {
+  private getSeverityColor(severity: ErrorSeverity | undefined): string {
     const colors = {
       [ErrorSeverity.LOW]: '#57F287', // Discord Green
       [ErrorSeverity.MEDIUM]: '#FEE75C', // Discord Yellow
       [ErrorSeverity.HIGH]: '#F59E0B', // Primary Amber
       [ErrorSeverity.CRITICAL]: '#ED4245' // Discord Red
     }
-    return colors[severity] || colors[ErrorSeverity.MEDIUM]
+    return colors[severity || ErrorSeverity.MEDIUM] || colors[ErrorSeverity.MEDIUM]
   }
 
   public render() {
@@ -315,7 +316,7 @@ export class ErrorBoundary extends Component<Props, State> {
                     
                     <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
                       <Chip
-                        label={errorContext.category.replace('_', ' ').toUpperCase()}
+                        label={(errorContext.category || 'unknown').replace('_', ' ').toUpperCase()}
                         size="small"
                         sx={{
                           backgroundColor: `${this.getCategoryColor(errorContext.category)}20`,
@@ -325,7 +326,7 @@ export class ErrorBoundary extends Component<Props, State> {
                         }}
                       />
                       <Chip
-                        label={errorContext.severity.toUpperCase()}
+                        label={(errorContext.severity || 'medium').toUpperCase()}
                         size="small"
                         sx={{
                           backgroundColor: `${this.getSeverityColor(errorContext.severity)}20`,
@@ -335,7 +336,7 @@ export class ErrorBoundary extends Component<Props, State> {
                         }}
                       />
                       <Chip
-                        label={`ID: ${errorContext.errorId}`}
+                        label={`ID: ${errorContext.errorId || 'unknown'}`}
                         size="small"
                         sx={{
                           backgroundColor: 'rgba(150, 152, 157, 0.15)',
@@ -594,19 +595,19 @@ export class ErrorBoundary extends Component<Props, State> {
                           >
                             <Stack spacing={1}>
                               <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem', color: '#96989D' }}>
-                                <strong style={{ color: '#DCDDDE' }}>Timestamp:</strong> {new Date(errorContext.timestamp).toISOString()}
+                                <strong style={{ color: '#DCDDDE' }}>Timestamp:</strong> {new Date(errorContext.timestamp || Date.now()).toISOString()}
                               </Typography>
                               <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem', color: '#96989D' }}>
-                                <strong style={{ color: '#DCDDDE' }}>Session ID:</strong> {errorContext.sessionId}
+                                <strong style={{ color: '#DCDDDE' }}>Session ID:</strong> {errorContext.sessionId || 'unknown'}
                               </Typography>
                               <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem', color: '#96989D' }}>
-                                <strong style={{ color: '#DCDDDE' }}>Platform:</strong> {errorContext.systemInfo.platform}
+                                <strong style={{ color: '#DCDDDE' }}>Platform:</strong> {errorContext.systemInfo?.platform || navigator.platform}
                               </Typography>
                               <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem', color: '#96989D' }}>
-                                <strong style={{ color: '#DCDDDE' }}>Language:</strong> {errorContext.systemInfo.language}
+                                <strong style={{ color: '#DCDDDE' }}>Language:</strong> {errorContext.systemInfo?.language || navigator.language}
                               </Typography>
                               <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem', color: '#96989D' }}>
-                                <strong style={{ color: '#DCDDDE' }}>Online:</strong> {errorContext.systemInfo.onLine ? 'Yes' : 'No'}
+                                <strong style={{ color: '#DCDDDE' }}>Online:</strong> {errorContext.systemInfo?.onLine !== undefined ? (errorContext.systemInfo.onLine ? 'Yes' : 'No') : (navigator.onLine ? 'Yes' : 'No')}
                               </Typography>
                             </Stack>
                           </Box>

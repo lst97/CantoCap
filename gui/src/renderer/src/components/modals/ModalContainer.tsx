@@ -1,26 +1,8 @@
 import React from 'react'
-import { useAppStore } from '../../stores/app-store'
-import { HardwareModal } from './HardwareModal'
+import { useAppStore } from '../../stores/useAppStore'
 
 export const ModalContainer = () => {
-  const { ui, closeModal } = useAppStore()
-
-  if (!ui.activeModal) return null
-
-  const renderModal = () => {
-    switch (ui.activeModal) {
-      case 'hardware':
-        return <HardwareModal />
-      default:
-        return null
-    }
-  }
-
-  return (
-    <div className="modal-overlay" onClick={closeModal}>
-      <div className="modal-container" onClick={(e) => e.stopPropagation()}>
-        {renderModal()}
-      </div>
-    </div>
-  )
+  // For now, return null as we're in the middle of migration
+  // TODO: Implement proper modal system with new stores
+  return null
 }

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useCallback, useEffect } from 'react'
 import {
   Box,
   Typography,
@@ -20,7 +20,13 @@ import {
   FormatListNumbered as LineNumbersIcon
 } from '@mui/icons-material'
 
-import { useExportStore } from '../../../stores/export-store'
+import { 
+  useExportStepContent, 
+  useExportActions,
+  useExportPreviewState,
+  useExportPreviewContent,
+  useSubtitles
+} from '../../../stores/useStepStore'
 import { BaseCard } from '../../elements'
 import { detectLanguageFromFormat, addLineNumbers } from './utils'
 import hljs from 'highlight.js/lib/core'
@@ -35,21 +41,34 @@ hljs.registerLanguage('xml', xml)
 hljs.registerLanguage('plaintext', plaintext)
 
 export const ExportPreview: React.FC = () => {
-  const { preview, formatFileSize } = useExportStore()
-  const [fullscreenOpen, setFullscreenOpen] = useState(false)
-  const [copySnackbar, setCopySnackbar] = useState(false)
-  const [showLineNumbers, setShowLineNumbers] = useState(true)
+  const exportStep = useExportStepContent()
+  const { updatePreviewState, generatePreviewContent } = useExportActions()
+  const previewState = useExportPreviewState()
+  const previewContent = useExportPreviewContent()
+  const subtitles = useSubtitles()
+  
+  // Generate preview content when format or subtitles change
+  useEffect(() => {
+    generatePreviewContent()
+  }, [exportStep.format, subtitles.length, generatePreviewContent])
+  
+  // Format file size helper
+  const formatFileSize = useCallback((bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  }, [])
   
   const handleCopyContent = useCallback(async () => {
-    if (!preview?.content) return
+    if (!previewContent) return
     
     try {
-      await navigator.clipboard.writeText(preview.content)
-      setCopySnackbar(true)
+      await navigator.clipboard.writeText(previewContent)
+      updatePreviewState({ copySnackbar: true })
     } catch (error) {
       console.error('Failed to copy to clipboard:', error)
     }
-  }, [preview?.content])
+  }, [previewContent, updatePreviewState])
   
   const getHighlightedContent = useCallback((content: string, format: string) => {
     const language = detectLanguageFromFormat(format)
@@ -75,10 +94,10 @@ export const ExportPreview: React.FC = () => {
   }, [])
   
   const addLineNumbersToContent = useCallback((content: string) => {
-    return addLineNumbers(content, showLineNumbers)
-  }, [showLineNumbers])
+    return addLineNumbers(content, previewState.showLineNumbers)
+  }, [previewState.showLineNumbers])
   
-  if (!preview) {
+  if (!previewContent) {
     return (
       <BaseCard variant="subtle" sx={{ p: 3, height: 'fit-content' }}>
         <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -93,7 +112,10 @@ export const ExportPreview: React.FC = () => {
         }}>
           <InfoIcon sx={{ fontSize: 48, mb: 2, opacity: 0.5 }} />
           <Typography variant="body2">
-            Select a format and configure options to see preview
+            {subtitles.length === 0 
+              ? 'Complete the transcription process to see preview'
+              : 'Generating preview...'
+            }
           </Typography>
         </Box>
       </BaseCard>
@@ -109,11 +131,11 @@ export const ExportPreview: React.FC = () => {
         </Typography>
         
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Tooltip title={showLineNumbers ? "Hide line numbers" : "Show line numbers"}>
+          <Tooltip title={previewState.showLineNumbers ? "Hide line numbers" : "Show line numbers"}>
             <IconButton 
               size="small" 
-              onClick={() => setShowLineNumbers(!showLineNumbers)}
-              color={showLineNumbers ? "primary" : "default"}
+              onClick={() => updatePreviewState({ showLineNumbers: !previewState.showLineNumbers })}
+              color={previewState.showLineNumbers ? "primary" : "default"}
             >
               <LineNumbersIcon fontSize="small" />
             </IconButton>
@@ -124,7 +146,7 @@ export const ExportPreview: React.FC = () => {
             </IconButton>
           </Tooltip>
           <Tooltip title="View fullscreen">
-            <IconButton size="small" onClick={() => setFullscreenOpen(true)}>
+            <IconButton size="small" onClick={() => updatePreviewState({ fullscreenOpen: true })}>
               <FullscreenIcon fontSize="small" />
             </IconButton>
           </Tooltip>
@@ -169,7 +191,7 @@ export const ExportPreview: React.FC = () => {
             lineHeight: 1.5
           }}
           dangerouslySetInnerHTML={{
-            __html: addLineNumbersToContent(getHighlightedContent(preview.content, preview.format.id))
+            __html: addLineNumbersToContent(getHighlightedContent(previewContent, exportStep.format))
           }}
         />
       </Box>
@@ -177,22 +199,22 @@ export const ExportPreview: React.FC = () => {
       <Stack spacing={1}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
           <Typography variant="body2" color="text.secondary">Format:</Typography>
-          <Typography variant="body2">{preview.format.name}</Typography>
+          <Typography variant="body2">{exportStep.format.toUpperCase()}</Typography>
         </Box>
         <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
           <Typography variant="body2" color="text.secondary">Estimated Size:</Typography>
-          <Typography variant="body2">{formatFileSize(preview.estimatedSize)}</Typography>
+          <Typography variant="body2">{formatFileSize(previewContent.length * 2)}</Typography>
         </Box>
         <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
           <Typography variant="body2" color="text.secondary">Subtitles:</Typography>
-          <Typography variant="body2">{preview.subtitleCount} entries</Typography>
+          <Typography variant="body2">{subtitles.length} entries</Typography>
         </Box>
       </Stack>
       
       {/* Fullscreen Preview Dialog */}
       <Dialog 
-        open={fullscreenOpen} 
-        onClose={() => setFullscreenOpen(false)}
+        open={previewState.fullscreenOpen} 
+        onClose={() => updatePreviewState({ fullscreenOpen: false })}
         maxWidth="md"
         fullWidth
         PaperProps={{
@@ -200,7 +222,7 @@ export const ExportPreview: React.FC = () => {
         }}
       >
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Typography>Preview - {preview.format.name}</Typography>
+          <Typography>Preview - {exportStep.format.toUpperCase()}</Typography>
           <IconButton onClick={handleCopyContent}>
             <ContentCopyIcon />
           </IconButton>
@@ -233,21 +255,21 @@ export const ExportPreview: React.FC = () => {
                 lineHeight: 1.5
               }}
               dangerouslySetInnerHTML={{
-                __html: addLineNumbersToContent(getHighlightedContent(preview.content, preview.format.id))
+                __html: addLineNumbersToContent(getHighlightedContent(previewContent, exportStep.format))
               }}
             />
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setFullscreenOpen(false)}>Close</Button>
+          <Button onClick={() => updatePreviewState({ fullscreenOpen: false })}>Close</Button>
         </DialogActions>
       </Dialog>
       
       {/* Copy Success Snackbar */}
       <Snackbar
-        open={copySnackbar}
+        open={previewState.copySnackbar}
         autoHideDuration={2000}
-        onClose={() => setCopySnackbar(false)}
+        onClose={() => updatePreviewState({ copySnackbar: false })}
         message="Content copied to clipboard!"
       />
     </BaseCard>

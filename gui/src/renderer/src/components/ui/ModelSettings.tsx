@@ -15,7 +15,7 @@ import {
   Language as LanguageIcon,
   Star as StarIcon
 } from '@mui/icons-material'
-import { useAppStore } from '../../stores/app-store'
+import { useAppStore } from '../../stores/useAppStore'
 
 interface OptionType {
   value: string

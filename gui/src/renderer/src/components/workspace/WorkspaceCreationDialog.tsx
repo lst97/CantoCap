@@ -21,7 +21,7 @@ import {
   ContentCopy as CopyIcon,
   Work as WorkspaceIcon
 } from '@mui/icons-material'
-import { WorkspaceCreationDialogProps, PHASE1_CONSTRAINTS } from './types'
+import { WorkspaceCreationDialogProps, WORKSPACE_CONSTRAINTS } from './types'
 import { WorkspaceAvatar } from './WorkspaceAvatar'
 
 /**
@@ -45,8 +45,8 @@ export const WorkspaceCreationDialog: React.FC<WorkspaceCreationDialogProps> = (
 
   const validateName = (name: string): string => {
     if (!name.trim()) return 'Workspace name is required'
-    if (name.length > PHASE1_CONSTRAINTS.MAX_WORKSPACE_NAME_LENGTH) {
-      return `Name must be ${PHASE1_CONSTRAINTS.MAX_WORKSPACE_NAME_LENGTH} characters or less`
+    if (name.length > WORKSPACE_CONSTRAINTS.MAX_WORKSPACE_NAME_LENGTH) {
+      return `Name must be ${WORKSPACE_CONSTRAINTS.MAX_WORKSPACE_NAME_LENGTH} characters or less`
     }
     if (availableWorkspaces.some(w => w.name.toLowerCase() === name.toLowerCase())) {
       return 'A workspace with this name already exists'
@@ -66,14 +66,18 @@ export const WorkspaceCreationDialog: React.FC<WorkspaceCreationDialogProps> = (
       return
     }
 
-    if (availableWorkspaces.length >= PHASE1_CONSTRAINTS.MAX_WORKSPACES) {
-      setNameError(`Maximum ${PHASE1_CONSTRAINTS.MAX_WORKSPACES} workspaces allowed`)
+    if (availableWorkspaces.length >= WORKSPACE_CONSTRAINTS.MAX_WORKSPACES) {
+      setNameError(`Maximum ${WORKSPACE_CONSTRAINTS.MAX_WORKSPACES} workspaces allowed`)
       return
     }
 
     setLoading(true)
     try {
-      await onCreateWorkspace(workspaceName.trim(), copyFromId || undefined)
+      // Use the parent's create workspace handler
+      if (onCreateWorkspace) {
+        await onCreateWorkspace(workspaceName.trim(), copyFromId || undefined)
+      }
+      
       handleClose()
     } catch (error) {
       console.error('Failed to create workspace:', error)
@@ -99,10 +103,12 @@ export const WorkspaceCreationDialog: React.FC<WorkspaceCreationDialogProps> = (
       onClose={handleClose}
       maxWidth="sm"
       fullWidth
-      PaperProps={{
-        sx: {
-          borderRadius: 3,
-          bgcolor: 'background.paper'
+      slotProps={{
+        paper: {
+          sx: {
+            borderRadius: 3,
+            bgcolor: 'background.paper'
+          }
         }
       }}
     >
@@ -132,8 +138,8 @@ export const WorkspaceCreationDialog: React.FC<WorkspaceCreationDialogProps> = (
           value={workspaceName}
           onChange={(e) => handleNameChange(e.target.value)}
           error={Boolean(nameError)}
-          helperText={nameError || `${workspaceName.length}/${PHASE1_CONSTRAINTS.MAX_WORKSPACE_NAME_LENGTH} characters`}
-          inputProps={{ maxLength: PHASE1_CONSTRAINTS.MAX_WORKSPACE_NAME_LENGTH }}
+          helperText={nameError || `${workspaceName.length}/${WORKSPACE_CONSTRAINTS.MAX_WORKSPACE_NAME_LENGTH} characters`}
+          slotProps={{ htmlInput: { maxLength: WORKSPACE_CONSTRAINTS.MAX_WORKSPACE_NAME_LENGTH } }}
           sx={{ mb: 3 }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && workspaceName.trim() && !nameError) {
@@ -200,7 +206,7 @@ export const WorkspaceCreationDialog: React.FC<WorkspaceCreationDialogProps> = (
                 {copyFromWorkspace ? (
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}>
                     <CopyIcon fontSize="small" />
-                    Will copy configuration and settings from "{copyFromWorkspace.name}"
+                    Will copy configuration and settings from &quot;{copyFromWorkspace.name}&quot;
                   </Box>
                 ) : (
                   'Copy configuration, API keys, and preferences from an existing workspace'
@@ -211,7 +217,7 @@ export const WorkspaceCreationDialog: React.FC<WorkspaceCreationDialogProps> = (
         )}
 
         {/* Workspace Limit Warning */}
-        {availableWorkspaces.length >= PHASE1_CONSTRAINTS.MAX_WORKSPACES - 1 && (
+        {availableWorkspaces.length >= WORKSPACE_CONSTRAINTS.MAX_WORKSPACES - 1 && (
           <Box sx={{ 
             p: 2, 
             borderRadius: 2, 
@@ -220,7 +226,7 @@ export const WorkspaceCreationDialog: React.FC<WorkspaceCreationDialogProps> = (
             mt: 2
           }}>
             <Typography variant="body2" color="warning.main">
-              <strong>Note:</strong> You're approaching the limit of {PHASE1_CONSTRAINTS.MAX_WORKSPACES} workspaces. 
+              <strong>Note:</strong> You&apos;re approaching the limit of {WORKSPACE_CONSTRAINTS.MAX_WORKSPACES} workspaces. 
               Consider deleting unused workspaces if needed.
             </Typography>
           </Box>

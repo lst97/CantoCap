@@ -24,6 +24,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 })
   const containerRef = useRef<HTMLDivElement>(null)
   const basicVideoPlayerRef = useRef<any>(null)
+  const [videoDataUrl, setVideoDataUrl] = useState<string | null>(null)
+  const [isLoadingVideo, setIsLoadingVideo] = useState(false)
 
   // Sync local timeRange with initialRange prop changes
   useEffect(() => {
@@ -157,6 +159,38 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [src]) // Re-run when video source changes
 
+  // Convert local file path to data URL for secure playback
+  useEffect(() => {
+    const convertVideoSource = async () => {
+      if (!src) {
+        setVideoDataUrl(null)
+        setIsLoadingVideo(false)
+        return
+      }
+
+      // Check if it's already a data URL or web URL
+      if (src.startsWith('data:') || src.startsWith('http://') || src.startsWith('https://')) {
+        setVideoDataUrl(src)
+        setIsLoadingVideo(false)
+        return
+      }
+
+      // Convert local file path to data URL
+      setIsLoadingVideo(true)
+      try {
+        const dataUrl = await window.cantocapAPI.getVideoDataUrl(src)
+        setVideoDataUrl(dataUrl)
+      } catch (error) {
+        console.error('Failed to convert video to data URL:', error)
+        setVideoDataUrl(null)
+      } finally {
+        setIsLoadingVideo(false)
+      }
+    }
+
+    convertVideoSource()
+  }, [src])
+
   // Keyboard navigation for frame-by-frame control
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -250,11 +284,30 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         minHeight: getVideoPlayerMinHeight(), // Responsive minimum height
         display: 'flex',
         flexDirection: 'column',
-        overflow: 'hidden'
+        overflow: 'hidden',
+        position: 'relative'
       }}>
+        {isLoadingVideo && (
+          <Box sx={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: '#000',
+            zIndex: 10,
+            color: 'white'
+          }}>
+            Loading video...
+          </Box>
+        )}
+        
         <BasicVideoPlayer
           ref={basicVideoPlayerRef}
-          src={src}
+          src={videoDataUrl || src}
           currentTime={currentTime}
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={handleLoadedMetadata}

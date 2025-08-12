@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react'
-import { useAppStore } from '../../stores/app-store'
+import { useAppStore } from '../../stores/useAppStore'
 
 export const ProcessingOptions = () => {
   const { config, updateConfig } = useAppStore()

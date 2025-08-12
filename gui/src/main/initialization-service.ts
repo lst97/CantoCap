@@ -3,7 +3,6 @@ import { app, shell, dialog } from 'electron'
 import { join } from 'path'
 import { existsSync } from 'fs'
 import { DependencyChecker } from './dependency-checker'
-import { ProcessManager } from './process-manager'
 import type { DependencyStatus } from '../types'
 
 export interface InitializationResult {
@@ -15,11 +14,8 @@ export interface InitializationResult {
 
 export class InitializationService {
   private dependencyChecker: DependencyChecker
-  private processManager: ProcessManager
-
   constructor() {
     this.dependencyChecker = new DependencyChecker()
-    this.processManager = new ProcessManager()
   }
 
   public async initialize(): Promise<InitializationResult> {
@@ -270,10 +266,6 @@ export class InitializationService {
     return await this.dependencyChecker.checkAll()
   }
 
-  public async runEngineSetup(): Promise<boolean> {
-    return await this.processManager.runSetupOnly()
-  }
-
   public getDependencyInstallationGuide(dependency: string): string {
     const guides: Record<string, string> = {
       python: `Python 3.9-3.12 Installation:
@@ -304,5 +296,12 @@ export class InitializationService {
     }
 
     return guides[dependency] || 'No installation guide available for this dependency.'
+  }
+
+  public async runEngineSetup(): Promise<boolean> {
+    // TODO: Implement engine setup during workspace system migration
+    // This should setup the CantoCap Python engine with proper workspace integration
+    console.warn('runEngineSetup not yet implemented in new architecture');
+    return false;
   }
 }

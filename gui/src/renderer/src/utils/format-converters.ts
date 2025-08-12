@@ -1,5 +1,5 @@
 import type { SubtitleEntry } from "../types/subtitle";
-import type { ExportSettings } from "../stores/export-store";
+import type { ExportSettings } from "../stores/types/StoreTypes";
 
 /**
  * Format time for SRT (SubRip) format

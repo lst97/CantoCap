@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { Box, Paper, CircularProgress } from '@mui/material'
-// import { useAppStore } from '../../stores/app-store'
+// import { useAppStore } from '../../stores/useAppStore'
 
 interface VideoThumbnailPreviewProps {
   isVisible: boolean

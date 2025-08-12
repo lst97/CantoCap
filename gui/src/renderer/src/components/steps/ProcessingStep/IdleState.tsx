@@ -9,20 +9,20 @@ import {
   Visibility as ReviewIcon,
   RestartAlt as RestartIcon,
 } from "@mui/icons-material";
-import { useAppStore } from "../../../stores/app-store";
-import { workflowStateManager } from "../../../services/workflow/workflow-state-manager";
+import { useConfigStepContent } from "../../../stores/useStepStore";
+import { useWorkflowActions } from "../../../stores/useWorkflowStore";
 import { ProcessingCard, GuideButton, SecondaryGuideButton } from "./styles";
 
 export const IdleState: React.FC = () => {
-  // Modern workflow navigation using WorkflowStateManager
-  const { config } = useAppStore();
+  const config = useConfigStepContent();
+  const workflowActions = useWorkflowActions();
 
   const handleNewGeneration = () => {
-    workflowStateManager.setCurrentStep("config");
+    workflowActions.navigateToStep("config");
   };
 
   const handleReviewResults = () => {
-    workflowStateManager.setCurrentStep("review");
+    workflowActions.navigateToStep("review");
   };
 
   return (
@@ -41,7 +41,7 @@ export const IdleState: React.FC = () => {
             variant="body1"
             sx={{ color: "text.secondary", maxWidth: 400, mx: "auto" }}
           >
-            Choose what you'd like to do next. You can generate new subtitles or
+            Choose what you&apos;d like to do next. You can generate new subtitles or
             review previous results.
           </Typography>
         </Box>

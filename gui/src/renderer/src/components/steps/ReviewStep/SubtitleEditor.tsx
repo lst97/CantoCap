@@ -23,35 +23,42 @@ import {
   RestoreOutlined as RestoreIcon,
   FileDownload as ExportIcon,
 } from "@mui/icons-material";
-import { useSubtitleEditStore } from "../../../stores/subtitle-edit-store";
-import { workflowStateManager } from "../../../services/workflow/workflow-state-manager";
-import { useWorkflowNavigation } from "../../../hooks/useWorkflowStateManager";
-import { StepState } from "../../../types/workflow-state";
+import { 
+  useSubtitleEditStore, 
+  useSubtitles, 
+  useSelectedSubtitle, 
+  useEditHistory,
+  useSaveState,
+  useSubtitleActions 
+} from "../../../stores/useSubtitleEditStore";
+import { useWorkflowActions } from "../../../stores/useWorkflowStore";
 import { ReviewCard, ActionButton } from "./styles";
 import { formatTime, parseTime } from "./utils";
 import { SubtitleEditorProps } from "./types";
 
 export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
+  const subtitles = useSubtitles();
+  const selectedSubtitle = useSelectedSubtitle();
+  const { undoStack, redoStack, canUndo, canRedo } = useEditHistory();
+  const { isDirty, isSaving, saveError } = useSaveState();
   const {
-    session,
     updateSubtitle,
     deleteSubtitle,
     splitSubtitle,
     mergeSubtitles,
     setSelectedSubtitle,
+    jumpToSubtitle,
+    setCurrentTime,
     undo,
     redo,
-    undoStack,
-    redoStack,
-    manualSaveToIndexedDB,
-    isSaving,
-    saveError,
-    clearSaveError,
-  } = useSubtitleEditStore();
-  
-  const { navigateToStep } = useWorkflowNavigation();
-  
-  // Modern workflow navigation using WorkflowStateManager directly
+    saveToWorkspace,
+    restoreFromOriginal
+  } = useSubtitleActions();
+  const { navigateToStep } = useWorkflowActions();
+  const { currentTime, isVideoPlaying } = useSubtitleEditStore(state => ({ 
+    currentTime: state.currentTime, 
+    isVideoPlaying: state.isVideoPlaying 
+  }));
 
   const [editText, setEditText] = useState("");
   const [editTranslation, setEditTranslation] = useState("");
@@ -64,9 +71,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
   const exportInProgressRef = useRef(false);
   const lastExportAttemptRef = useRef<number>(0);
 
-  const editingSubtitle = session?.selectedSubtitleId && session.currentSubtitles && Array.isArray(session.currentSubtitles)
-    ? session.currentSubtitles.find((s) => s.id === session.selectedSubtitleId)
-    : null;
+  const editingSubtitle = selectedSubtitle;
 
   // Check if this is a new subtitle (empty text and no original text)
   const isNewSubtitle =
@@ -107,17 +112,21 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
   const handleSave = async () => {
     if (!editingSubtitle || !hasChanges) return;
 
-    // Update the subtitle first
-    updateSubtitle(editingSubtitle.id, {
-      text: editText,
-      translation: editTranslation || undefined,
-      startTime: parseTime(editStartTime),
-      endTime: parseTime(editEndTime),
-    });
-    setHasChanges(false);
+    try {
+      // Update the subtitle first
+      updateSubtitle(editingSubtitle.id, {
+        text: editText,
+        translation: editTranslation || undefined,
+        startTime: parseTime(editStartTime),
+        endTime: parseTime(editEndTime),
+      });
+      setHasChanges(false);
 
-    // Trigger manual save to IndexedDB
-    await manualSaveToIndexedDB();
+      // Trigger manual save to workspace
+      await saveToWorkspace();
+    } catch (error) {
+      console.error('Failed to save subtitle:', error);
+    }
   };
 
   const handleCancel = () => {
@@ -130,7 +139,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
     }
   };
 
-  const handleReset = () => {
+  const handleReset = async () => {
     if (editingSubtitle) {
       // Reset to initial values - this is different from the subtitle list reset
       // Here we reset to the current stored values, not to "original" text
@@ -140,10 +149,30 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
     }
   };
 
-  const handleDelete = () => {
-    if (editingSubtitle) {
-      deleteSubtitle(editingSubtitle.id);
+  const handleRestoreAll = async () => {
+    try {
+      // Restore all subtitles to original
+      restoreFromOriginal();
       setSelectedSubtitle(null);
+      
+      // Save the restoration
+      await saveToWorkspace();
+    } catch (error) {
+      console.error('Failed to restore subtitles:', error);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (editingSubtitle) {
+      try {
+        deleteSubtitle(editingSubtitle.id);
+        setSelectedSubtitle(null);
+        
+        // Save after deletion
+        await saveToWorkspace();
+      } catch (error) {
+        console.error('Failed to delete subtitle:', error);
+      }
     }
   };
 
@@ -173,30 +202,6 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
       // Use a small delay to ensure the current render cycle completes
       await new Promise(resolve => setTimeout(resolve, 100));
       
-      // Complete the review step first
-      const reviewTransition = await workflowStateManager.transitionState('review', StepState.Complete, {
-        reason: 'Review completed - user initiated export'
-      });
-      
-      if (!reviewTransition.success) {
-        throw new Error(`Review transition failed: ${reviewTransition.error}`);
-      }
-      
-      // Small delay between transitions to prevent observer flooding
-      await new Promise(resolve => setTimeout(resolve, 50));
-      
-      // Enable export step
-      const exportTransition = await workflowStateManager.transitionState('export', StepState.Ready, {
-        reason: 'Review completed - export step now accessible'
-      });
-      
-      if (!exportTransition.success) {
-        throw new Error(`Export transition failed: ${exportTransition.error}`);
-      }
-      
-      // Final delay before navigation
-      await new Promise(resolve => setTimeout(resolve, 50));
-      
       // Navigate to export step using proper navigation hook
       const navigationResult = await navigateToStep('export');
       
@@ -221,32 +226,48 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
   }, [isExporting, navigateToStep]);
 
   const handleSplit = async () => {
-    if (editingSubtitle && session) {
+    if (editingSubtitle) {
       const splitTime =
-        session.currentTime ||
+        currentTime ||
         (editingSubtitle.startTime + editingSubtitle.endTime) / 2;
+      
       if (
         splitTime > editingSubtitle.startTime &&
         splitTime < editingSubtitle.endTime
       ) {
-        splitSubtitle(editingSubtitle.id, splitTime);
-        await manualSaveToIndexedDB();
+        try {
+          splitSubtitle(editingSubtitle.id, splitTime);
+          
+          // Save after split operation
+          await saveToWorkspace();
+        } catch (error) {
+          console.error('Failed to split subtitle:', error);
+        }
       }
     }
   };
 
-  const handleMergeNext = () => {
-    if (!editingSubtitle || !session || !session.currentSubtitles || !Array.isArray(session.currentSubtitles)) return;
+  const handleMergeNext = async () => {
+    if (!editingSubtitle || !Array.isArray(subtitles)) return;
 
-    const currentIndex = session.currentSubtitles.findIndex(
+    const currentIndex = subtitles.findIndex(
       (s) => s.id === editingSubtitle.id
     );
+    
     if (
       currentIndex >= 0 &&
-      currentIndex < session.currentSubtitles.length - 1
+      currentIndex < subtitles.length - 1
     ) {
-      const nextSubtitle = session.currentSubtitles[currentIndex + 1];
-      mergeSubtitles(editingSubtitle.id, nextSubtitle.id);
+      const nextSubtitle = subtitles[currentIndex + 1];
+      
+      try {
+        mergeSubtitles(editingSubtitle.id, nextSubtitle.id);
+        
+        // Save after merge operation
+        await saveToWorkspace();
+      } catch (error) {
+        console.error('Failed to merge subtitles:', error);
+      }
     }
   };
 
@@ -284,8 +305,12 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
             <IconButton
               size="small"
               onClick={async () => {
-                undo();
-                await manualSaveToIndexedDB();
+                try {
+                  undo();
+                  await saveToWorkspace();
+                } catch (error) {
+                  console.error('Failed to undo:', error);
+                }
               }}
               disabled={undoStack.length === 0 || isSaving}
             >
@@ -296,8 +321,12 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
             <IconButton
               size="small"
               onClick={async () => {
-                redo();
-                await manualSaveToIndexedDB();
+                try {
+                  redo();
+                  await saveToWorkspace();
+                } catch (error) {
+                  console.error('Failed to redo:', error);
+                }
               }}
               disabled={redoStack.length === 0 || isSaving}
             >
@@ -425,7 +454,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
           {saveError && (
             <Alert 
               severity="error" 
-              onClose={clearSaveError}
+              onClose={() => useSubtitleEditStore.setState({ saveError: null })}
               sx={{ mt: 1 }}
             >
               Save failed: {saveError}
@@ -446,10 +475,9 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
                 sx={{ flex: 1 }}
                 onClick={handleSplit}
                 disabled={
-                  !session ||
-                  !session.currentTime ||
-                  session.currentTime <= editingSubtitle.startTime ||
-                  session.currentTime >= editingSubtitle.endTime
+                  !currentTime ||
+                  currentTime <= editingSubtitle.startTime ||
+                  currentTime >= editingSubtitle.endTime
                 }
               >
                 Split at Current Time

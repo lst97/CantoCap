@@ -249,7 +249,7 @@ const ConfigStep = () => {
   const { updateSessionData } = useWorkspaceSession()
   const { currentStep } = useWorkflowStore()
   
-  // Auto-save step progress to workspace session
+  // Save step progress to workspace session
   useEffect(() => {
     updateSessionData({ currentStep })
   }, [currentStep])

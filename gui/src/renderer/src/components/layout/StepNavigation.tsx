@@ -99,6 +99,7 @@ export const StepNavigation: React.FC = React.memo(() => {
       canNavigate: canNavigate[step],
       isCurrent: currentStep === step,
     }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStep, processingStepState]); // Only depend on current step and processing state
 
   // Enhanced handleStepClick with centralized navigation
@@ -732,9 +733,10 @@ export const StepNavigation: React.FC = React.memo(() => {
                         </Box>
                       }
                       secondary={
-                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
+                        <span style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                           <Typography
                             variant='caption'
+                            component="span"
                             sx={{
                               fontSize: '0.75rem',
                               color: state === 'error' ? 'error.main' : 'text.secondary',
@@ -748,7 +750,7 @@ export const StepNavigation: React.FC = React.memo(() => {
 
                           {/* Additional context for processing state */}
                           {step === 'processing' && isProcessingActive && (
-                            <Box sx={{ mt: 0.5 }}>
+                            <span style={{ marginTop: '4px', display: 'block' }}>
                               <LinearProgress
                                 sx={{
                                   height: 2,
@@ -762,6 +764,7 @@ export const StepNavigation: React.FC = React.memo(() => {
                               />
                               <Typography
                                 variant='caption'
+                                component="span"
                                 sx={{
                                   fontSize: '0.65rem',
                                   color: 'info.main',
@@ -772,13 +775,14 @@ export const StepNavigation: React.FC = React.memo(() => {
                               >
                                 Processing in progress...
                               </Typography>
-                            </Box>
+                            </span>
                           )}
 
                           {/* Error details */}
                           {state === StepStatus.ERROR && (
                             <Typography
                               variant='caption'
+                              component="span"
                               sx={{
                                 fontSize: '0.65rem',
                                 color: 'error.main',
@@ -788,6 +792,7 @@ export const StepNavigation: React.FC = React.memo(() => {
                                 padding: '2px 6px',
                                 borderRadius: 0.5,
                                 border: '1px solid rgba(211, 47, 47, 0.2)',
+                                display: 'block',
                               }}
                             >
                               Step encountered an error
@@ -798,6 +803,7 @@ export const StepNavigation: React.FC = React.memo(() => {
                           {state === StepStatus.WARNING && (
                             <Typography
                               variant='caption'
+                              component="span"
                               sx={{
                                 fontSize: '0.65rem',
                                 color: 'warning.main',
@@ -807,12 +813,13 @@ export const StepNavigation: React.FC = React.memo(() => {
                                 padding: '2px 6px',
                                 borderRadius: 0.5,
                                 border: '1px solid rgba(245, 124, 0, 0.2)',
+                                display: 'block',
                               }}
                             >
                               Step completed with warnings
                             </Typography>
                           )}
-                        </Box>
+                        </span>
                       }
                     />
                   </ListItemButton>

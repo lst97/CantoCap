@@ -1,410 +1,300 @@
-import { ErrorCategory, ErrorSeverity, ErrorContext, SystemInfo, UserAction, Breadcrumb, ErrorExplanation } from '../types/error'
+// Enhanced error handler with full ErrorContext support
+import { ErrorCategory, ErrorExplanation, ErrorContext, ErrorSeverity, Breadcrumb } from '../types/error';
 
 class ErrorHandler {
-  private static instance: ErrorHandler
-  private userActions: UserAction[] = []
-  private breadcrumbs: Breadcrumb[] = []
-  private sessionId: string = Math.random().toString(36).substring(2, 15)
-
-  private constructor() {
-    this.setupGlobalErrorHandlers()
-  }
-
-  public static getInstance(): ErrorHandler {
-    if (!ErrorHandler.instance) {
-      ErrorHandler.instance = new ErrorHandler()
-    }
-    return ErrorHandler.instance
-  }
-
-  private setupGlobalErrorHandlers(): void {
-    // Handle unhandled promise rejections
-    window.addEventListener('unhandledrejection', (event) => {
-      this.handleError(new Error(event.reason), 'unhandledrejection')
-    })
-
-    // Handle global errors
-    window.addEventListener('error', (event) => {
-      this.handleError(event.error, 'global')
-    })
-
-    // Track user actions
-    this.trackUserActions()
-  }
-
-  private trackUserActions(): void {
-    const events = ['click', 'keydown', 'submit', 'change']
-    
-    events.forEach(eventType => {
-      document.addEventListener(eventType, (event) => {
-        const target = event.target as HTMLElement
-        this.addUserAction({
-          type: eventType,
-          timestamp: Date.now(),
-          target: target.tagName + (target.id ? `#${target.id}` : '') + (target.className ? `.${target.className}` : ''),
-          details: {
-            key: eventType === 'keydown' ? (event as KeyboardEvent).key : undefined,
-            value: target instanceof HTMLInputElement ? target.value : undefined
-          }
-        })
-      }, { passive: true })
-    })
-  }
-
-  public addUserAction(action: UserAction): void {
-    this.userActions.push(action)
-    // Keep only last 50 actions
-    if (this.userActions.length > 50) {
-      this.userActions = this.userActions.slice(-50)
-    }
-  }
-
-  public addBreadcrumb(breadcrumb: Omit<Breadcrumb, 'timestamp'>): void {
-    this.breadcrumbs.push({
-      ...breadcrumb,
-      timestamp: Date.now()
-    })
-    // Keep only last 100 breadcrumbs
-    if (this.breadcrumbs.length > 100) {
-      this.breadcrumbs = this.breadcrumbs.slice(-100)
-    }
-  }
-
-  private getSystemInfo(): SystemInfo {
-    const nav = navigator
-    const memory = (performance as any)?.memory
-
+  createErrorContext(error: Error, componentStack?: string): ErrorContext {
     return {
-      userAgent: nav.userAgent,
-      platform: nav.platform,
-      language: nav.language,
-      cookieEnabled: nav.cookieEnabled,
-      onLine: nav.onLine,
-      memory: memory ? {
+      errorId: this.generateErrorId(),
+      timestamp: Date.now(),
+      category: this.categorizeError(error),
+      severity: this.determineSeverity(error),
+      userAgent: navigator.userAgent,
+      appVersion: this.getAppVersion(),
+      systemInfo: {
+        userAgent: navigator.userAgent,
+        platform: navigator.platform,
+        language: navigator.language,
+        cookieEnabled: navigator.cookieEnabled,
+        onLine: navigator.onLine,
+        memory: this.getMemoryInfo()
+      },
+      userActions: [],
+      componentStack: componentStack || '',
+      breadcrumbs: [],
+      url: window.location.href,
+      sessionId: this.getSessionId()
+    };
+  }
+
+  private generateErrorId(): string {
+    return `err_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  private categorizeError(error: Error): ErrorCategory {
+    const message = error.message.toLowerCase();
+    if (message.includes('network') || message.includes('fetch')) {
+      return ErrorCategory.NETWORK;
+    }
+    if (message.includes('file') || message.includes('blob')) {
+      return ErrorCategory.FILE_SYSTEM;
+    }
+    if (message.includes('validation') || message.includes('invalid')) {
+      return ErrorCategory.VALIDATION;
+    }
+    return ErrorCategory.RUNTIME;
+  }
+
+  private determineSeverity(error: Error): ErrorSeverity {
+    const message = error.message.toLowerCase();
+    if (message.includes('critical') || message.includes('fatal')) {
+      return ErrorSeverity.CRITICAL;
+    }
+    if (message.includes('warning') || message.includes('minor')) {
+      return ErrorSeverity.LOW;
+    }
+    if (message.includes('important') || message.includes('major')) {
+      return ErrorSeverity.HIGH;
+    }
+    return ErrorSeverity.MEDIUM;
+  }
+
+  private getAppVersion(): string {
+    return process.env.npm_package_version || '1.0.0';
+  }
+
+  private getMemoryInfo() {
+    try {
+      const memory = (performance as any).memory;
+      return memory ? {
         usedJSHeapSize: memory.usedJSHeapSize,
         totalJSHeapSize: memory.totalJSHeapSize,
         jsHeapSizeLimit: memory.jsHeapSizeLimit
-      } : undefined
+      } : undefined;
+    } catch {
+      return undefined;
     }
   }
 
-  public categorizeError(error: Error): ErrorCategory {
-    const message = error.message.toLowerCase()
-    const stack = error.stack?.toLowerCase() || ''
-
-    // Check for engine-specific errors first
-    if ('type' in error && typeof (error as any).type === 'string') {
-      const engineError = error as any
-      switch (engineError.type) {
-        case 'startup_error':
-          return ErrorCategory.ENGINE_STARTUP
-        case 'runtime_error':
-          return ErrorCategory.ENGINE_RUNTIME
-        case 'exit_error':
-          return ErrorCategory.ENGINE_EXIT
-        case 'spawn_error':
-          return ErrorCategory.ENGINE_SPAWN
-        case 'setup_error':
-          return ErrorCategory.ENGINE_SETUP
-      }
+  private getSessionId(): string {
+    let sessionId = sessionStorage.getItem('error_session_id');
+    if (!sessionId) {
+      sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      sessionStorage.setItem('error_session_id', sessionId);
     }
-
-    // Check for IPC-related errors
-    if (message.includes('ipc') || message.includes('engine communication') || 
-        message.includes('cantocap') || message.includes('engine process')) {
-      return ErrorCategory.ENGINE_IPC
-    }
-
-    if (message.includes('network') || message.includes('fetch') || message.includes('xhr')) {
-      return ErrorCategory.NETWORK
-    }
-    
-    if (message.includes('file') || stack.includes('filesystem') || message.includes('enoent')) {
-      return ErrorCategory.FILE_SYSTEM
-    }
-    
-    if (message.includes('processing') || message.includes('transcription') || message.includes('ffmpeg')) {
-      return ErrorCategory.PROCESSING
-    }
-    
-    if (message.includes('validation') || message.includes('invalid') || message.includes('required')) {
-      return ErrorCategory.VALIDATION
-    }
-    
-    if (error.name === 'TypeError' || error.name === 'ReferenceError' || error.name === 'SyntaxError') {
-      return ErrorCategory.RUNTIME
-    }
-
-    return ErrorCategory.UNKNOWN
+    return sessionId;
   }
 
-  public determineSeverity(error: Error, category: ErrorCategory): ErrorSeverity {
-    const message = error.message.toLowerCase()
-    
-    if (message.includes('critical') || message.includes('fatal') || category === ErrorCategory.FILE_SYSTEM) {
-      return ErrorSeverity.CRITICAL
-    }
-    
-    // Engine errors are generally high severity as they affect core functionality
-    if (category === ErrorCategory.ENGINE_STARTUP || category === ErrorCategory.ENGINE_SPAWN ||
-        category === ErrorCategory.ENGINE_SETUP) {
-      return ErrorSeverity.CRITICAL
-    }
-    
-    if (category === ErrorCategory.ENGINE_RUNTIME || category === ErrorCategory.ENGINE_EXIT ||
-        category === ErrorCategory.ENGINE_IPC) {
-      return ErrorSeverity.HIGH
-    }
-    
-    if (category === ErrorCategory.PROCESSING || category === ErrorCategory.NETWORK) {
-      return ErrorSeverity.HIGH
-    }
-    
-    if (category === ErrorCategory.VALIDATION) {
-      return ErrorSeverity.MEDIUM
-    }
-    
-    return ErrorSeverity.LOW
+  addBreadcrumb(breadcrumb: Breadcrumb): void {
+    console.log('Error breadcrumb:', breadcrumb);
   }
 
-  public getErrorExplanation(error: Error, category: ErrorCategory): ErrorExplanation {
-    const explanations: Record<ErrorCategory, ErrorExplanation> = {
-      [ErrorCategory.RUNTIME]: {
-        title: 'Application Runtime Error',
-        description: 'A runtime error occurred while the application was running. This is typically caused by a programming issue or unexpected data.',
-        possibleCauses: [
-          'Unexpected data format or type',
-          'Missing required properties or methods',
-          'Memory or resource constraints',
-          'Compatibility issues with browser or system'
-        ],
-        suggestedActions: [
-          'Try refreshing the page',
-          'Clear your browser cache',
-          'Try again with different input data',
-          'Contact support if the issue persists'
-        ],
-        technicalDetails: error.message
-      },
-      [ErrorCategory.NETWORK]: {
-        title: 'Network Connection Error',
-        description: 'Unable to connect to the required services. This could be due to internet connectivity issues or server problems.',
-        possibleCauses: [
-          'No internet connection',
-          'Server is temporarily unavailable',
-          'Firewall or proxy blocking the request',
-          'Service maintenance in progress'
-        ],
-        suggestedActions: [
-          'Check your internet connection',
-          'Try again in a few minutes',
-          'Contact your network administrator',
-          'Use a different network if available'
-        ]
-      },
-      [ErrorCategory.FILE_SYSTEM]: {
-        title: 'File System Error',
-        description: 'There was a problem accessing or processing files on your system.',
-        possibleCauses: [
-          'File not found or moved',
-          'Insufficient permissions',
-          'Disk space full',
-          'File is corrupted or in use'
-        ],
-        suggestedActions: [
-          'Check if the file exists and is accessible',
-          'Ensure you have the necessary permissions',
-          'Free up disk space',
-          'Try with a different file'
-        ]
-      },
-      [ErrorCategory.PROCESSING]: {
-        title: 'Processing Error',
-        description: 'An error occurred while processing your request. This might be related to the input data or processing configuration.',
-        possibleCauses: [
-          'Unsupported file format',
-          'Invalid configuration settings',
-          'Processing timeout',
-          'Insufficient system resources'
-        ],
-        suggestedActions: [
-          'Check your file format and size',
-          'Review your configuration settings',
-          'Try with simpler settings',
-          'Restart the application'
-        ]
-      },
-      [ErrorCategory.VALIDATION]: {
-        title: 'Validation Error',
-        description: 'The input data or configuration does not meet the required criteria.',
-        possibleCauses: [
-          'Missing required fields',
-          'Invalid data format',
-          'Values outside acceptable range',
-          'Incompatible settings combination'
-        ],
-        suggestedActions: [
-          'Check all required fields are filled',
-          'Verify data format and values',
-          'Review configuration settings',
-          'Follow the input guidelines'
-        ]
-      },
-      [ErrorCategory.ENGINE_IPC]: {
-        title: 'Engine Communication Error',
-        description: 'Failed to communicate with the CantoCap engine process. This may be due to IPC connection issues or engine availability.',
-        possibleCauses: [
-          'Engine process not responding',
-          'IPC channel disconnected',
-          'Engine crashed or terminated'
-        ],
-        suggestedActions: [
-          'Restart the processing task',
-          'Check system resources',
-          'Try restarting the application',
-          'Verify engine installation'
-        ]
-      },
-      [ErrorCategory.ENGINE_STARTUP]: {
-        title: 'Engine Startup Error',
-        description: 'The CantoCap engine failed to start properly. This is typically due to missing dependencies or configuration issues.',
-        possibleCauses: [
-          'Python 3.12 not found or not accessible',
-          'Required Python packages missing',
-          'Engine installation corrupted',
-          'Insufficient system permissions'
-        ],
-        suggestedActions: [
-          'Verify Python 3.12 installation',
-          'Run engine setup from settings',
-          'Check system PATH configuration',
-          'Restart application as administrator'
-        ]
-      },
-      [ErrorCategory.ENGINE_RUNTIME]: {
-        title: 'Engine Runtime Error',
-        description: 'The CantoCap engine encountered an error during execution. This may be related to input processing or internal engine issues.',
-        possibleCauses: [
-          'Invalid input file format',
-          'Insufficient memory or disk space',
-          'Internal engine bug or crash'
-        ],
-        suggestedActions: [
-          'Try with a different input file',
-          'Check available system resources',
-          'Reduce processing complexity',
-          'Contact support with error details'
-        ]
-      },
-      [ErrorCategory.ENGINE_EXIT]: {
-        title: 'Engine Exit Error',
-        description: 'The CantoCap engine terminated unexpectedly with an error code. This indicates a critical processing failure.',
-        possibleCauses: [
-          'Engine crashed during processing',
-          'Critical dependency missing',
-          'System resource exhaustion',
-          'Processing configuration error'
-        ],
-        suggestedActions: [
-          'Check system resource availability',
-          'Review processing configuration',
-          'Try with simpler settings',
-          'Restart the application'
-        ]
-      },
-      [ErrorCategory.ENGINE_SPAWN]: {
-        title: 'Engine Spawn Error',
-        description: 'Failed to spawn the CantoCap engine process. This is a critical system-level error.',
-        possibleCauses: [
-          'Engine executable not found',
-          'Insufficient system permissions',
-          'System process limit reached',
-          'Antivirus blocking execution'
-        ],
-        suggestedActions: [
-          'Verify engine installation path',
-          'Run application as administrator',
-          'Check antivirus settings',
-          'Restart system if necessary'
-        ]
-      },
-      [ErrorCategory.ENGINE_SETUP]: {
-        title: 'Engine Setup Error',
-        description: 'Failed to set up or configure the CantoCap engine. This prevents the engine from running properly.',
-        possibleCauses: [
-          'Dependencies installation failed',
-          'Configuration file corruption',
-          'Network connection issues',
-          'Insufficient disk space'
-        ],
-        suggestedActions: [
-          'Run initialization setup again',
-          'Check internet connection',
-          'Free up disk space',
-          'Clear application cache'
-        ]
-      },
-      [ErrorCategory.UNKNOWN]: {
-        title: 'Unknown Error',
-        description: 'An unexpected error occurred. The system was unable to determine the exact cause.',
-        possibleCauses: [
-          'Rare edge case condition',
-          'System compatibility issue',
-          'Temporary resource constraint',
-          'Unknown external factor'
-        ],
-        suggestedActions: [
-          'Try refreshing the page',
-          'Restart the application',
-          'Try again later',
-          'Report this issue with details'
-        ],
-        technicalDetails: error.message
-      }
-    }
+  getErrorExplanation(error: Error, category: ErrorCategory): ErrorExplanation {
+    const baseExplanation: ErrorExplanation = {
+      title: this.getCategoryTitle(category),
+      description: this.getCategoryDescription(category),
+      possibleCauses: this.getPossibleCauses(category, error),
+      suggestedActions: this.getSuggestedActions(category, error),
+      technicalDetails: error.message
+    };
 
-    return explanations[category]
+    return baseExplanation;
   }
 
-  public createErrorContext(error: Error, componentStack?: string): ErrorContext {
-    const category = this.categorizeError(error)
-    const severity = this.determineSeverity(error, category)
-    
-    return {
-      errorId: Math.random().toString(36).substring(2, 15),
-      timestamp: Date.now(),
-      category,
-      severity,
-      userAgent: navigator.userAgent,
-      appVersion: process.env.npm_package_version || '1.0.0',
-      systemInfo: this.getSystemInfo(),
-      userActions: [...this.userActions],
-      componentStack: componentStack || '',
-      breadcrumbs: [...this.breadcrumbs],
-      url: window.location.href,
-      sessionId: this.sessionId
-    }
+  private getCategoryTitle(category: ErrorCategory): string {
+    const titles: Record<ErrorCategory, string> = {
+      [ErrorCategory.ENGINE_STARTUP]: "Engine Startup Failed",
+      [ErrorCategory.ENGINE_RUNTIME]: "Engine Runtime Error",
+      [ErrorCategory.ENGINE_EXIT]: "Engine Process Terminated",
+      [ErrorCategory.ENGINE_SPAWN]: "Engine Launch Failed",
+      [ErrorCategory.ENGINE_SETUP]: "Engine Setup Required",
+      [ErrorCategory.ENGINE_IPC]: "Engine Communication Error",
+      [ErrorCategory.PROCESSING]: "Processing Error",
+      [ErrorCategory.RUNTIME]: "Application Runtime Error",
+      [ErrorCategory.NETWORK]: "Network Connection Error",
+      [ErrorCategory.FILE_SYSTEM]: "File System Error",
+      [ErrorCategory.VALIDATION]: "Validation Error",
+      [ErrorCategory.UNKNOWN]: "Unknown Error"
+    };
+    return titles[category] || "Unknown Error";
   }
 
-  private handleError(error: Error, source: string): void {
-    console.error(`[${source}] Error caught:`, error)
-    this.addBreadcrumb({
-      category: 'error',
-      message: `${source}: ${error.message}`,
-      level: 'error',
-      data: { source, stack: error.stack }
-    })
+  private getCategoryDescription(category: ErrorCategory): string {
+    const descriptions: Record<ErrorCategory, string> = {
+      [ErrorCategory.ENGINE_STARTUP]: "The subtitle generation engine failed to start properly.",
+      [ErrorCategory.ENGINE_RUNTIME]: "An error occurred while the engine was processing your request.",
+      [ErrorCategory.ENGINE_EXIT]: "The subtitle generation engine stopped unexpectedly during processing.",
+      [ErrorCategory.ENGINE_SPAWN]: "Unable to launch the subtitle generation engine.",
+      [ErrorCategory.ENGINE_SETUP]: "The engine requires initial setup or configuration.",
+      [ErrorCategory.ENGINE_IPC]: "Communication with the subtitle generation engine was interrupted.",
+      [ErrorCategory.PROCESSING]: "An error occurred during the subtitle generation process.",
+      [ErrorCategory.RUNTIME]: "An unexpected error occurred in the application.",
+      [ErrorCategory.NETWORK]: "Unable to establish a network connection.",
+      [ErrorCategory.FILE_SYSTEM]: "Unable to access or modify files on your system.",
+      [ErrorCategory.VALIDATION]: "The provided input contains invalid data.",
+      [ErrorCategory.UNKNOWN]: "An unexpected error occurred."
+    };
+    return descriptions[category] || "An unexpected error occurred.";
   }
 
-  public exportErrorData(): string {
-    return JSON.stringify({
-      userActions: this.userActions,
-      breadcrumbs: this.breadcrumbs,
-      sessionId: this.sessionId,
-      timestamp: Date.now(),
-      systemInfo: this.getSystemInfo()
-    }, null, 2)
+  private getPossibleCauses(category: ErrorCategory, error: Error): string[] {
+    const causes: Record<ErrorCategory, string[]> = {
+      [ErrorCategory.ENGINE_STARTUP]: [
+        "Python is not installed or not accessible",
+        "Required Python dependencies are missing",
+        "Engine files are corrupted or missing",
+        "Insufficient system permissions"
+      ],
+      [ErrorCategory.ENGINE_RUNTIME]: [
+        "Invalid input file format",
+        "Insufficient system memory",
+        "Engine configuration error",
+        "Temporary file system issues"
+      ],
+      [ErrorCategory.ENGINE_EXIT]: [
+        "Processing was manually cancelled",
+        "System resource exhaustion",
+        "Invalid processing parameters",
+        "Engine encountered an unhandled exception"
+      ],
+      [ErrorCategory.ENGINE_SPAWN]: [
+        "Python executable not found in system PATH",
+        "Engine script files are missing or corrupted",
+        "System security software blocking execution",
+        "Insufficient system resources"
+      ],
+      [ErrorCategory.ENGINE_SETUP]: [
+        "Initial engine configuration is incomplete",
+        "Required dependencies need to be installed",
+        "Engine needs to be updated or repaired",
+        "System environment variables are not configured"
+      ],
+      [ErrorCategory.ENGINE_IPC]: [
+        "Engine process terminated unexpectedly",
+        "Communication protocol version mismatch",
+        "System firewall or security software interference",
+        "Engine process is unresponsive"
+      ],
+      [ErrorCategory.PROCESSING]: [
+        "Input file is corrupted or unreadable",
+        "Unsupported file format",
+        "Insufficient disk space for processing",
+        "Network interruption during cloud processing"
+      ],
+      [ErrorCategory.RUNTIME]: [
+        "Application state corruption",
+        "Browser compatibility issue",
+        "Insufficient system memory",
+        "Unexpected user interaction"
+      ],
+      [ErrorCategory.NETWORK]: [
+        "Internet connection is unavailable",
+        "Firewall blocking network requests",
+        "DNS resolution failure",
+        "Server is temporarily unavailable"
+      ],
+      [ErrorCategory.FILE_SYSTEM]: [
+        "File is locked by another application",
+        "Insufficient disk space",
+        "File permissions are restrictive",
+        "File path contains invalid characters"
+      ],
+      [ErrorCategory.VALIDATION]: [
+        "Required fields are missing",
+        "Input data format is incorrect",
+        "File size exceeds maximum limit",
+        "Invalid configuration parameters"
+      ],
+      [ErrorCategory.UNKNOWN]: [
+        "Unexpected application state",
+        "Third-party software interference",
+        "System configuration issue",
+        "Temporary system resource problem"
+      ]
+    };
+    return causes[category] || ["An unexpected error occurred"];
+  }
+
+  private getSuggestedActions(category: ErrorCategory, error: Error): string[] {
+    const actions: Record<ErrorCategory, string[]> = {
+      [ErrorCategory.ENGINE_STARTUP]: [
+        "Run engine setup to install required dependencies",
+        "Verify Python installation and PATH configuration",
+        "Check system permissions for the application",
+        "Restart the application as administrator if needed"
+      ],
+      [ErrorCategory.ENGINE_RUNTIME]: [
+        "Try processing with different settings",
+        "Verify input file integrity",
+        "Free up system memory and retry",
+        "Check available disk space"
+      ],
+      [ErrorCategory.ENGINE_EXIT]: [
+        "Try the operation again",
+        "Reduce processing complexity or file size",
+        "Check system resources and close other applications",
+        "Verify input file format and integrity"
+      ],
+      [ErrorCategory.ENGINE_SPAWN]: [
+        "Run engine setup to configure the system",
+        "Verify Python is installed and accessible",
+        "Check antivirus software settings",
+        "Restart the application with administrator privileges"
+      ],
+      [ErrorCategory.ENGINE_SETUP]: [
+        "Click 'Run Engine Setup' to configure the system",
+        "Ensure Python and pip are installed",
+        "Check internet connection for dependency downloads",
+        "Verify system has sufficient disk space"
+      ],
+      [ErrorCategory.ENGINE_IPC]: [
+        "Restart the application",
+        "Check system firewall settings",
+        "Verify engine process is not blocked by antivirus",
+        "Try processing with simpler settings"
+      ],
+      [ErrorCategory.PROCESSING]: [
+        "Verify input file is valid and not corrupted",
+        "Try processing a different file",
+        "Check available disk space",
+        "Verify network connection if using cloud features"
+      ],
+      [ErrorCategory.RUNTIME]: [
+        "Refresh the application",
+        "Clear browser cache and reload",
+        "Close other applications to free memory",
+        "Try the operation again"
+      ],
+      [ErrorCategory.NETWORK]: [
+        "Check your internet connection",
+        "Disable VPN or proxy temporarily",
+        "Check firewall settings",
+        "Try again in a few minutes"
+      ],
+      [ErrorCategory.FILE_SYSTEM]: [
+        "Close any applications using the file",
+        "Check available disk space",
+        "Verify file permissions",
+        "Try saving to a different location"
+      ],
+      [ErrorCategory.VALIDATION]: [
+        "Verify all required fields are filled",
+        "Check input data format",
+        "Ensure file size is within limits",
+        "Review configuration settings"
+      ],
+      [ErrorCategory.UNKNOWN]: [
+        "Try the operation again",
+        "Restart the application",
+        "Check system resources",
+        "Contact support if the problem persists"
+      ]
+    };
+    return actions[category] || ["Try the operation again"];
+  }
+
+  captureException(error: Error, context?: ErrorContext): void {
+    console.error('Captured exception:', error, context);
   }
 }
 
-export const errorHandler = ErrorHandler.getInstance()
+export const errorHandler = new ErrorHandler();

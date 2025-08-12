@@ -8,37 +8,81 @@ import {
 } from '@mui/material'
 import { Warning as WarningIcon } from '@mui/icons-material'
 
-import { useExportStore } from '../../../stores/export-store'
-import { validateForFormat } from '../../../utils/format-converters'
+import { 
+  useExportStepContent, 
+  useExportActions,
+  useSubtitles 
+} from '../../../stores/useStepStore'
+import type { Subtitle } from '../../../stores/types/StoreTypes'
+
+// Available export formats
+const EXPORT_FORMATS = [
+  {
+    id: 'srt',
+    name: 'SRT',
+    description: 'SubRip Subtitle format - most widely supported',
+    features: ['Timestamps', 'Line Numbers', 'Multi-line', 'Cross-platform']
+  },
+  {
+    id: 'vtt',
+    name: 'WebVTT',
+    description: 'Web Video Text Track format for HTML5 video',
+    features: ['Web Standard', 'Styling Support', 'Cue Settings', 'HTML5']
+  },
+  {
+    id: 'txt',
+    name: 'Plain Text',
+    description: 'Simple text file with optional timestamps',
+    features: ['Simple', 'Readable', 'Timestamps Optional', 'Universal']
+  }
+]
+
+// Basic validation for subtitle formats
+const validateForFormat = (subtitles: Subtitle[], formatId: string): string[] => {
+  const issues: string[] = []
+  
+  if (!subtitles || subtitles.length === 0) {
+    issues.push('No subtitles available')
+    return issues
+  }
+  
+  // Check for common issues
+  const hasLongLines = subtitles.some(sub => sub.text && sub.text.length > 80)
+  const hasSpecialChars = subtitles.some(sub => sub.text && /[<>&]/.test(sub.text))
+  
+  if (formatId === 'srt' && hasSpecialChars) {
+    issues.push('Contains HTML/XML characters')
+  }
+  
+  if (formatId === 'vtt' && hasLongLines) {
+    issues.push('Some lines exceed recommended length')
+  }
+  
+  return issues
+}
 
 export const FormatSelector: React.FC = () => {
-  const { 
-    settings, 
-    formats, 
-    getSubtitleData, 
-    updateSettings,
-    clearError 
-  } = useExportStore()
+  const exportStep = useExportStepContent()
+  const { updateExportFormat } = useExportActions()
+  const subtitles = useSubtitles()
   
-  const subtitles = getSubtitleData()
-  const [validationIssues, setValidationIssues] = useState<Record<string, string[]>>({})
+  const [localValidationIssues, setLocalValidationIssues] = useState<Record<string, string[]>>({})
   
-  // Validate formats when subtitles or selected format changes
+  // Validate formats when subtitles change
   useEffect(() => {
     const issues: Record<string, string[]> = {}
-    formats.forEach(format => {
+    EXPORT_FORMATS.forEach(format => {
       const formatIssues = validateForFormat(subtitles, format.id)
       if (formatIssues.length > 0) {
         issues[format.id] = formatIssues
       }
     })
-    setValidationIssues(issues)
-  }, [subtitles, formats])
+    setLocalValidationIssues(issues)
+  }, [subtitles])
   
   const handleFormatChange = useCallback((formatId: string) => {
-    updateSettings({ selectedFormat: formatId })
-    clearError()
-  }, [updateSettings, clearError])
+    updateExportFormat(formatId)
+  }, [updateExportFormat])
 
   return (
     <Box role="region" aria-labelledby="format-selector-title">
@@ -50,9 +94,9 @@ export const FormatSelector: React.FC = () => {
           width: '100%'
         }}
       >
-        {formats.map((format) => {
-          const hasIssues = validationIssues[format.id]?.length > 0
-          const isSelected = settings.selectedFormat === format.id
+        {EXPORT_FORMATS.map((format) => {
+          const hasIssues = localValidationIssues[format.id]?.length > 0
+          const isSelected = exportStep.format === format.id
           
           return (
             <Box 
@@ -87,7 +131,7 @@ export const FormatSelector: React.FC = () => {
                     {format.name}
                   </Typography>
                   {hasIssues && (
-                    <Tooltip title={validationIssues[format.id]?.join(', ')}>
+                    <Tooltip title={localValidationIssues[format.id]?.join(', ')}>
                       <WarningIcon color="warning" fontSize="small" />
                     </Tooltip>
                   )}
@@ -103,8 +147,8 @@ export const FormatSelector: React.FC = () => {
                 {hasIssues && (
                   <Alert severity="warning" sx={{ mt: 1 }}>
                     <Typography variant="caption">
-                      {validationIssues[format.id]?.slice(0, 2).join('; ')}
-                      {validationIssues[format.id]?.length > 2 && '...'}
+                      {localValidationIssues[format.id]?.slice(0, 2).join('; ')}
+                      {localValidationIssues[format.id]?.length > 2 && '...'}
                     </Typography>
                   </Alert>
                 )}

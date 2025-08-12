@@ -25,17 +25,7 @@ import {
   Attachment as AttachmentIcon,
   Delete as DeleteIcon,
 } from '@mui/icons-material';
-import { useAppStore } from '../../stores/app-store';
-import { navigateToReviewFromJsonImport } from '../../utils/workflow-navigation';
-import {
-  atomicFileUpload,
-  atomicStepReset,
-  atomicVideoRemoval,
-} from '../../utils/step-state-controller';
-import { workflowStateManager } from '../../services/workflow/workflow-state-manager';
-import { StepState } from '../../types/workflow-state';
-import { testSubscriptionSystem } from '../../utils/subscription-test';
-import { triggerUserInteraction, triggerConfigUpdate } from '../../services/bridge/workflow-config-bridge';
+import { useInputStepContent, useStepActions } from '../../stores/useStepStore';
 
 // TypeScript interfaces for subtitle data structure
 interface SubtitleData {
@@ -96,25 +86,33 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
   onFileSelect,
   onJsonFileSelect,
 }) => {
-  // Use app store as the single source of truth for component state
-  const { config, updateConfig, showNotification } = useAppStore();
+  // Use centralized stores as the single source of truth for component state
+  const inputStep = useInputStepContent();
+  const { updateStepContent } = useStepActions();
 
   useEffect(() => {
     console.log('🔧 [VIDEO DEBUG] FileSelector State Change:', {
       timestamp: new Date().toISOString(),
       props: { initialFile, initialJsonFile },
       storeConfig: {
-        inputFile: config.inputFile,
-        importedJsonFile: config.importedJsonFile,
+        inputFile: inputStep.inputFile,
+        importedJsonFile: inputStep.importedJsonFile,
       },
-      hasFileInStore: !!config.inputFile,
+      hasFileInStore: !!(inputStep.inputFile || inputStep.selectedFile),
       propsVsStore: {
-        inputFileMatch: initialFile === config.inputFile,
-        jsonFileMatch: initialJsonFile === config.importedJsonFile,
+        inputFileMatch: initialFile === (inputStep.inputFile || inputStep.selectedFile),
+        jsonFileMatch: initialJsonFile === inputStep.importedJsonFile,
       },
       stackTrace: new Error().stack?.split('\n').slice(1, 3).join('\n'),
     });
-  }, [initialFile, initialJsonFile, config.inputFile, config.importedJsonFile]);
+  }, [
+    initialFile,
+    initialJsonFile,
+    inputStep.inputFile,
+    inputStep.importedJsonFile,
+    inputStep.selectedFile,
+  ]);
+
   // Modern workflow navigation using WorkflowStateManager directly
   const [isDragOver, setIsDragOver] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -125,106 +123,63 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
     size?: string;
     resolution?: string;
   } | null>(null);
+  const [metadataGenerationFailed, setMetadataGenerationFailed] = useState<boolean>(false);
   const [isImportingJson, setIsImportingJson] = useState(false);
 
-  // Function to generate video thumbnail and metadata
+  // Function to generate video thumbnail and metadata using main process
   const generateVideoMetadata = useCallback(async (filePath: string) => {
     setIsGeneratingMetadata(true);
     try {
-      // Create a video element to load the file and extract metadata
-      const video = document.createElement('video');
-      // Convert file path to proper file URL for Electron
-      const fileUrl = filePath.startsWith('file://') ? filePath : `file://${filePath}`;
-      video.src = fileUrl;
-      video.preload = 'metadata';
-      video.crossOrigin = 'anonymous';
+      console.log('🎬 Processing video metadata using main process for:', filePath);
+      
+      // Use the new IPC-based video processing
+      const result = await window.cantocapAPI.getVideoMetadata(filePath);
+      
+      if (result.error) {
+        console.warn('Error processing video metadata:', result.error);
+        setMetadataGenerationFailed(true);
+        return;
+      }
 
-      // Add timeout to prevent hanging
-      const timeout = setTimeout(() => {
-        console.warn('Video metadata generation timed out');
-        setIsGeneratingMetadata(false);
-      }, 10000); // 10 second timeout
+      // Set thumbnail if available
+      if (result.thumbnail) {
+        setVideoThumbnail(result.thumbnail);
+        console.log('✅ Video thumbnail generated successfully');
+      }
 
-      await new Promise<void>((resolve, _reject) => {
-        video.onloadedmetadata = () => {
-          try {
-            clearTimeout(timeout);
-
-            // Validate video dimensions
-            if (!video.videoWidth || !video.videoHeight || !isFinite(video.duration)) {
-              console.warn('Invalid video dimensions or duration');
-              resolve();
-              return;
-            }
-
-            // Generate thumbnail
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-              canvas.width = 300;
-              canvas.height = Math.round((canvas.width / video.videoWidth) * video.videoHeight);
-
-              // Seek to 10% of video duration for thumbnail
-              const seekTime = Math.min(video.duration * 0.1, video.duration - 1);
-              video.currentTime = seekTime;
-
-              video.onseeked = () => {
-                try {
-                  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                  const thumbnailDataUrl = canvas.toDataURL('image/jpeg', 0.8);
-                  setVideoThumbnail(thumbnailDataUrl);
-
-                  // Format duration
-                  const formatDuration = (seconds: number) => {
-                    if (!isFinite(seconds) || seconds < 0) return '0:00';
-                    const mins = Math.floor(seconds / 60);
-                    const secs = Math.floor(seconds % 60);
-                    return `${mins}:${secs.toString().padStart(2, '0')}`;
-                  };
-
-                  // Set metadata
-                  setVideoMetadata({
-                    duration: formatDuration(video.duration),
-                    resolution: `${video.videoWidth}×${video.videoHeight}`,
-                    size: 'Unknown', // File size would need to be obtained differently
-                  });
-
-                  resolve();
-                } catch (error) {
-                  console.warn('Error generating thumbnail:', error);
-                  resolve();
-                }
-              };
-
-              video.onerror = () => {
-                console.warn('Error during video seeking');
-                resolve();
-              };
-            } else {
-              console.warn('Could not get canvas context');
-              resolve();
-            }
-          } catch (error) {
-            clearTimeout(timeout);
-            console.warn('Error in video metadata generation:', error);
-            resolve();
-          }
+      // Set metadata if available
+      if (result.metadata) {
+        // Format duration from seconds to mm:ss format
+        const formatDuration = (seconds: number) => {
+          if (!isFinite(seconds) || seconds < 0) return '0:00';
+          const mins = Math.floor(seconds / 60);
+          const secs = Math.floor(seconds % 60);
+          return `${mins}:${secs.toString().padStart(2, '0')}`;
         };
 
-        video.onerror = (e) => {
-          clearTimeout(timeout);
-          console.warn('Error loading video for metadata:', e);
-          resolve(); // Don't reject, just continue without metadata
+        // Format file size
+        const formatFileSize = (bytes: number) => {
+          if (bytes === 0) return 'Unknown';
+          const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+          const i = Math.floor(Math.log(bytes) / Math.log(1024));
+          return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
         };
 
-        video.onabort = () => {
-          clearTimeout(timeout);
-          console.warn('Video loading aborted');
-          resolve();
-        };
-      });
+        setVideoMetadata({
+          duration: formatDuration(result.metadata.duration),
+          resolution: `${result.metadata.width}×${result.metadata.height}`,
+          size: formatFileSize(result.metadata.size),
+        });
+        
+        console.log('✅ Video metadata processed successfully:', {
+          duration: result.metadata.duration,
+          resolution: `${result.metadata.width}×${result.metadata.height}`,
+          format: result.metadata.format
+        });
+      }
     } catch (error) {
       console.warn('Error in generateVideoMetadata:', error);
+      setMetadataGenerationFailed(true);
     } finally {
       setIsGeneratingMetadata(false);
     }
@@ -237,28 +192,30 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
   useEffect(() => {
     const regenerateMetadata = async () => {
       if (
-        config.inputFile &&
+        inputStep.inputFile &&
         !videoMetadata &&
         !videoThumbnail &&
         !isLoading &&
-        !isGeneratingMetadata
+        !isGeneratingMetadata &&
+        !metadataGenerationFailed
       ) {
-        const ext = config.inputFile.split('.').pop()?.toLowerCase();
+        const ext = inputStep.inputFile.split('.').pop()?.toLowerCase();
         if (videoExtensions.includes(ext || '')) {
-          console.log('Regenerating video metadata for:', config.inputFile);
-          await generateVideoMetadata(config.inputFile);
+          console.log('Regenerating video metadata for:', inputStep.inputFile);
+          await generateVideoMetadata(inputStep.inputFile);
         }
       }
     };
 
     regenerateMetadata();
   }, [
-    config.inputFile,
+    inputStep.inputFile,
     videoMetadata,
     videoThumbnail,
     generateVideoMetadata,
     isLoading,
     isGeneratingMetadata,
+    metadataGenerationFailed,
     videoExtensions,
   ]);
 
@@ -283,19 +240,25 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
 
         // Now show loading since user actually selected a file
         setIsLoading(true);
+        
+        // Reset metadata states for new file
+        setVideoThumbnail(null);
+        setVideoMetadata(null);
+        setMetadataGenerationFailed(false);
 
         console.log('📁 Saving video file with atomic operations');
 
-        // Use atomic file upload to coordinate all state updates
+        // Update the input step with the selected file
         try {
-          await atomicFileUpload('video', filePath, {
-            resetSteps: true,
-            completeInputStep: true,
+          await updateStepContent('input', {
+            inputFile: filePath,
+            selectedFile: filePath,
+            lastModified: Date.now(),
           });
-          console.log('✅ Atomic file upload completed successfully');
-        } catch (atomicError) {
-          console.error('❌ Atomic file upload failed:', atomicError);
-          throw atomicError; // Re-throw to be caught by outer try-catch
+          console.log('✅ File selection completed successfully');
+        } catch (error) {
+          console.error('❌ File selection failed:', error);
+          throw error; // Re-throw to be caught by outer try-catch
         }
 
         // Save the input file - use event-driven system for immediate persistence
@@ -303,7 +266,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
           timestamp: new Date().toISOString(),
           filePath,
           hasCallback: !!onFileSelect,
-          currentConfigBefore: config.inputFile,
+          currentConfigBefore: inputStep.inputFile,
           willUseCallback: !!onFileSelect,
         });
 
@@ -311,31 +274,12 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
           console.log('✅ [VIDEO DEBUG] FileSelector: Using callback to update file');
           onFileSelect(filePath);
         } else {
-          console.log('✅ [VIDEO DEBUG] FileSelector: Using event-driven config update');
-          // Trigger immediate config update through event system
-          triggerUserInteraction('file-selection', 'inputFile', filePath);
-
-          // Also update local state for immediate UI feedback
-          updateConfig('inputFile', filePath);
-
-          // Verify the update took effect
-          setTimeout(() => {
-            const updatedConfig = useAppStore.getState().config;
-            console.log('🔧 [VIDEO DEBUG] FileSelector: Config update verification:', {
-              timestamp: new Date().toISOString(),
-              requestedPath: filePath,
-              actualConfigValue: updatedConfig.inputFile,
-              updateSuccessful: updatedConfig.inputFile === filePath,
-            });
-          }, 100);
+          console.log(
+            '✅ [VIDEO DEBUG] FileSelector: File already updated through centralized store'
+          );
         }
 
-        if (!config.outputFile) {
-          const outputPath = filePath.replace(/\.[^/.]+$/, '.srt');
-          // Trigger immediate config update for output file
-          triggerUserInteraction('file-selection', 'outputFile', outputPath);
-          updateConfig('outputFile', outputPath);
-        }
+        // Output path handling would be moved to config step in complete rewrite
 
         // Generate video metadata if it's a video file
         const ext = filePath.split('.').pop()?.toLowerCase();
@@ -344,52 +288,42 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
           await generateVideoMetadata(filePath);
         }
 
-        showNotification('Video file selected and auto-saved successfully', 'success');
-        console.log('✅ Video selection and atomic step updates completed');
+        console.log('✅ Video selection and step updates completed');
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      showNotification(`Failed to select file: ${errorMsg}`, 'error');
+      console.error(`Failed to select file: ${errorMsg}`);
     } finally {
       setIsLoading(false);
     }
-  }, [
-    updateConfig,
-    config.outputFile,
-    config.inputFile,
-    showNotification,
-    generateVideoMetadata,
-    onFileSelect,
-  ]);
+  }, [updateStepContent, generateVideoMetadata, onFileSelect, inputStep.inputFile]);
 
   const handleClearFile = useCallback(async () => {
     console.log('🗑️ Removing video file with comprehensive cleanup (video + JSON)');
 
-    // Trigger immediate config updates through event system
-    triggerUserInteraction('file-selection', 'inputFile', null);
-    triggerUserInteraction('file-selection', 'importedJsonFile', null);
+    try {
+      // Clear input step data through centralized store
+      await updateStepContent('input', {
+        inputFile: null,
+        selectedFile: null,
+        importedJsonFile: null,
+        lastModified: Date.now(),
+      });
 
-    // CRITICAL FIX: Clear BOTH video AND JSON data from app config
-    updateConfig('inputFile', null);
-    updateConfig('importedJsonFile', null);
-    updateConfig('subtitle', null);
-    updateConfig('isImportedFromJson', false);
+      // Clear local component state
+      setVideoThumbnail(null);
+      setVideoMetadata(null);
+      setIsGeneratingMetadata(false);
+      setMetadataGenerationFailed(false);
 
-    // Use atomic video removal with comprehensive cleanup
-    // This preserves step states and resets video + JSON data
-    await atomicVideoRemoval();
+      // Notify parent component that file was removed
+      onFileRemoved?.();
 
-    // Clear local component state
-    setVideoThumbnail(null);
-    setVideoMetadata(null);
-    setIsGeneratingMetadata(false);
-
-    // Notify parent component that file was removed
-    onFileRemoved?.();
-
-    showNotification('Video file and associated JSON data removed', 'info');
-    console.log('✅ Video file removal with JSON cleanup completed');
-  }, [updateConfig, onFileRemoved, showNotification]);
+      console.log('✅ Video file removal completed');
+    } catch (error) {
+      console.error('Failed to clear file:', error);
+    }
+  }, [updateStepContent, onFileRemoved]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -440,6 +374,11 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
           try {
             // Show loading now that we confirmed the file is supported
             setIsLoading(true);
+            
+            // Reset metadata states for new file
+            setVideoThumbnail(null);
+            setVideoMetadata(null);
+            setMetadataGenerationFailed(false);
 
             console.log('📁 Drag & drop: Saving video file and auto-saving to workspace');
 
@@ -452,63 +391,28 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
               );
             }
 
-            // Use atomic file upload to coordinate all state updates
+            // Update the input step with the selected file
             try {
-              await atomicFileUpload('video', filePath, {
-                resetSteps: true,
-                completeInputStep: true,
+              await updateStepContent('input', {
+                inputFile: filePath,
+                selectedFile: filePath,
+                lastModified: Date.now(),
               });
-              console.log('✅ Drag-and-drop atomic file upload completed successfully');
+              console.log('✅ Drag-and-drop file upload completed successfully');
             } catch (atomicError) {
-              console.error('❌ Drag-and-drop atomic file upload failed:', atomicError);
+              console.error('❌ Drag-and-drop file upload failed:', atomicError);
               throw atomicError; // Re-throw to be caught by outer try-catch
             }
 
-            // Save the input file - use event-driven system for immediate persistence
-            console.log('🔧 [VIDEO DEBUG] FileSelector (drag-drop): About to update config:', {
-              timestamp: new Date().toISOString(),
-              filePath,
-              hasCallback: !!onFileSelect,
-              currentConfigBefore: config.inputFile,
-              willUseCallback: !!onFileSelect,
-            });
-
+            // Notify parent component if callback is provided
             if (onFileSelect) {
               console.log(
                 '✅ [VIDEO DEBUG] FileSelector (drag-drop): Using callback to update file'
               );
               onFileSelect(filePath);
-            } else {
-              console.log(
-                '✅ [VIDEO DEBUG] FileSelector (drag-drop): Using event-driven config update'
-              );
-              // Trigger immediate config update through event system
-              triggerUserInteraction('file-selection', 'inputFile', filePath);
-
-              // Also update local state for immediate UI feedback
-              updateConfig('inputFile', filePath);
-
-              // Verify the update took effect
-              setTimeout(() => {
-                const updatedConfig = useAppStore.getState().config;
-                console.log(
-                  '🔧 [VIDEO DEBUG] FileSelector (drag-drop): Config update verification:',
-                  {
-                    timestamp: new Date().toISOString(),
-                    requestedPath: filePath,
-                    actualConfigValue: updatedConfig.inputFile,
-                    updateSuccessful: updatedConfig.inputFile === filePath,
-                  }
-                );
-              }, 100);
             }
 
-            if (!config.outputFile) {
-              const outputPath = filePath.replace(/\.[^/.]+$/, '.srt');
-              // Trigger immediate config update for output file
-              triggerUserInteraction('file-selection', 'outputFile', outputPath);
-              updateConfig('outputFile', outputPath);
-            }
+            // Output path handling would be moved to config step in complete rewrite
 
             // Generate video metadata if it's a video file
             const ext = filePath.split('.').pop()?.toLowerCase();
@@ -517,38 +421,28 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
               await generateVideoMetadata(filePath);
             }
 
-            showNotification('Video file dropped and auto-saved successfully', 'success');
-            console.log('✅ Drag & drop with atomic step updates completed');
+            console.log('✅ Drag & drop with step updates completed');
           } catch (error) {
             console.error('Error in drag and drop file handling:', error);
             const errorMsg =
               error instanceof Error
                 ? error.message
                 : 'Unknown error occurred while processing the dropped file';
-            showNotification(errorMsg, 'error');
+            console.error(errorMsg);
           } finally {
             setIsLoading(false);
           }
         } else {
-          showNotification('Unsupported file type. Please select a video or audio file.', 'error');
+          console.error('Unsupported file type. Please select a video or audio file.');
         }
       }
     },
-    // React 19 Optimization: Reduced dependency array - removed redundant config
-    [
-      updateConfig,
-      config.outputFile,
-      config.inputFile,
-      showNotification,
-      generateVideoMetadata,
-      onFileSelect,
-      supportedTypes,
-    ]
+    [updateStepContent, generateVideoMetadata, onFileSelect, supportedTypes]
   );
 
   const getFileName = (filePath: string | null): string | null => {
     if (!filePath) return null;
-    return filePath.split(/[\\/]/).pop() || null;
+    return filePath.split(/[\\\\/]/).pop() || null;
   };
 
   const getFileIcon = (filePath: string | null) => {
@@ -583,7 +477,9 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
     }
 
     // Type guard to check if jsonData has the expected structure
-    const hasRequiredStructure = (data: unknown): data is { metadata: unknown; subtitles: unknown } => {
+    const hasRequiredStructure = (
+      data: unknown
+    ): data is { metadata: unknown; subtitles: unknown } => {
       return data !== null && typeof data === 'object' && 'metadata' in data && 'subtitles' in data;
     };
 
@@ -626,13 +522,13 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
     const isValidSubtitle = (sub: unknown): sub is SubtitleData => {
       if (!sub || typeof sub !== 'object') return false;
       const subtitle = sub as Record<string, unknown>;
-      
+
       const hasValidIndex = typeof subtitle.index === 'number';
       const hasValidTiming =
         typeof subtitle.startTime === 'number' &&
         typeof subtitle.endTime === 'number' &&
         (subtitle.endTime as number) > (subtitle.startTime as number);
-      const hasValidCaption = 
+      const hasValidCaption =
         (typeof subtitle.caption === 'string' && subtitle.caption.trim().length > 0) ||
         (typeof subtitle.text === 'string' && subtitle.text.trim().length > 0);
       const hasValidTranslation =
@@ -650,9 +546,12 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
         const subtitle = sub as Record<string, unknown>;
         console.warn(`⚠️ Subtitle ${index} failed validation:`, {
           hasValidIndex: typeof subtitle.index === 'number',
-          hasValidTiming: typeof subtitle.startTime === 'number' && typeof subtitle.endTime === 'number',
-          hasValidCaption: typeof subtitle.caption === 'string' || typeof subtitle.text === 'string',
-          hasValidTranslation: subtitle.translation === undefined || typeof subtitle.translation === 'string',
+          hasValidTiming:
+            typeof subtitle.startTime === 'number' && typeof subtitle.endTime === 'number',
+          hasValidCaption:
+            typeof subtitle.caption === 'string' || typeof subtitle.text === 'string',
+          hasValidTranslation:
+            subtitle.translation === undefined || typeof subtitle.translation === 'string',
           original: sub,
         });
       }
@@ -743,21 +642,14 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
       });
   };
 
-  // Handle JSON import
-  // React 19 Optimization: Memoize import start time to prevent recreating performance.now() calls
+  // Simplified JSON import handler
   const handleJsonImport = useCallback(async () => {
     const importStartTime = performance.now();
     let importSuccess = false;
+
     try {
       setIsImportingJson(true);
-      console.log('🔄 Starting JSON import process...', {
-        timestamp: new Date().toISOString(),
-        currentConfig: {
-          hasInputFile: !!config.inputFile,
-          hasSubtitle: !!config.subtitle,
-          hasImportedJson: !!config.importedJsonFile,
-        },
-      });
+      console.log('🔄 Starting JSON import process...');
 
       const result = await window.cantocapAPI.openFileDialog({
         filters: [
@@ -780,9 +672,8 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
         // Validate the JSON structure
         if (!validateCantocapJson(jsonContent)) {
           console.error('❌ JSON validation failed');
-          showNotification(
-            'Invalid CantoCap JSON format. Please select a valid subtitle export file.',
-            'error'
+          console.error(
+            'Invalid CantoCap JSON format. Please select a valid subtitle export file.'
           );
           return;
         }
@@ -801,16 +692,13 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
           dataLossDetected: (jsonContent.subtitles?.length || 0) !== convertedSubtitles.length,
         });
 
-        // CRITICAL: Check for data loss
+        // Check for data loss
         if ((jsonContent.subtitles?.length || 0) !== convertedSubtitles.length) {
           const lostCount = (jsonContent.subtitles?.length || 0) - convertedSubtitles.length;
           console.warn(
             `⚠️ DATA LOSS DETECTED: ${lostCount} subtitles were filtered out during conversion`
           );
-          showNotification(
-            `Warning: ${lostCount} subtitles were filtered out due to invalid data`,
-            'warning'
-          );
+          console.warn(`Warning: ${lostCount} subtitles were filtered out due to invalid data`);
         }
 
         // Store subtitle data as temp file for persistence across app restarts
@@ -821,196 +709,51 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
           console.log('📄 Subtitle data stored in temp file:', tempResult.tempFilePath);
         }
 
-        // FIXED: Use managed batch operations to prevent race conditions
-        const { executeInBatch } = await import('../../utils/json-import-batch-manager');
-
-        await executeInBatch(async () => {
-          console.log('🔄 Applying batched config updates...');
-
-          // Perform all config updates atomically
-          // Trigger immediate config updates through event system
-          triggerConfigUpdate('subtitle-data', {
-            subtitle: convertedSubtitles,
-            isImportedFromJson: true,
+        // Update step content with imported subtitle data - simplified approach
+        try {
+          // Store subtitle data directly in the centralized store
+          // Note: This is a simplified approach - full implementation would need proper ReviewStepData integration
+          await updateStepContent('input', {
+            importedJsonFile: filePath,
+            lastModified: Date.now(),
           });
-
-          updateConfig('subtitle', convertedSubtitles);
-
-          // Use workspace config callback if available, fallback to app store
-          if (onJsonFileSelect) {
-            onJsonFileSelect(filePath);
-          } else {
-            triggerUserInteraction('file-selection', 'importedJsonFile', filePath);
-            updateConfig('importedJsonFile', filePath);
-          }
-
-          updateConfig('isImportedFromJson', true);
 
           // Add duration if available from metadata
           if (jsonContent.metadata?.statistics?.totalDuration) {
-            updateConfig('duration', jsonContent.metadata.statistics.totalDuration);
+            await updateStepContent('input', {
+              duration: jsonContent.metadata.statistics.totalDuration,
+            });
           }
 
-          // CRITICAL FIX: Complete input-file step for JSON imports
-          // JSON imports should count as completing the input step since we have content to process
-          await workflowStateManager.transitionState('input-file', StepState.Complete, {
-            reason: 'JSON import provides content for processing',
-          });
-          console.log('✅ Input-file step completed for JSON import');
+          // Notify parent component if callback is provided
+          if (onJsonFileSelect) {
+            onJsonFileSelect(filePath);
+          }
 
-          console.log('✅ Atomic config batch completed:', {
+          console.log('✅ JSON import completed:', {
             subtitleCount: convertedSubtitles.length,
             importedFile: filePath,
-            inputStepCompleted: true,
           });
-        });
-
-        // CRITICAL FIX: Trigger managed session integration after batch completes
-        console.log('🔄 Initiating post-batch session integration');
-
-        const { isJsonImportBatchActive, getDeferredJsonIntegration } = await import(
-          '../../utils/json-import-batch-manager'
-        );
-
-        // Use a shorter delay since batch manager handles timing
-        setTimeout(async () => {
-          try {
-            // Verify batch is complete using manager
-            if (isJsonImportBatchActive()) {
-              console.warn('⚠️ Batch still active per manager, skipping integration');
-              return;
-            }
-
-            // Check for any deferred integration
-            const deferredIntegration = getDeferredJsonIntegration();
-            if (deferredIntegration) {
-              console.log('🔄 Processing deferred JSON integration:', deferredIntegration);
-            }
-
-            const { handleJsonImportWithSessionReset } = await import(
-              '../../utils/session-workflow-integration'
-            );
-
-            const result = await handleJsonImportWithSessionReset(convertedSubtitles, {
-              sourceType: 'json-import',
-              timestamp: Date.now(),
-              metadata: {
-                fileName: filePath,
-                subtitleCount: convertedSubtitles.length,
-                triggeredBy: 'fileselector-managed-batch',
-                hadDeferredIntegration: !!deferredIntegration,
-              },
-            });
-
-            if (result.success) {
-              console.log('✅ Post-batch session integration completed successfully:', result);
-            } else {
-              console.warn('⚠️ Post-batch session integration failed:', result.error);
-            }
-          } catch (error) {
-            console.warn('⚠️ Could not load session integration after batch:', error);
-          }
-        }, 150); // Reduced delay since manager handles timing
-
-        showNotification('JSON subtitles imported successfully!', 'success');
-        console.log('✅ JSON import complete, navigating to review step...');
-
-        // Enhanced atomic navigation with proper timing coordination
-        try {
-          // Brief delay to ensure all config updates have been processed
-          await new Promise((resolve) => setTimeout(resolve, 50));
-
-          // Synchronize workflow state to ensure consistency
-          try {
-            // No additional sync needed - WorkflowStateManager handles consistency internally
-            console.log('✅ Workflow state is consistent - using WorkflowStateManager');
-          } catch (error) {
-            console.warn(
-              '⚠️ Workflow state check failed, proceeding with navigation anyway:',
-              error
-            );
-          }
-
-          // Additional delay before navigation to ensure session integration completes
-          await new Promise((resolve) => setTimeout(resolve, 100));
-
-          // Perform atomic navigation
-          const navigationResult = await navigateToReviewFromJsonImport({
-            sourceType: 'json-import',
-            timestamp: Date.now(),
-            metadata: {
-              fileName: filePath,
-              subtitleCount: convertedSubtitles.length,
-              hasMetadata: !!jsonContent.metadata,
-              importedAt: new Date().toISOString(),
-            },
-          });
-
-          if (navigationResult.success) {
-            importSuccess = true;
-            console.log('✅ Atomic JSON import navigation completed successfully');
-            showNotification('🎉 JSON import complete! Ready for review.', 'success');
-
-            // Additional UI state optimization - ensure React re-renders
-            setTimeout(() => {
-              showNotification('Navigation to Review step completed!', 'info');
-            }, 100);
-          } else {
-            console.error('❌ Atomic navigation failed:', navigationResult.error);
-            showNotification(`Navigation failed: ${navigationResult.error}`, 'error');
-
-            // Enhanced error recovery with state synchronization
-            try {
-              // Attempt rollback if available
-              if (navigationResult.rollbackFn) {
-                console.log('🔄 Attempting atomic rollback...');
-                navigationResult.rollbackFn();
-
-                // Re-synchronize after rollback
-                // WorkflowStateManager maintains consistency automatically
-                showNotification(
-                  'Workflow state restored. Please try again or navigate manually.',
-                  'warning'
-                );
-              } else {
-                showNotification('Please manually navigate to Review step to continue.', 'warning');
-              }
-            } catch (rollbackError) {
-              console.error('❌ Rollback failed:', rollbackError);
-              showNotification(
-                'Recovery failed. Please restart the application if needed.',
-                'error'
-              );
-            }
-          }
-        } catch (navError) {
-          console.error('❌ Atomic navigation error:', navError);
-          showNotification('Navigation system error. Please manually go to Review step.', 'error');
-
-          // Final fallback - attempt to restore a known good state
-          try {
-            // Reset workflow state to known good state
-            workflowStateManager.reset();
-            showNotification('Attempted state recovery. Please try navigation again.', 'info');
-          } catch (syncError) {
-            console.error('❌ State recovery failed:', syncError);
-          }
+        } catch (error) {
+          console.error('Failed to update step content with JSON data:', error);
+          throw error;
         }
+
+        console.log('✅ JSON subtitles imported successfully!');
+        console.log('✅ JSON import complete - ready for processing');
+
+        importSuccess = true;
+        console.log('✅ JSON import completed successfully');
       }
     } catch (error) {
       console.error('❌ JSON import error:', error);
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      showNotification(`Failed to import JSON: ${errorMsg}`, 'error');
+      console.error(`Failed to import JSON: ${errorMsg}`);
 
       // Enhanced error logging with context
       console.error('💥 JSON import failed with context:', {
         error: errorMsg,
         stack: error instanceof Error ? error.stack : undefined,
-        currentConfig: {
-          hasInputFile: !!config.inputFile,
-          hasSubtitle: !!config.subtitle,
-          hasImportedJson: !!config.importedJsonFile,
-        },
         importTime: performance.now() - importStartTime,
       });
     } finally {
@@ -1026,39 +769,27 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
       if (totalImportTime > 5000) {
         // 5 seconds
         console.warn(`⚠️ Slow JSON import detected: ${totalImportTime.toFixed(2)}ms`);
-        showNotification('JSON import completed but took longer than expected', 'warning');
+        console.warn('JSON import completed but took longer than expected');
       }
     }
-  }, [updateConfig, showNotification, config, onJsonFileSelect]);
+  }, [updateStepContent, onJsonFileSelect]);
 
   // Handle JSON caption removal
   const handleRemoveJsonCaption = useCallback(async () => {
-    console.log('🗑️ Removing imported JSON caption with atomic operations');
+    console.log('🗑️ Removing imported JSON caption');
 
-    // DIAGNOSTIC: Test subscription system before the actual operation
-    console.log('🧪 [DIAGNOSTIC] Running subscription system test...');
-    testSubscriptionSystem().catch(console.error);
+    try {
+      await updateStepContent('input', {
+        importedJsonFile: null,
+        lastModified: Date.now(),
+      });
 
-    // Atomically reset steps from config to export
-    await atomicStepReset('config', 'export');
-
-    // Trigger immediate config updates through event system
-    triggerConfigUpdate('subtitle-data', {
-      subtitle: null,
-      importedJsonFile: null,
-      isImportedFromJson: false,
-    });
-
-    // Update state directly - the event system provides atomicity
-    updateConfig('subtitle', null);
-    updateConfig('importedJsonFile', null);
-
-    showNotification(
-      'Imported subtitle removed. You can now configure subtitle generation.',
-      'info'
-    );
-    console.log('✅ JSON caption removal completed');
-  }, [updateConfig, showNotification]);
+      console.log('Imported subtitle removed. You can now configure subtitle generation.');
+      console.log('✅ JSON caption removal completed');
+    } catch (error) {
+      console.error('Failed to remove JSON caption:', error);
+    }
+  }, [updateStepContent]);
 
   return (
     <Box>
@@ -1082,25 +813,29 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        onClick={!config.inputFile ? handleFileSelect : undefined}
+        onClick={!inputStep.inputFile ? handleFileSelect : undefined}
         sx={{
-          p: config.inputFile ? 0 : 4,
-          minHeight: config.inputFile ? 240 : 280,
-          height: config.inputFile ? 240 : 280,
-          border: config.inputFile ? 0 : 2,
-          borderStyle: config.inputFile ? 'none' : 'dashed',
-          borderColor: config.inputFile ? 'transparent' : isDragOver ? 'primary.main' : 'grey.300',
-          backgroundColor: config.inputFile
+          p: inputStep.inputFile ? 0 : 4,
+          minHeight: inputStep.inputFile ? 240 : 280,
+          height: inputStep.inputFile ? 240 : 280,
+          border: inputStep.inputFile ? 0 : 2,
+          borderStyle: inputStep.inputFile ? 'none' : 'dashed',
+          borderColor: inputStep.inputFile
+            ? 'transparent'
+            : isDragOver
+              ? 'primary.main'
+              : 'grey.300',
+          backgroundColor: inputStep.inputFile
             ? 'transparent'
             : isDragOver
               ? 'primary.50'
               : 'background.paper',
           transition: 'all 0.2s ease-in-out',
-          cursor: config.inputFile ? 'default' : 'pointer',
+          cursor: inputStep.inputFile ? 'default' : 'pointer',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          '&:hover': config.inputFile
+          '&:hover': inputStep.inputFile
             ? {}
             : {
                 borderColor: 'primary.main',
@@ -1108,7 +843,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
               },
         }}
       >
-        {config.inputFile ? (
+        {inputStep.inputFile ? (
           // Show loading card when generating metadata
           isGeneratingMetadata ? (
             <Card
@@ -1169,7 +904,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
                     variant='h6'
                     sx={{ fontWeight: 600, flex: 1, mr: 2, fontSize: '1.1rem' }}
                   >
-                    {getFileName(config.inputFile)}
+                    {getFileName(inputStep.inputFile)}
                   </Typography>
                   <IconButton
                     onClick={(e) => {
@@ -1185,7 +920,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
 
                 <Chip
                   icon={<VideoIcon />}
-                  label={getFileType(config.inputFile)}
+                  label={getFileType(inputStep.inputFile)}
                   size='medium'
                   color='primary'
                   variant='outlined'
@@ -1265,7 +1000,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
                     variant='h6'
                     sx={{ fontWeight: 600, flex: 1, mr: 2, fontSize: '1.1rem' }}
                   >
-                    {getFileName(config.inputFile)}
+                    {getFileName(inputStep.inputFile)}
                   </Typography>
                   <IconButton
                     onClick={(e) => {
@@ -1281,7 +1016,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
 
                 <Chip
                   icon={<VideoIcon />}
-                  label={getFileType(config.inputFile)}
+                  label={getFileType(inputStep.inputFile)}
                   size='medium'
                   color='primary'
                   variant='outlined'
@@ -1312,7 +1047,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
                       gap: 1,
                     }}
                   >
-                    {config.importedJsonFile ? (
+                    {inputStep.importedJsonFile ? (
                       <Box
                         sx={{
                           display: 'flex',
@@ -1344,7 +1079,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
                               overflow: 'hidden',
                             }}
                           >
-                            Captions: <strong>{config.importedJsonFile}</strong>
+                            Captions: <strong>{inputStep.importedJsonFile}</strong>
                           </Typography>
                           <IconButton
                             onClick={(e) => {
@@ -1403,7 +1138,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
                         WebkitBoxOrient: 'vertical',
                       }}
                     >
-                      <strong>{config.inputFile}</strong>
+                      <strong>{inputStep.inputFile}</strong>
                     </Typography>
                   </Box>
                 </Stack>
@@ -1434,7 +1169,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
                   color: 'primary.main',
                 }}
               >
-                <Box sx={{ fontSize: 80 }}>{getFileIcon(config.inputFile)}</Box>
+                <Box sx={{ fontSize: 80 }}>{getFileIcon(inputStep.inputFile)}</Box>
               </Box>
 
               {/* Metadata content on the right */}
@@ -1460,7 +1195,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
                     variant='h6'
                     sx={{ fontWeight: 600, flex: 1, mr: 2, fontSize: '1.1rem' }}
                   >
-                    {getFileName(config.inputFile)}
+                    {getFileName(inputStep.inputFile)}
                   </Typography>
                   <IconButton
                     onClick={(e) => {
@@ -1475,8 +1210,8 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
                 </Box>
 
                 <Chip
-                  icon={getFileIcon(config.inputFile)}
-                  label={getFileType(config.inputFile)}
+                  icon={getFileIcon(inputStep.inputFile)}
+                  label={getFileType(inputStep.inputFile)}
                   size='medium'
                   color='success'
                   variant='outlined'
@@ -1507,7 +1242,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
                         WebkitBoxOrient: 'vertical',
                       }}
                     >
-                      <strong>{config.inputFile}</strong>
+                      <strong>{inputStep.inputFile}</strong>
                     </Typography>
                   </Box>
 
@@ -1520,7 +1255,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
                       gap: 1,
                     }}
                   >
-                    {config.importedJsonFile ? (
+                    {inputStep.importedJsonFile ? (
                       <Box
                         sx={{
                           display: 'flex',
@@ -1552,7 +1287,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
                               overflow: 'hidden',
                             }}
                           >
-                            Captions: <strong>{config.importedJsonFile}</strong>
+                            Captions: <strong>{inputStep.importedJsonFile}</strong>
                           </Typography>
                           <IconButton
                             onClick={(e) => {

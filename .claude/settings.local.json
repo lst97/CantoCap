@@ -51,7 +51,9 @@
       "Bash(npm run typecheck:*)",
       "Bash(npx ts-prune:*)",
       "Bash(sed:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(pnpm store prune:*)",
+      "mcp__playwright__browser_navigate"
     ],
     "deny": []
   }
