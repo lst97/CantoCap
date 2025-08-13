@@ -5,7 +5,6 @@ import { HeaderBar } from './layout/HeaderBar';
 import { StepNavigation } from './layout/StepNavigation';
 import { MainContentArea } from './layout/MainContentArea';
 import { NotificationContainer } from './feedback/NotificationContainer';
-import { ModalContainer } from './modals/ModalContainer';
 import { DebugPanel } from './feedback/DebugPanel';
 import { DevToolsButton } from './common/DevToolsButton';
 import { DebugMenu } from './common/DebugMenu';
@@ -112,7 +111,6 @@ export const AppContent: React.FC<AppContentProps> = memo(
 
         {/* Global components */}
         <NotificationContainer />
-        <ModalContainer />
 
         {/* Development tools */}
         {process.env.NODE_ENV === 'development' && (

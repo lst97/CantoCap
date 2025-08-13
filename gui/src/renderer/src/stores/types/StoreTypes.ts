@@ -66,7 +66,7 @@ export interface AppState {
   actions: {
     setActiveWorkspace: (id: string) => Promise<void>;
     addRecentWorkspace: (id: string) => void;
-    loadAppState: () => Promise<void>;
+    loadAppState: () => Promise<{ activeWorkspaceId: string | null; recentWorkspaces: string[]; windowState: WindowState; }>;
     updateWindowState: (state: Partial<WindowState>) => Promise<void>;
     clearRecentWorkspaces: () => Promise<void>;
     setLoading: (loading: boolean) => void;
@@ -88,6 +88,8 @@ export interface WorkspaceMetadata {
   createdAt: string;
   lastAccessed: string;
   group?: WorkspaceGroup | null;
+  backgroundColor?: string;
+  emoji?: string;
 }
 
 export interface WorkspaceState {
@@ -102,10 +104,13 @@ export interface WorkspaceState {
   _workspaceList: WorkspaceMetadata[];
   _groupedWorkspaces: Record<string, { group: WorkspaceGroup | null, workspaces: WorkspaceMetadata[] }>;
   _availableGroups: WorkspaceGroup[];
+  
+  // Flag to track when deletion is being handled by action (to prevent IPC override)
+  _deletingWorkspaceId: string | null;
 
   // Actions
   actions: {
-    createWorkspace: (name: string) => Promise<string>;
+    createWorkspace: (name: string, backgroundColor?: string, emoji?: string) => Promise<string>;
     deleteWorkspace: (id: string) => Promise<boolean>;
     switchWorkspace: (id: string) => Promise<void>;
     loadWorkspaces: () => Promise<void>;
@@ -116,11 +121,13 @@ export interface WorkspaceState {
     clearError: () => void;
     
     // Group management methods
+    loadGroups: () => Promise<WorkspaceGroup[]>;
     createGroup: (name: string, color?: WorkspaceGroupColor) => Promise<string>;
     deleteGroup: (groupId: string) => Promise<boolean>;
     updateGroup: (groupId: string, updates: Partial<Omit<WorkspaceGroup, 'id' | 'metadata'>>) => Promise<boolean>;
     addWorkspaceToGroup: (workspaceId: string, groupId: string) => Promise<void>;
     removeWorkspaceFromGroup: (workspaceId: string) => Promise<void>;
+    toggleGroupExpansion: (groupId: string) => Promise<void>;
     
     // Internal helper to recompute derived state
     _recomputeDerivedState: () => void;
@@ -143,7 +150,32 @@ export interface WorkspaceGroup {
     workspaceCount: number;
     createdAt: Date;
     lastModified: Date;
+    description?: string;
+    tags?: string[];
   };
+}
+
+export interface GroupCreationRequest {
+  name: string;
+  color: WorkspaceGroupColor;
+  workspaceIds: string[];
+  description?: string;
+  tags?: string[];
+}
+
+export interface GroupUpdateRequest {
+  name?: string;
+  color?: WorkspaceGroupColor;
+  isExpanded?: boolean;
+  description?: string;
+  tags?: string[];
+}
+
+export interface WorkspaceGroupChangedEvent {
+  workspaceId: string;
+  groupId: string | null;
+  action: 'added' | 'removed' | 'updated';
+  groupData?: WorkspaceGroup;
 }
 
 export interface WorkspaceWithGrouping extends WorkspaceMetadata {
@@ -583,6 +615,7 @@ export interface StepContentState {
     getStepContent: (step: StepType) => any;
     resetStepContent: (step: StepType, workspaceId?: string) => Promise<void>;
     loadStepContent: (workspaceId: string, step: StepType) => Promise<void>;
+    loadAllStepContent: (workspaceId: string) => Promise<void>;
     setLoading: (loading: boolean) => void;
     setError: (error: string | null) => void;
     clearError: () => void;

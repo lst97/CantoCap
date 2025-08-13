@@ -19,7 +19,6 @@ import { ProcessingControls } from "./ProcessingStep/ProcessingControls";
 import { ProcessingStatus } from "./ProcessingStep/ProcessingStatus";
 import { ProcessingComplete } from "./ProcessingStep/ProcessingComplete";
 import { ProcessingError } from "./ProcessingStep/ProcessingError";
-import { ErrorDisplay } from "./ProcessingStep/ErrorDisplay";
 import { getStageInfo } from "./ProcessingStep/utils";
 
 export const ProcessingStep: React.FC = () => {
@@ -263,8 +262,6 @@ export const ProcessingStep: React.FC = () => {
           )}
         </Box>
 
-        {/* Legacy Error Display - Only show if no main error state */}
-        {processing.status !== "error" && error && <ErrorDisplay error={error} />}
       </Box>
     </ProcessingErrorBoundary>
 

@@ -6,6 +6,7 @@ import {
   ExportStepData,
   ExportRecord,
 } from './types/StoreTypes';
+import { validateStepContent, safeWorkspaceOperation } from '../utils/workspaceValidation';
 import {
   useInputStepStore,
   useConfigStepStore,
@@ -118,23 +119,26 @@ export const useStepStore = create<StepContentState>((set, get) => {
             const { useAppStore } = await import('./useAppStore');
             currentWorkspaceId = useAppStore.getState().activeWorkspaceId;
           } catch (error) {
-            console.warn('Could not get workspace ID from app store:', error);
+            console.warn('StepStore: Could not get workspace ID from app store:', error);
           }
         }
         
         if (!currentWorkspaceId) {
-          console.warn('No current workspace - cannot update step content. Please select a workspace first.');
+          console.warn('StepStore: No current workspace - cannot update step content. Please select a workspace first.');
           return;
         }
+        
+        console.log(`🔄 StepStore: Updating ${step} step content for workspace:`, currentWorkspaceId);
         
         try {
           set({ hasUnsavedChanges: true, currentWorkspaceId });
           
           // Persist to main process
           await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('step:updateContent', currentWorkspaceId, step, content);
+          console.log(`✅ StepStore: ${step} step content updated for workspace:`, currentWorkspaceId);
           
         } catch (error) {
-          console.error('Failed to update step content:', error);
+          console.error(`❌ StepStore: Failed to update ${step} step content:`, error);
           set({ 
             error: error instanceof Error ? error.message : 'Failed to update step content' 
           });
@@ -191,9 +195,23 @@ export const useStepStore = create<StepContentState>((set, get) => {
         try {
           set({ isLoading: true, error: null });
           
+          console.log(`🔄 StepStore: Loading ${step} step content for workspace:`, workspaceId);
+          
           const content = await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('step:getContent', workspaceId, step);
           
           if (content) {
+            // Validate step content before updating
+            const validation = validateStepContent(step, content);
+            if (!validation.isValid) {
+              console.warn(`⚠️ Invalid ${step} step content:`, validation.errors);
+              // Still load the content but log warnings
+            }
+            if (validation.warnings.length > 0) {
+              console.warn(`⚠️ ${step} step content warnings:`, validation.warnings);
+            }
+            
+            console.log(`✅ Loaded ${step} step content:`, content);
+            
             // Update the individual store - this will trigger sync back to main store
             switch (step) {
               case 'input':
@@ -212,17 +230,103 @@ export const useStepStore = create<StepContentState>((set, get) => {
                 useExportStepStore.getState().actions.updateExportStep(content);
                 break;
             }
+          } else {
+            console.log(`ℹ️ No ${step} step content found for workspace:`, workspaceId);
           }
           
           set({ isLoading: false });
           
         } catch (error) {
-          console.error('Failed to load step content:', error);
+          console.error(`Failed to load ${step} step content:`, error);
           set({ 
             isLoading: false,
-            error: error instanceof Error ? error.message : 'Failed to load step content' 
+            error: error instanceof Error ? error.message : `Failed to load ${step} step content` 
           });
         }
+      },
+
+      loadAllStepContent: async (workspaceId: string) => {
+        await safeWorkspaceOperation(async () => {
+          set({ isLoading: true, error: null });
+          console.log('🔄 StepStore: Loading all step content for workspace:', workspaceId);
+          
+          // CRITICAL: Reset all step stores to defaults before loading workspace-specific content
+          // This ensures complete workspace isolation
+          console.log('🔄 StepStore: Resetting all step stores to ensure workspace isolation...');
+          try {
+            useInputStepStore.getState().actions.resetInputStep();
+            useConfigStepStore.getState().actions.resetConfigStep();
+            useProcessingStepStore.getState().actions.resetProcessingStep();
+            useReviewStepStore.getState().actions.resetReviewStep();
+            useExportStepStore.getState().actions.resetExportStep();
+            console.log('✅ StepStore: All step stores reset to defaults');
+          } catch (resetError) {
+            console.error('❌ StepStore: Failed to reset step stores:', resetError);
+          }
+          
+          const stepTypes: StepType[] = ['input', 'config', 'processing', 'review', 'export'];
+          
+          // Load all steps in parallel for better performance
+          const loadPromises = stepTypes.map(async (step) => {
+            try {
+              const content = await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('step:getContent', workspaceId, step);
+              
+              if (content) {
+                // Validate step content before updating
+                const validation = validateStepContent(step, content);
+                if (!validation.isValid) {
+                  console.warn(`⚠️ Invalid ${step} step content:`, validation.errors);
+                  // Continue loading but track validation issues
+                }
+                if (validation.warnings.length > 0) {
+                  console.warn(`⚠️ ${step} step content warnings:`, validation.warnings);
+                }
+                
+                console.log(`✅ StepStore: Loaded ${step} step content for workspace ${workspaceId}`, content);
+                
+                // Update the individual store with workspace context
+                switch (step) {
+                  case 'input':
+                    useInputStepStore.getState().actions.updateInputStep(content);
+                    break;
+                  case 'config':
+                    useConfigStepStore.getState().actions.updateConfigStep(content);
+                    break;
+                  case 'processing':
+                    useProcessingStepStore.getState().actions.updateProcessingStep(content);
+                    break;
+                  case 'review':
+                    useReviewStepStore.getState().actions.updateReviewStep(content);
+                    break;
+                  case 'export':
+                    useExportStepStore.getState().actions.updateExportStep(content);
+                    break;
+                }
+              }
+              
+              return { step, success: true, content };
+            } catch (stepError) {
+              console.warn(`⚠️ Failed to load ${step} step content:`, stepError);
+              return { step, success: false, error: stepError };
+            }
+          });
+          
+          const results = await Promise.all(loadPromises);
+          const failedSteps = results.filter(r => !r.success);
+          
+          if (failedSteps.length > 0) {
+            console.warn(`⚠️ Some steps failed to load:`, failedSteps.map(f => f.step));
+          }
+          
+          set({ 
+            isLoading: false,
+            currentWorkspaceId: workspaceId
+          });
+          
+          console.log('✅ StepStore: All step content loading completed for workspace:', workspaceId);
+          console.log('✅ StepStore: Workspace', workspaceId, 'is now isolated with its own configuration');
+          
+        }, `load all step content for workspace ${workspaceId}`);
       },
       
       setLoading: (loading: boolean) => {

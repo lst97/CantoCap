@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react'
 import { Box, Typography, Chip } from '@mui/material'
 import { 
   MovieFilter as MovieIcon,
-  Settings as SettingsIcon,
   PlayArrow as ProcessingIcon
 } from '@mui/icons-material'
 import { useAppStore } from '../../stores/useAppStore'
@@ -31,7 +30,7 @@ export const CustomTitleBar: React.FC = () => {
           const detectedPlatform = await window.electronAPI.getPlatform()
           setPlatform(detectedPlatform as 'macos' | 'windows' | 'linux')
         }
-      } catch (error) {
+      } catch {
         console.log('Platform detection failed, using default')
       }
     }

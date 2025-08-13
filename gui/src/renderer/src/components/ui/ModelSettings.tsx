@@ -7,7 +7,8 @@ import {
   MenuItem,
   Stack,
   Chip,
-  Paper
+  Paper,
+  SelectChangeEvent
 } from '@mui/material'
 import {
   SmartToy as ModelIcon,
@@ -15,7 +16,8 @@ import {
   Language as LanguageIcon,
   Star as StarIcon
 } from '@mui/icons-material'
-import { useAppStore } from '../../stores/useAppStore'
+import { useConfigStepData, useConfigStepActions } from '../../stores/steps/useConfigStepStore'
+import { ProcessingLanguage, WhisperModel } from '../../stores/types/StoreTypes'
 
 interface OptionType {
   value: string
@@ -27,19 +29,20 @@ interface OptionType {
 }
 
 export const ModelSettings: React.FC = () => {
-  const { config, updateConfig } = useAppStore()
+  const config = useConfigStepData()
+  const { updateConfigStep } = useConfigStepActions()
 
-  const handleModelChange = useCallback((e: any) => {
-    updateConfig('model', e.target.value === 'auto' ? null : e.target.value)
-  }, [updateConfig])
+  const handleModelChange = useCallback((e: SelectChangeEvent<string>) => {
+    updateConfigStep({ model: e.target.value as WhisperModel })
+  }, [updateConfigStep])
 
-  const handlePriorityChange = useCallback((e: any) => {
-    updateConfig('priority', e.target.value)
-  }, [updateConfig])
+  const handlePriorityChange = useCallback((e: SelectChangeEvent<string>) => {
+    updateConfigStep({ priority: e.target.value as 'balanced' | 'speed' | 'quality' })
+  }, [updateConfigStep])
 
-  const handleLanguageChange = useCallback((e: any) => {
-    updateConfig('language', e.target.value)
-  }, [updateConfig])
+  const handleLanguageChange = useCallback((e: SelectChangeEvent<string>) => {
+    updateConfigStep({ language: e.target.value as ProcessingLanguage })
+  }, [updateConfigStep])
 
   const modelOptions: OptionType[] = [
     { 

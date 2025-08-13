@@ -108,62 +108,11 @@ const api: ElectronAPI = {
     return () => ipcRenderer.removeListener("ipc-message", wrappedCallback);
   },
 
-  // Legacy Event Listeners (for backward compatibility)
-  onProgressUpdate: (
-    callback: (data: IPCProgressUpdate) => void
-  ): (() => void) => {
-    const wrappedCallback = (_: IpcRendererEvent, data: IPCProgressUpdate) =>
-      callback(data);
-    ipcRenderer.on("progress-update", wrappedCallback);
-    return () => ipcRenderer.removeListener("progress-update", wrappedCallback);
-  },
 
-  onProcessStarted: (
-    callback: (data: IPCProcessMessage) => void
-  ): (() => void) => {
-    const wrappedCallback = (_: IpcRendererEvent, data: IPCProcessMessage) =>
-      callback(data);
-    ipcRenderer.on("process-started", wrappedCallback);
-    return () => ipcRenderer.removeListener("process-started", wrappedCallback);
-  },
-
-  onProcessComplete: (
-    callback: (data: IPCProcessComplete) => void
-  ): (() => void) => {
-    const wrappedCallback = (_: IpcRendererEvent, data: IPCProcessComplete) =>
-      callback(data);
-    ipcRenderer.on("process-complete", wrappedCallback);
-    return () =>
-      ipcRenderer.removeListener("process-complete", wrappedCallback);
-  },
-
-  onProcessError: (callback: (data: IPCProcessError) => void): (() => void) => {
-    const wrappedCallback = (_: IpcRendererEvent, data: IPCProcessError) =>
-      callback(data);
-    ipcRenderer.on("process-error", wrappedCallback);
-    return () => ipcRenderer.removeListener("process-error", wrappedCallback);
-  },
-
-  onProcessMessage: (
-    callback: (data: IPCProcessMessage) => void
-  ): (() => void) => {
-    const wrappedCallback = (_: IpcRendererEvent, data: IPCProcessMessage) =>
-      callback(data);
-    ipcRenderer.on("process-message", wrappedCallback);
-    return () => ipcRenderer.removeListener("process-message", wrappedCallback);
-  },
-
-  // TODO: New workspace system IPC methods will be added here
-  // These will use the new AppStateService, WorkspaceConfigService, and IPCConfigHandlers
   
   // Utility Functions
   removeAllListeners: (): void => {
     ipcRenderer.removeAllListeners("ipc-message");
-    ipcRenderer.removeAllListeners("progress-update");
-    ipcRenderer.removeAllListeners("process-started");
-    ipcRenderer.removeAllListeners("process-complete");
-    ipcRenderer.removeAllListeners("process-error");
-    ipcRenderer.removeAllListeners("process-message");
   },
 };
 

@@ -147,7 +147,7 @@ The app uses **Zustand** for state management with separate stores:
 #### IPC Architecture
 - **Context Isolation**: Secure communication via `contextBridge`
 - **Type Safety**: Full TypeScript interfaces for all IPC messages
-- **Event Handling**: Modern `ipc-message` system with legacy compatibility
+- **Event Handling**: Modern `ipc-message` system
 - **Process Communication**: Real-time updates during subtitle generation
 
 ### File Structure
@@ -193,7 +193,6 @@ The project uses TypeScript path mapping:
 ### IPC Communication
 - All IPC calls are type-safe with TypeScript interfaces
 - Use the modern `ipc-message` system for new features
-- Legacy event handlers maintained for backward compatibility
 - Always handle IPC errors gracefully
 
 ### Component Development

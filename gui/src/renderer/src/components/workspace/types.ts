@@ -8,6 +8,7 @@ import React from 'react';
 import type {
   WorkspaceWithGrouping,
   WorkspaceGroup,
+  WorkspaceGroupColor,
 } from '../../stores/types/StoreTypes';
 
 // Re-export centralized types for component use
@@ -22,22 +23,34 @@ export interface WorkspaceContextMenuProps {
   workspace: WorkspaceWithGrouping;
   anchorEl: HTMLElement | null;
   onClose: () => void;
-  onRename: (workspaceId: string, newName: string) => Promise<void>;
+  onRename: (workspaceId: string) => void;
   onDuplicate: (workspaceId: string) => Promise<void>;
-  onDelete: (workspaceId: string) => Promise<void>;
+  onDelete: (workspaceId: string) => void;
   onSetActive: (workspaceId: string) => Promise<void>;
   // Group management actions
   onAddToGroup?: (workspaceId: string, groupId: string) => void;
   onRemoveFromGroup?: (workspaceId: string) => void;
   onCreateGroup?: (name: string, workspaceId: string) => void;
+  onCreateNewGroup?: (workspaceId: string) => void;
   availableGroups?: WorkspaceGroup[];
+  availableWorkspaces?: WorkspaceWithGrouping[];
 }
 
 export interface WorkspaceCreationDialogProps {
   open: boolean;
   onClose: () => void;
-  onCreateWorkspace: (name: string, copyFromId?: string) => Promise<void>;
+  onCreateWorkspace: (
+    name: string, 
+    copyFromId?: string, 
+    backgroundColor?: string, 
+    emoji?: string,
+    groupInfo?: { action: 'existing' | 'new'; groupId?: string; newGroupName?: string; newGroupColor?: WorkspaceGroupColor }
+  ) => Promise<void>;
   availableWorkspaces: WorkspaceWithGrouping[];
+  // Group management props
+  availableGroups?: WorkspaceGroup[];
+  onCreateGroup?: (name: string, color: WorkspaceGroupColor) => Promise<string>;
+  onAddWorkspaceToGroup?: (workspaceId: string, groupId: string) => Promise<void>;
 }
 
 export interface WorkspaceAvatarProps {

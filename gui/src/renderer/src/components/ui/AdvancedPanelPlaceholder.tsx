@@ -1,4 +1,3 @@
-import React from 'react'
 import { Box, Card, CardContent, Typography, Button } from '@mui/material'
 import { Settings, ChevronLeft } from '@mui/icons-material'
 import { useAppStore } from '../../stores/useAppStore'

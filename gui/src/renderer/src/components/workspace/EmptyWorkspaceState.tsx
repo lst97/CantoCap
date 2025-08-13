@@ -208,11 +208,11 @@ export const EmptyWorkspaceState: React.FC<EmptyWorkspaceStateProps> = ({
               sx={{
                 p: 3,
                 borderRadius: 2,
-                backgroundColor: alpha(theme.palette.info.main, 0.05),
-                border: `1px solid ${alpha(theme.palette.info.main, 0.2)}`
+                backgroundColor: alpha(theme.palette.primary.main, 0.05),
+                border: `1px solid ${alpha(theme.palette.primary.main, 0.2)}`
               }}
             >
-              <Typography variant="subtitle2" color="info.main" gutterBottom sx={{ fontWeight: 600 }}>
+              <Typography variant="subtitle2" color="primary.main" gutterBottom sx={{ fontWeight: 600 }}>
                 Quick Tips
               </Typography>
               <Stack direction="row" spacing={1} justifyContent="center" flexWrap="wrap" sx={{ mt: 2 }}>

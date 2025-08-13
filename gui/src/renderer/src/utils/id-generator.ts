@@ -94,13 +94,6 @@ export function generateContentId(): string {
 }
 
 /**
- * Generate legacy ID for backwards compatibility
- */
-export function generateLegacyId(): string {
-  return `legacy_${Date.now()}_${generateSessionId(9)}`
-}
-
-/**
  * Generate raw process ID
  */
 export function generateRawId(): string {

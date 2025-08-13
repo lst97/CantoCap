@@ -31,10 +31,27 @@ export class AppStateService {
   }
   
   getState(): AppStateSchema {
-    return this.store.store;
+    const activeWorkspaceId = this.store.get('activeWorkspaceId', null);
+    const recentWorkspaces = this.store.get('recentWorkspaces', []);
+    const windowState = this.store.get('windowState', {
+      width: 1200,
+      height: 800,
+      maximized: false
+    });
+    
+    return {
+      activeWorkspaceId: activeWorkspaceId === undefined ? null : activeWorkspaceId,
+      recentWorkspaces: Array.isArray(recentWorkspaces) ? recentWorkspaces : [],
+      windowState: windowState
+    };
   }
   
-  setActiveWorkspace(workspaceId: string): void {
+  setActiveWorkspace(workspaceId: string | null): void {
+    if (!workspaceId) {
+      this.store.set('activeWorkspaceId', null);
+      return;
+    }
+    
     this.store.set('activeWorkspaceId', workspaceId);
     this.addRecentWorkspace(workspaceId);
   }
@@ -64,5 +81,35 @@ export class AppStateService {
   
   reset(): void {
     this.store.clear();
+  }
+  
+  validateAndCleanState(workspaceExistsCallback: (id: string) => boolean): void {
+    const state = this.getState();
+    let hasChanges = false;
+    
+    // Validate active workspace
+    if (state.activeWorkspaceId && !workspaceExistsCallback(state.activeWorkspaceId)) {
+      console.warn('Clearing invalid active workspace:', state.activeWorkspaceId);
+      this.store.set('activeWorkspaceId', null);
+      hasChanges = true;
+    }
+    
+    // Clean up recent workspaces
+    const validRecentWorkspaces = state.recentWorkspaces.filter(id => {
+      const exists = workspaceExistsCallback(id);
+      if (!exists) {
+        console.warn('Removing invalid recent workspace:', id);
+      }
+      return exists;
+    });
+    
+    if (validRecentWorkspaces.length !== state.recentWorkspaces.length) {
+      this.store.set('recentWorkspaces', validRecentWorkspaces);
+      hasChanges = true;
+    }
+    
+    if (hasChanges) {
+      console.log('App state cleaned up - removed invalid workspace references');
+    }
   }
 }

@@ -14,7 +14,7 @@ import {
 } from '@mui/icons-material'
 import { ModelSettings } from './ModelSettings'
 import { AdvancedSettings } from './AdvancedSettings'
-import { useAppStore } from '../../stores/useAppStore'
+import { useConfigStepContent } from '../../stores/useStepStore'
 
 interface AccordionSection {
   id: string
@@ -27,7 +27,8 @@ interface AccordionSection {
 }
 
 export const AdvancedPanel: React.FC = () => {
-  const { config } = useAppStore()
+  // Get config from the appropriate step store
+  const config = useConfigStepContent()
   
   // Track which accordion sections are expanded
   const [expanded, setExpanded] = useState<string[]>(['model-processing'])

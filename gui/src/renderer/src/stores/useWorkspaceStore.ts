@@ -1,9 +1,22 @@
 import { create } from 'zustand';
+import { IpcRendererEvent } from 'electron';
 import { WorkspaceState, WorkspaceMetadata, WorkspaceCreatedEvent, WorkspaceUpdatedEvent, WorkspaceDeletedEvent, WorkspaceGroup, WorkspaceGroupColor } from './types/StoreTypes';
 
 // ============================================================================
 // WORKSPACE STORE - WORKSPACE MANAGEMENT
 // ============================================================================
+
+// Helper function to load step content for a workspace
+const loadWorkspaceStepContent = async (workspaceId: string) => {
+  try {
+    // Import and use the step store's loadAllStepContent method
+    const { useStepStore } = await import('./useStepStore');
+    await useStepStore.getState().actions.loadAllStepContent(workspaceId);
+  } catch (error) {
+    console.error('❌ Failed to load workspace step content:', error);
+    // Don't throw - allow workspace switching to continue
+  }
+};
 
 // Helper function to compute derived state for stable references
 const computeDerivedState = (workspaces: Record<string, WorkspaceMetadata>) => {
@@ -60,12 +73,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   _groupedWorkspaces: {},
   _availableGroups: [],
   
+  // Flag to track when deletion is being handled by action (to prevent IPC override)
+  _deletingWorkspaceId: null as string | null,
+  
   // Actions
   actions: {
-    createWorkspace: async (name: string) => {
+    createWorkspace: async (name: string, backgroundColor?: string, emoji?: string) => {
       try {
         set({ isLoading: true, error: null });
-        const result = await window.electron.ipcRenderer.invoke('workspace:create', name);
+        const result = await window.electron.ipcRenderer.invoke('workspace:create', name, backgroundColor, emoji);
         
         // Update local state immediately
         set(state => ({
@@ -75,7 +91,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
               id: result.workspace.id,
               name: result.workspace.name,
               createdAt: result.workspace.createdAt,
-              lastAccessed: result.workspace.lastAccessed
+              lastAccessed: result.workspace.lastAccessed,
+              backgroundColor: result.workspace.backgroundColor,
+              emoji: result.workspace.emoji
             }
           },
           currentWorkspaceId: result.id,
@@ -106,23 +124,100 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     
     deleteWorkspace: async (id: string) => {
       try {
-        set({ isLoading: true, error: null });
+        set({ isLoading: true, error: null, _deletingWorkspaceId: id });
+        
+        const currentState = get();
+        const isCurrentWorkspace = currentState.currentWorkspaceId === id;
+        let newActiveWorkspaceId: string | null = null;
+        
+        // If we're deleting the current workspace, find an alternative
+        if (isCurrentWorkspace) {
+          const remainingWorkspaces = Object.values(currentState.workspaces).filter(ws => ws.id !== id);
+          
+          if (remainingWorkspaces.length > 0) {
+            try {
+              const { useAppStore } = await import('./useAppStore');
+              const appState = useAppStore.getState();
+              const recentWorkspaceIds = appState.recentWorkspaces || [];
+              
+              // Find the most recent workspace that still exists (excluding the one being deleted)
+              const mostRecentWorkspace = recentWorkspaceIds
+                .filter(wsId => wsId !== id && currentState.workspaces[wsId])
+                .map(wsId => currentState.workspaces[wsId])
+                .shift();
+              
+              if (mostRecentWorkspace) {
+                newActiveWorkspaceId = mostRecentWorkspace.id;
+              } else {
+                // Fallback to the most recently accessed workspace
+                const sortedByAccess = remainingWorkspaces.sort((a, b) => 
+                  new Date(b.lastAccessed).getTime() - new Date(a.lastAccessed).getTime()
+                );
+                newActiveWorkspaceId = sortedByAccess[0].id;
+              }
+            } catch (error) {
+              console.warn('Could not access app store for recent workspaces, using fallback selection:', error);
+              // Fallback: select the most recently accessed remaining workspace
+              const sortedByAccess = remainingWorkspaces.sort((a, b) => 
+                new Date(b.lastAccessed).getTime() - new Date(a.lastAccessed).getTime()
+              );
+              newActiveWorkspaceId = sortedByAccess[0].id;
+            }
+          }
+        }
+        
         const success = await window.electron.ipcRenderer.invoke('workspace:delete', id);
         
         if (success) {
+          // Update workspace store state
           set(state => {
             const { [id]: removed, ...remaining } = state.workspaces;
+            const updatedCurrentWorkspaceId = isCurrentWorkspace ? newActiveWorkspaceId : state.currentWorkspaceId;
+            
             return { 
               workspaces: remaining,
-              currentWorkspaceId: state.currentWorkspaceId === id ? null : state.currentWorkspaceId,
-              isLoading: false
+              currentWorkspaceId: updatedCurrentWorkspaceId,
+              isLoading: false,
+              _deletingWorkspaceId: null
             };
           });
+          
+          // If we found an alternative workspace, switch to it
+          if (isCurrentWorkspace && newActiveWorkspaceId) {
+            try {
+              // Load step content for the new workspace
+              await loadWorkspaceStepContent(newActiveWorkspaceId);
+              
+              // Sync with step store
+              const { useStepStore } = await import('./useStepStore');
+              useStepStore.setState({ currentWorkspaceId: newActiveWorkspaceId });
+              
+              // Set as active in app state - this is crucial for maintaining active workspace state
+              await window.electron.ipcRenderer.invoke('app:setActiveWorkspace', newActiveWorkspaceId);
+              
+              // Also update the app store directly for immediate UI update
+              const { useAppStore } = await import('./useAppStore');
+              useAppStore.setState({ activeWorkspaceId: newActiveWorkspaceId });
+              
+            } catch (error) {
+              console.error('❌ WorkspaceStore: Failed to switch to alternative workspace after deletion:', error);
+              // Even if switching fails, the deletion was successful, so don't throw
+            }
+          } else if (isCurrentWorkspace) {
+            // No alternative workspace available, ensure app store is also set to null
+            try {
+              const { useAppStore } = await import('./useAppStore');
+              useAppStore.setState({ activeWorkspaceId: null });
+              await window.electron.ipcRenderer.invoke('app:setActiveWorkspace', null);
+            } catch (error) {
+              console.warn('Could not sync null workspace state with app store:', error);
+            }
+          }
           
           // Recompute derived state for stable references
           get().actions._recomputeDerivedState();
         } else {
-          set({ isLoading: false, error: 'Failed to delete workspace' });
+          set({ isLoading: false, error: 'Failed to delete workspace', _deletingWorkspaceId: null });
         }
         
         return success;
@@ -130,7 +225,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         console.error('Failed to delete workspace:', error);
         set({ 
           isLoading: false, 
-          error: error instanceof Error ? error.message : 'Failed to delete workspace' 
+          error: error instanceof Error ? error.message : 'Failed to delete workspace',
+          _deletingWorkspaceId: null
         });
         return false;
       }
@@ -149,6 +245,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         // Update current workspace
         set({ currentWorkspaceId: id, isLoading: false });
         
+        // Load step content for this workspace
+        await loadWorkspaceStepContent(id);
+        
         // Also update the step store's current workspace ID for synchronization
         try {
           const { useStepStore } = await import('./useStepStore');
@@ -160,6 +259,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         // Set as active in app state (this will also update recent workspaces)
         await window.electron.ipcRenderer.invoke('app:setActiveWorkspace', id);
         
+        // Also update the app store directly for immediate UI update
+        try {
+          const { useAppStore } = await import('./useAppStore');
+          useAppStore.setState({ activeWorkspaceId: id });
+        } catch (error) {
+          console.warn('Could not sync activeWorkspaceId to app store:', error);
+        }
+        
       } catch (error) {
         console.error('Failed to switch workspace:', error);
         set({ 
@@ -169,13 +276,52 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       }
     },
     
+    loadGroups: async () => {
+      try {
+        const groups = await window.electron.ipcRenderer.invoke('group:list');
+        console.log('🔄 [GROUP DEBUG] Loaded groups from persistence:', groups);
+        set({ _availableGroups: groups });
+        return groups;
+      } catch (error) {
+        console.error('Failed to load groups:', error);
+        set({ _availableGroups: [] });
+        return [];
+      }
+    },
+
     loadWorkspaces: async () => {
       try {
         set({ isLoading: true, error: null });
-        const workspaceList = await window.electron.ipcRenderer.invoke('workspace:list');
         
-        const workspaces = workspaceList.reduce((acc: Record<string, WorkspaceMetadata>, ws: WorkspaceMetadata) => {
-          acc[ws.id] = ws;
+        // Load groups first
+        const groups = await get().actions.loadGroups();
+        const groupsById = groups.reduce((acc: Record<string, WorkspaceGroup>, group: WorkspaceGroup) => {
+          acc[group.id] = group;
+          return acc;
+        }, {});
+        
+        // Load workspaces and associate with groups
+        const workspaceList = await window.electron.ipcRenderer.invoke('workspace:list');
+        console.log('🔄 [GROUP DEBUG] Loaded workspaces from persistence:', workspaceList);
+        console.log('🔄 [GROUP DEBUG] Available groups by ID:', groupsById);
+        
+        const workspaces = workspaceList.reduce((acc: Record<string, WorkspaceMetadata>, ws: WorkspaceMetadata & { groupId?: string }) => {
+          // Convert workspace data and associate with group if it exists
+          const workspace: WorkspaceMetadata = {
+            id: ws.id,
+            name: ws.name,
+            createdAt: ws.createdAt,
+            lastAccessed: ws.lastAccessed,
+            backgroundColor: ws.backgroundColor,
+            emoji: ws.emoji,
+            group: ws.groupId ? groupsById[ws.groupId] || null : null
+          };
+          
+          if (ws.groupId) {
+            console.log(`🔄 [GROUP DEBUG] Workspace "${ws.name}" associated with group ID: ${ws.groupId}`, groupsById[ws.groupId] ? '✅ Found' : '❌ Group not found');
+          }
+          
+          acc[ws.id] = workspace;
           return acc;
         }, {});
         
@@ -250,68 +396,259 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     // Group management methods
     createGroup: async (name: string, color: WorkspaceGroupColor = 'default') => {
       try {
-        const groupId = `group_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        const group: WorkspaceGroup = {
-          id: groupId,
+        set({ isLoading: true, error: null });
+        
+        const groupData = {
           name,
-          color,
-          isExpanded: true,
-          position: Date.now(),
-          metadata: {
-            workspaceCount: 0,
-            createdAt: new Date(),
-            lastModified: new Date()
-          }
+          color
         };
         
-        // TODO: Implement actual group persistence via IPC
-        console.log('Creating group:', group);
+        // Create group via IPC - the IPC handler will generate ID and return full group data
+        const result = await window.electron.ipcRenderer.invoke('group:create', groupData);
         
-        return groupId;
+        if (result && result.id && result.group) {
+          // Update local state - add the new group to available groups immediately
+          const currentState = get();
+          set({ 
+            _availableGroups: [...currentState._availableGroups, result.group],
+            isLoading: false 
+          });
+          return result.id;
+        } else {
+          throw new Error('Failed to create group via IPC');
+        }
       } catch (error) {
         console.error('Failed to create group:', error);
+        set({ 
+          isLoading: false, 
+          error: error instanceof Error ? error.message : 'Failed to create group' 
+        });
         throw error;
       }
     },
 
     deleteGroup: async (groupId: string) => {
       try {
-        // TODO: Implement actual group deletion via IPC
-        console.log('Deleting group:', groupId);
-        return true;
+        set({ isLoading: true, error: null });
+        
+        const success = await window.electron.ipcRenderer.invoke('group:delete', groupId);
+        
+        if (success) {
+          // Remove group association from all workspaces
+          const currentState = get();
+          const updatedWorkspaces = { ...currentState.workspaces };
+          
+          // Clear group from all workspaces that have this group
+          Object.values(updatedWorkspaces).forEach(workspace => {
+            if (workspace.group?.id === groupId) {
+              updatedWorkspaces[workspace.id] = {
+                ...workspace,
+                group: null
+              };
+            }
+          });
+          
+          set({ workspaces: updatedWorkspaces, isLoading: false });
+          get().actions._recomputeDerivedState();
+          return true;
+        } else {
+          set({ isLoading: false, error: 'Failed to delete group' });
+          return false;
+        }
       } catch (error) {
         console.error('Failed to delete group:', error);
+        set({ 
+          isLoading: false, 
+          error: error instanceof Error ? error.message : 'Failed to delete group' 
+        });
         return false;
       }
     },
 
     updateGroup: async (groupId: string, updates: Partial<Omit<WorkspaceGroup, 'id' | 'metadata'>>) => {
       try {
-        // TODO: Implement actual group update via IPC
-        console.log('Updating group:', groupId, updates);
-        return true;
+        set({ isLoading: true, error: null });
+        
+        const success = await window.electron.ipcRenderer.invoke('group:update', groupId, updates);
+        
+        if (success) {
+          // Update group in all affected workspaces
+          const currentState = get();
+          const updatedWorkspaces = { ...currentState.workspaces };
+          
+          Object.values(updatedWorkspaces).forEach(workspace => {
+            if (workspace.group?.id === groupId) {
+              updatedWorkspaces[workspace.id] = {
+                ...workspace,
+                group: {
+                  ...workspace.group,
+                  ...updates,
+                  metadata: {
+                    ...workspace.group.metadata,
+                    lastModified: new Date()
+                  }
+                }
+              };
+            }
+          });
+          
+          set({ workspaces: updatedWorkspaces, isLoading: false });
+          get().actions._recomputeDerivedState();
+          return true;
+        } else {
+          set({ isLoading: false, error: 'Failed to update group' });
+          return false;
+        }
       } catch (error) {
         console.error('Failed to update group:', error);
+        set({ 
+          isLoading: false, 
+          error: error instanceof Error ? error.message : 'Failed to update group' 
+        });
         return false;
       }
     },
 
     addWorkspaceToGroup: async (workspaceId: string, groupId: string) => {
       try {
-        // TODO: Implement actual workspace-group association via IPC
-        console.log('Adding workspace to group:', workspaceId, groupId);
+        set({ isLoading: true, error: null });
+        
+        // Get the group information
+        const currentState = get();
+        const existingGroup = currentState._availableGroups.find(g => g.id === groupId);
+        
+        if (!existingGroup) {
+          throw new Error(`Group not found: ${groupId}. Available groups: ${currentState._availableGroups.map(g => g.id).join(', ')}`);
+        }
+        
+        // Update workspace with group information via IPC
+        const success = await window.electron.ipcRenderer.invoke('workspace:addToGroup', workspaceId, groupId);
+        
+        if (success) {
+          // Update local workspace state
+          const updatedWorkspace = {
+            ...currentState.workspaces[workspaceId],
+            group: {
+              ...existingGroup,
+              metadata: {
+                ...existingGroup.metadata,
+                workspaceCount: existingGroup.metadata.workspaceCount + 1,
+                lastModified: new Date()
+              }
+            }
+          };
+          
+          set({
+            workspaces: {
+              ...currentState.workspaces,
+              [workspaceId]: updatedWorkspace
+            },
+            isLoading: false
+          });
+          
+          get().actions._recomputeDerivedState();
+        } else {
+          throw new Error('Failed to add workspace to group via IPC');
+        }
       } catch (error) {
         console.error('Failed to add workspace to group:', error);
+        set({ 
+          isLoading: false, 
+          error: error instanceof Error ? error.message : 'Failed to add workspace to group' 
+        });
         throw error;
       }
     },
 
     removeWorkspaceFromGroup: async (workspaceId: string) => {
       try {
-        // TODO: Implement actual workspace-group dissociation via IPC
-        console.log('Removing workspace from group:', workspaceId);
+        set({ isLoading: true, error: null });
+        
+        // Remove workspace from group via IPC
+        const success = await window.electron.ipcRenderer.invoke('workspace:removeFromGroup', workspaceId);
+        
+        if (success) {
+          // Update local workspace state
+          const currentState = get();
+          const updatedWorkspace = {
+            ...currentState.workspaces[workspaceId],
+            group: null
+          };
+          
+          set({
+            workspaces: {
+              ...currentState.workspaces,
+              [workspaceId]: updatedWorkspace
+            },
+            isLoading: false
+          });
+          
+          get().actions._recomputeDerivedState();
+        } else {
+          throw new Error('Failed to remove workspace from group via IPC');
+        }
       } catch (error) {
         console.error('Failed to remove workspace from group:', error);
+        set({ 
+          isLoading: false, 
+          error: error instanceof Error ? error.message : 'Failed to remove workspace from group' 
+        });
+        throw error;
+      }
+    },
+
+    toggleGroupExpansion: async (groupId: string) => {
+      try {
+        const currentState = get();
+        const group = currentState._availableGroups.find(g => g.id === groupId);
+        
+        if (!group) {
+          throw new Error(`Group not found: ${groupId}`);
+        }
+        
+        const newExpandedState = !group.isExpanded;
+        
+        // Update group expansion state via IPC
+        const success = await window.electron.ipcRenderer.invoke('group:update', groupId, {
+          isExpanded: newExpandedState
+        });
+        
+        if (success) {
+          // Update local group state
+          const updatedGroups = currentState._availableGroups.map(g => 
+            g.id === groupId 
+              ? { ...g, isExpanded: newExpandedState }
+              : g
+          );
+          
+          // Update workspaces that reference this group
+          const updatedWorkspaces = { ...currentState.workspaces };
+          Object.keys(updatedWorkspaces).forEach(workspaceId => {
+            if (updatedWorkspaces[workspaceId].group?.id === groupId) {
+              updatedWorkspaces[workspaceId] = {
+                ...updatedWorkspaces[workspaceId],
+                group: {
+                  ...updatedWorkspaces[workspaceId].group!,
+                  isExpanded: newExpandedState
+                }
+              };
+            }
+          });
+          
+          set({
+            _availableGroups: updatedGroups,
+            workspaces: updatedWorkspaces
+          });
+          
+          get().actions._recomputeDerivedState();
+        } else {
+          throw new Error('Failed to update group expansion state via IPC');
+        }
+      } catch (error) {
+        console.error('Failed to toggle group expansion:', error);
+        set({ 
+          error: error instanceof Error ? error.message : 'Failed to toggle group expansion'
+        });
         throw error;
       }
     },
@@ -332,7 +669,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 // Initialize IPC listeners with defensive state updates
 if (typeof window !== 'undefined' && window.electron?.ipcRenderer) {
   // Workspace created event - defensive update
-  window.electron.ipcRenderer.on('workspace:created', ({ id, workspace }: WorkspaceCreatedEvent) => {
+  window.electron.ipcRenderer.on('workspace:created', (_: IpcRendererEvent, { id, workspace }: WorkspaceCreatedEvent) => {
     useWorkspaceStore.setState(currentState => {
       // Only update if workspace doesn't already exist
       if (currentState.workspaces[id]) {
@@ -347,7 +684,9 @@ if (typeof window !== 'undefined' && window.electron?.ipcRenderer) {
             id: workspace.id,
             name: workspace.name,
             createdAt: workspace.createdAt,
-            lastAccessed: workspace.lastAccessed
+            lastAccessed: workspace.lastAccessed,
+            backgroundColor: workspace.backgroundColor,
+            emoji: workspace.emoji
           }
         }
       };
@@ -359,7 +698,7 @@ if (typeof window !== 'undefined' && window.electron?.ipcRenderer) {
   });
   
   // Workspace updated event - defensive update
-  window.electron.ipcRenderer.on('workspace:updated', ({ id, workspace }: WorkspaceUpdatedEvent) => {
+  window.electron.ipcRenderer.on('workspace:updated', (_: IpcRendererEvent, { id, workspace }: WorkspaceUpdatedEvent) => {
     useWorkspaceStore.setState(currentState => {
       const existingWorkspace = currentState.workspaces[id];
       
@@ -378,7 +717,9 @@ if (typeof window !== 'undefined' && window.electron?.ipcRenderer) {
             id: workspace.id,
             name: workspace.name,
             createdAt: workspace.createdAt,
-            lastAccessed: workspace.lastAccessed
+            lastAccessed: workspace.lastAccessed,
+            backgroundColor: workspace.backgroundColor,
+            emoji: workspace.emoji
           }
         }
       };
@@ -390,18 +731,121 @@ if (typeof window !== 'undefined' && window.electron?.ipcRenderer) {
   });
   
   // Workspace deleted event - defensive update
-  window.electron.ipcRenderer.on('workspace:deleted', ({ id }: WorkspaceDeletedEvent) => {
+  window.electron.ipcRenderer.on('workspace:deleted', (_: IpcRendererEvent, { id }: WorkspaceDeletedEvent) => {
     useWorkspaceStore.setState(currentState => {
       // Only update if workspace actually exists
       if (!currentState.workspaces[id]) {
         return currentState; // No change needed
       }
       
+      // Check if this deletion is currently being handled by the deleteWorkspace action
+      // If so, skip the IPC event handling to avoid overriding the action's smart logic
+      if (currentState._deletingWorkspaceId === id) {
+        return currentState; // Let the action handle it
+      }
+      
       const { [id]: removed, ...remaining } = currentState.workspaces;
+      
+      // Smart preservation of current workspace state:
+      // 1. If we're deleting a different workspace, preserve currentWorkspaceId
+      // 2. If we're deleting the current workspace, only set to null if no other workspaces exist
+      let newCurrentWorkspaceId = currentState.currentWorkspaceId;
+      
+      if (currentState.currentWorkspaceId === id) {
+        // Only set to null if no other workspaces remain
+        const remainingWorkspaceIds = Object.keys(remaining);
+        if (remainingWorkspaceIds.length === 0) {
+          newCurrentWorkspaceId = null;
+        } else {
+          // Try to find a reasonable alternative workspace from remaining ones
+          const remainingWorkspaces = Object.values(remaining);
+          const sortedByAccess = remainingWorkspaces.sort((a, b) => 
+            new Date(b.lastAccessed).getTime() - new Date(a.lastAccessed).getTime()
+          );
+          newCurrentWorkspaceId = sortedByAccess[0].id;
+        }
+      }
+      
       const newState = { 
         ...currentState,
         workspaces: remaining,
-        currentWorkspaceId: currentState.currentWorkspaceId === id ? null : currentState.currentWorkspaceId
+        currentWorkspaceId: newCurrentWorkspaceId
+      };
+      
+      // Recompute derived state
+      const derivedState = computeDerivedState(newState.workspaces);
+      return { ...newState, ...derivedState };
+    });
+  });
+
+  // Group event listeners for real-time sync
+  window.electron.ipcRenderer.on('group:created', (_: IpcRendererEvent, { id, group }: { id: string; group: WorkspaceGroup }) => {
+    useWorkspaceStore.setState(currentState => {
+      // Check if group already exists
+      if (currentState._availableGroups.find(g => g.id === id)) {
+        return currentState; // No change needed
+      }
+      
+      return {
+        ...currentState,
+        _availableGroups: [...currentState._availableGroups, group]
+      };
+    });
+  });
+
+  window.electron.ipcRenderer.on('group:updated', (_: IpcRendererEvent, { groupId, group }: { groupId: string; group: WorkspaceGroup }) => {
+    useWorkspaceStore.setState(currentState => {
+      const groupIndex = currentState._availableGroups.findIndex(g => g.id === groupId);
+      if (groupIndex === -1) {
+        return currentState; // Group not found
+      }
+      
+      const updatedGroups = [...currentState._availableGroups];
+      updatedGroups[groupIndex] = group;
+      
+      // Also update workspaces that reference this group
+      const updatedWorkspaces = { ...currentState.workspaces };
+      Object.keys(updatedWorkspaces).forEach(workspaceId => {
+        if (updatedWorkspaces[workspaceId].group?.id === groupId) {
+          updatedWorkspaces[workspaceId] = {
+            ...updatedWorkspaces[workspaceId],
+            group
+          };
+        }
+      });
+      
+      const newState = {
+        ...currentState,
+        _availableGroups: updatedGroups,
+        workspaces: updatedWorkspaces
+      };
+      
+      // Recompute derived state
+      const derivedState = computeDerivedState(newState.workspaces);
+      return { ...newState, ...derivedState };
+    });
+  });
+
+  window.electron.ipcRenderer.on('group:deleted', (_: IpcRendererEvent, { groupId }: { groupId: string }) => {
+    useWorkspaceStore.setState(currentState => {
+      // Remove group from available groups
+      const updatedGroups = currentState._availableGroups.filter(g => g.id !== groupId);
+      
+      // Remove group association from all workspaces
+      const updatedWorkspaces = { ...currentState.workspaces };
+      Object.keys(updatedWorkspaces).forEach(workspaceId => {
+        if (updatedWorkspaces[workspaceId].group?.id === groupId) {
+          updatedWorkspaces[workspaceId] = {
+            ...updatedWorkspaces[workspaceId],
+            group: null
+          };
+        }
+      });
+      
+      const newState = {
+        ...currentState,
+        _availableGroups: updatedGroups,
+        workspaces: updatedWorkspaces
       };
       
       // Recompute derived state
@@ -450,8 +894,9 @@ export const useDeleteGroup = () => useWorkspaceStore(state => state.actions.del
 export const useUpdateGroup = () => useWorkspaceStore(state => state.actions.updateGroup);
 export const useAddWorkspaceToGroup = () => useWorkspaceStore(state => state.actions.addWorkspaceToGroup);
 export const useRemoveWorkspaceFromGroup = () => useWorkspaceStore(state => state.actions.removeWorkspaceFromGroup);
+export const useToggleGroupExpansion = () => useWorkspaceStore(state => state.actions.toggleGroupExpansion);
 
-// Legacy hook for backward compatibility
+// Hook to get workspace action state
 export const useWorkspaceActions = () => useWorkspaceStore(state => state.actions);
 
 // Hook to get workspace loading state

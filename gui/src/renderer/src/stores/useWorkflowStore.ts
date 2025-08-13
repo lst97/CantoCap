@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { IpcRendererEvent } from 'electron';
 import {
   WorkflowState,
   StepType,
@@ -189,7 +190,7 @@ if (typeof window !== 'undefined' && window.electron?.ipcRenderer) {
   // Workflow step changed event - enhanced defensive update
   window.electron.ipcRenderer.on(
     'workflow:stepChanged',
-    ({ currentStep }: WorkflowStepChangedEvent) => {
+    (_: IpcRendererEvent, { currentStep }: WorkflowStepChangedEvent) => {
       useWorkflowStore.setState((currentState) => {
         // Only update if step actually changed
         if (currentState.currentStep !== currentStep) {
@@ -203,7 +204,7 @@ if (typeof window !== 'undefined' && window.electron?.ipcRenderer) {
   // Workflow step state changed event - enhanced defensive update
   window.electron.ipcRenderer.on(
     'workflow:stepStateChanged',
-    ({ step, state: newState }: WorkflowStepStateChangedEvent) => {
+    (_: IpcRendererEvent, { step, state: newState }: WorkflowStepStateChangedEvent) => {
       useWorkflowStore.setState((currentState) => {
         // Only update if step state actually changed
         if (currentState.stepStates[step] !== newState) {

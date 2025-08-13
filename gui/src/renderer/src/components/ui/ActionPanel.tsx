@@ -1,9 +1,8 @@
-import React, { useCallback } from 'react'
+import { useCallback } from 'react'
 import {
   Box,
   Typography,
   Button,
-  Paper,
   Chip,
   Stack,
   Card,
@@ -14,65 +13,90 @@ import {
 import {
   PlayArrow as PlayIcon,
   Stop as StopIcon,
-  Settings as SettingsIcon,
   CheckCircle as CheckIcon,
   Warning as WarningIcon,
   AccessTime as TimeIcon,
   Refresh as RefreshIcon,
-  ErrorOutline as ErrorIcon,
   InfoOutlined as InfoIcon
 } from '@mui/icons-material'
-import { useAppStore } from '../../stores/useAppStore'
+import { useAppActions, useActiveWorkspaceId } from '../../stores/useAppStore'
+import { 
+  useConfigStepContent, 
+  useProcessingStepContent, 
+  useStepActions 
+} from '../../stores/useStepStore'
+import { useWorkflowActions } from '../../stores/useWorkflowStore'
 
 export const ActionPanel = () => {
-  const { 
-    canStartTranscription,
-    startTranscription,
-    cancelTranscription,
-    processing,
-    config,
-    dependencies,
-    toggleAdvanced,
-    ui,
-    showNotification
-  } = useAppStore()
+  // Get app-level data
+  const appActions = useAppActions()
+  const activeWorkspaceId = useActiveWorkspaceId()
+  
+  // Get step-specific data
+  const config = useConfigStepContent()
+  const processing = useProcessingStepContent()
+  const stepActions = useStepActions()
+  const workflowActions = useWorkflowActions()
+  
+  // Check if transcription can be started
+  const canStartTranscription = useCallback(() => {
+    return !!(config.inputFile && activeWorkspaceId && processing.status !== 'running')
+  }, [config.inputFile, activeWorkspaceId, processing.status])
+  
+  // Helper to show notifications (placeholder)
+  const showNotification = useCallback((message: string, type: string = 'info') => {
+    console.log(`[${type.toUpperCase()}] ${message}`)
+    if (appActions.showNotification) {
+      appActions.showNotification(message, type)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appActions.showNotification])
 
   const handleStartTranscription = useCallback(async () => {
     if (!canStartTranscription()) {
       if (!config.inputFile) {
         showNotification('Please select an input file first', 'error')
-      } else if (!config.hfToken) {
-        showNotification('HuggingFace token is required for Whisper model downloads', 'error')
-      } else if (!dependencies.python.available) {
-        showNotification('Python 3.12 is required but not available', 'error')
-      } else if (!dependencies.ffmpeg.available) {
-        showNotification('FFmpeg is required but not available', 'error')
+      } else if (!activeWorkspaceId) {
+        showNotification('Please select a workspace first', 'error')
       }
       return
     }
     
-    await startTranscription()
-  }, [canStartTranscription, startTranscription, config.inputFile, config.hfToken, dependencies, showNotification])
+    try {
+      // Navigate to processing step and start transcription
+      await workflowActions.navigateToStep('processing')
+      showNotification('Starting transcription process...', 'info')
+    } catch (error) {
+      console.error('Failed to start transcription:', error)
+      showNotification('Failed to start transcription', 'error')
+    }
+  }, [canStartTranscription, config.inputFile, activeWorkspaceId, workflowActions, showNotification])
 
   const handleCancelTranscription = useCallback(async () => {
-    await cancelTranscription()
-  }, [cancelTranscription])
+    try {
+      await stepActions.cancelTranscription()
+      showNotification('Transcription cancelled', 'info')
+    } catch (error) {
+      console.error('Failed to cancel transcription:', error)
+      showNotification('Failed to cancel transcription', 'error')
+    }
+  }, [stepActions, showNotification])
 
   const getButtonState = () => {
-    if (processing.isActive) {
+    if (processing.status === 'running') {
       return {
         text: 'Cancel Processing',
         icon: '⏹️',
         className: 'cancel-btn',
         action: handleCancelTranscription,
-        disabled: false
+        disabled: processing.status !== 'running'
       }
     }
     
-    // If JSON caption is imported, disable the generate button
-    if (config.importedJsonFile) {
+    // If processing is completed, disable the generate button
+    if (processing.status === 'completed') {
       return {
-        text: 'Subtitles Already Imported',
+        text: 'Subtitles Already Available',
         icon: '📁',
         className: 'generate-btn disabled',
         action: () => {},
@@ -102,11 +126,11 @@ export const ActionPanel = () => {
   const buttonState = getButtonState()
 
   const getReadinessStatus = () => {
-    // If JSON caption is imported, show different status
-    if (config.importedJsonFile) {
+    // If processing is completed, show different status
+    if (processing.status === 'completed') {
       return { 
         ready: true, 
-        message: 'Subtitles imported from JSON file - proceed to review and export', 
+        message: 'Subtitles are available - proceed to review and export', 
         icon: '📁' 
       }
     }
@@ -114,9 +138,8 @@ export const ActionPanel = () => {
     const issues = []
     
     if (!config.inputFile) issues.push('No input file selected')
-    if (!config.hfToken) issues.push('HuggingFace token required')
-    if (!dependencies.python.available) issues.push('Python 3.12 not available')
-    if (!dependencies.ffmpeg.available) issues.push('FFmpeg not available')
+    if (!activeWorkspaceId) issues.push('No workspace selected')
+    // Note: Dependencies check would need to be implemented in AppStore or separate dependency store
     
     if (issues.length === 0) {
       return { ready: true, message: 'Ready to generate subtitles', icon: '✅' }
@@ -172,13 +195,13 @@ export const ActionPanel = () => {
 
       {/* Enhanced Action Button */}
       <Button
-        variant={processing.isActive ? "outlined" : "contained"}
-        color={processing.isActive ? "error" : "primary"}
+        variant={processing.status === 'running' ? "outlined" : "contained"}
+        color={processing.status === 'running' ? "error" : "primary"}
         size="large"
         fullWidth
         onClick={buttonState.action}
         disabled={buttonState.disabled}
-        startIcon={processing.isActive ? <StopIcon /> : <PlayIcon />}
+        startIcon={processing.status === 'running' ? <StopIcon /> : <PlayIcon />}
         sx={{ 
           py: 2,
           px: 3,
@@ -189,7 +212,7 @@ export const ActionPanel = () => {
           position: 'relative',
           overflow: 'hidden',
           transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-          background: processing.isActive 
+          background: processing.status === 'running' 
             ? 'transparent'
             : buttonState.disabled
               ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.3) 0%, rgba(217, 119, 6, 0.3) 100%)'
@@ -198,7 +221,7 @@ export const ActionPanel = () => {
             transform: buttonState.disabled ? 'none' : 'translateY(-2px)',
             boxShadow: buttonState.disabled 
               ? 'none'
-              : processing.isActive
+              : processing.status === 'running'
                 ? '0 4px 20px rgba(237, 66, 69, 0.3)'
                 : '0 8px 25px rgba(245, 158, 11, 0.4)',
           },
@@ -212,7 +235,7 @@ export const ActionPanel = () => {
       </Button>
 
       {/* Enhanced Processing Info */}
-      <Collapse in={processing.isActive}>
+      <Collapse in={processing.status === 'running'}>
         <Card sx={{ 
           p: 3, 
           background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.08) 0%, rgba(245, 158, 11, 0.03) 100%)',
@@ -248,11 +271,11 @@ export const ActionPanel = () => {
                 CURRENT STAGE
               </Typography>
               <Typography variant="body1" sx={{ fontWeight: 500 }}>
-                {processing.stage.charAt(0).toUpperCase() + processing.stage.slice(1)}
+                {processing.currentPhase || 'Initializing...'}
               </Typography>
             </Box>
             
-            {processing.timeElapsed > 0 && (
+            {processing.timeElapsed && processing.timeElapsed > 0 && (
               <Box sx={{ 
                 p: 2, 
                 borderRadius: 2, 
@@ -264,7 +287,7 @@ export const ActionPanel = () => {
                 </Typography>
                 <Typography variant="body1" sx={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: 1 }}>
                   <TimeIcon fontSize="small" color="secondary" />
-                  {Math.floor(processing.timeElapsed / 60)}m {processing.timeElapsed % 60}s
+                  {Math.floor((processing.timeElapsed || 0) / 60)}m {(processing.timeElapsed || 0) % 60}s
                 </Typography>
               </Box>
             )}
@@ -299,11 +322,11 @@ export const ActionPanel = () => {
             </Box>
           )}
           
-          {config.importedJsonFile && (
+          {processing.status === 'completed' && (
             <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-              <Typography variant="body2" color="text.secondary">Imported JSON:</Typography>
+              <Typography variant="body2" color="text.secondary">Subtitles:</Typography>
               <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'success.main' }}>
-                {config.importedJsonFile.split(/[\\/]/).pop()}
+                Available
               </Typography>
             </Box>
           )}
@@ -311,7 +334,7 @@ export const ActionPanel = () => {
           <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
             <Typography variant="body2" color="text.secondary">Language:</Typography>
             <Typography variant="body2">
-              {config.language === 'zh' ? 'Chinese' : config.language.toUpperCase()}
+              {config.language || 'Auto-detect'}
             </Typography>
           </Box>
           
@@ -331,14 +354,9 @@ export const ActionPanel = () => {
           
           {config.subtitle && (
             <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-              <Typography variant="body2" color="text.secondary">
-                {Array.isArray(config.subtitle) ? 'Imported Subtitles:' : 'Translation:'}
-              </Typography>
+              <Typography variant="body2" color="text.secondary">Translation:</Typography>
               <Typography variant="body2">
-                {Array.isArray(config.subtitle) 
-                  ? `${config.subtitle.length} subtitle${config.subtitle.length > 1 ? 's' : ''}`
-                  : config.subtitle.toUpperCase()
-                }
+                {config.subtitle}
               </Typography>
             </Box>
           )}
@@ -348,7 +366,7 @@ export const ActionPanel = () => {
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
               {/* Basic Features - Always show written style since it's a core function */}
               <Chip 
-                label={`✍️ Written Style${config.geminiKey ? ' (Enhanced)' : ''}`}
+                label={`✍️ Transcription${config.geminiKey ? ' (AI Enhanced)' : ''}`}
                 size="small" 
                 sx={{ 
                   fontSize: '0.7rem', 
@@ -369,7 +387,7 @@ export const ActionPanel = () => {
                 config.speakers && { label: 'Speakers', icon: '👥' },
                 config.music && { label: 'Music Detection', icon: '🎵' },
                 config.geminiKey && { label: 'AI Refinement', icon: '✨' }
-              ].filter(Boolean).map((option, index) => (
+              ].filter((option): option is { label: string; icon: string } => Boolean(option)).map((option, index) => (
                 <Chip 
                   key={index}
                   label={`${option.icon} ${option.label}`}

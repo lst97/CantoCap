@@ -34,8 +34,10 @@ export const RangeSlider: React.FC<RangeSliderProps> = ({
 }) => {
   const [internalValue, setInternalValue] = useState<[number, number]>(value)
 
-  const handleChange = useCallback((event: Event, newValue: number | number[]) => {
-    const rangeValue = Array.isArray(newValue) ? newValue as [number, number] : [newValue, newValue]
+  const handleChange = useCallback((_: Event, newValue: number | number[]) => {
+    const rangeValue: [number, number] = Array.isArray(newValue) 
+      ? [newValue[0] ?? 0, newValue[1] ?? 0] 
+      : [newValue, newValue]
     setInternalValue(rangeValue)
     onChange?.(rangeValue)
   }, [onChange])

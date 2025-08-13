@@ -1,21 +1,31 @@
-import React, { useCallback } from 'react'
-import { useAppStore } from '../../stores/useAppStore'
+import { useCallback } from 'react'
+import { useConfigStepData, useConfigStepActions } from '../../stores/steps/useConfigStepStore'
+import { ConfigStepData } from '../../stores/types/StoreTypes'
 
 export const ProcessingOptions = () => {
-  const { config, updateConfig } = useAppStore()
+  const config = useConfigStepData()
+  const { updateConfigStep } = useConfigStepActions()
 
-  const handleToggle = useCallback((key) => {
-    updateConfig(key, !config[key])
-  }, [config, updateConfig])
+  const handleToggle = useCallback((key: keyof ConfigStepData) => {
+    updateConfigStep({ [key]: !config[key as keyof typeof config] } as Partial<ConfigStepData>)
+  }, [config, updateConfigStep])
 
-  const processingOptions = [
+  const processingOptions: Array<{
+    key: keyof ConfigStepData;
+    label: string;
+    icon: string;
+    description: string;
+    example: string;
+    enabled: boolean;
+    inverted?: boolean;
+  }> = [
     {
       key: 'speakers',
       label: 'Speaker Diarization',
       icon: '👥',
       description: 'Identify and separate different speakers in the audio',
       example: 'Output: [SPEAKER_01] 我知道!',
-      enabled: config.speakers
+      enabled: config.speakers ?? false
     },
     {
       key: 'music',
@@ -23,7 +33,7 @@ export const ProcessingOptions = () => {
       icon: '🎵',
       description: 'Detect and label background music or sound effects',
       example: 'Output: [MUSIC]',
-      enabled: config.music
+      enabled: config.music ?? false
     },
     {
       key: 'verbose',
@@ -31,7 +41,7 @@ export const ProcessingOptions = () => {
       icon: '📝',
       description: 'Show detailed processing information during transcription',
       example: 'Shows timestamps, confidence scores, and processing details',
-      enabled: config.verbose
+      enabled: config.verbose ?? false
     },
     {
       key: 'noGeminiRefinement',
@@ -39,7 +49,7 @@ export const ProcessingOptions = () => {
       icon: '🚫',
       description: 'Skip AI-powered transcription refinement (faster but less accurate)',
       example: 'Raw transcription without AI enhancement and error correction',
-      enabled: config.noGeminiRefinement,
+      enabled: config.noGeminiRefinement ?? false,
       inverted: true // This option is inverted (enabled = disabled feature)
     }
   ]

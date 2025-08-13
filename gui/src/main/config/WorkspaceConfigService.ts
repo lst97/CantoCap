@@ -94,6 +94,9 @@ export interface WorkspaceSchema {
   name: string;
   createdAt: string;
   lastAccessed: string;
+  backgroundColor?: string;
+  emoji?: string;
+  groupId?: string | null;
 
   // Step content
   steps: {
@@ -136,7 +139,7 @@ export class WorkspaceConfigService {
     });
   }
 
-  createWorkspace(name: string): { id: string; workspace: WorkspaceSchema } {
+  createWorkspace(name: string, backgroundColor?: string, emoji?: string): { id: string; workspace: WorkspaceSchema } {
     const id = uuidv4();
     const now = new Date().toISOString();
 
@@ -145,6 +148,9 @@ export class WorkspaceConfigService {
       name,
       createdAt: now,
       lastAccessed: now,
+      backgroundColor,
+      emoji,
+      groupId: null,
       steps: {
         input: {
           selectedFiles: [],
@@ -297,7 +303,7 @@ export class WorkspaceConfigService {
     }
   }
 
-  listWorkspaces(): Array<{ id: string; name: string; lastAccessed: string; createdAt: string }> {
+  listWorkspaces(): Array<{ id: string; name: string; lastAccessed: string; createdAt: string; groupId?: string | null; backgroundColor?: string; emoji?: string }> {
     const workspaceIds = this.workspaceList.get('workspaces', []);
     return workspaceIds
       .map((id) => {
@@ -308,6 +314,9 @@ export class WorkspaceConfigService {
               name: workspace.name,
               lastAccessed: workspace.lastAccessed,
               createdAt: workspace.createdAt,
+              groupId: workspace.groupId,
+              backgroundColor: workspace.backgroundColor,
+              emoji: workspace.emoji,
             }
           : null;
       })
@@ -316,6 +325,9 @@ export class WorkspaceConfigService {
       name: string;
       lastAccessed: string;
       createdAt: string;
+      groupId?: string | null;
+      backgroundColor?: string;
+      emoji?: string;
     }>;
   }
 
@@ -339,6 +351,32 @@ export class WorkspaceConfigService {
     }
 
     return null;
+  }
+
+  // Group management methods
+  addWorkspaceToGroup(workspaceId: string, groupId: string): boolean {
+    const store = this.getOrCreateStore(workspaceId);
+    if (store) {
+      store.set('groupId', groupId);
+      store.set('lastAccessed', new Date().toISOString());
+      return true;
+    }
+    return false;
+  }
+
+  removeWorkspaceFromGroup(workspaceId: string): boolean {
+    const store = this.getOrCreateStore(workspaceId);
+    if (store) {
+      store.set('groupId', null);
+      store.set('lastAccessed', new Date().toISOString());
+      return true;
+    }
+    return false;
+  }
+
+  getWorkspacesByGroup(groupId: string): Array<{ id: string; name: string; lastAccessed: string; createdAt: string; groupId?: string | null; backgroundColor?: string; emoji?: string }> {
+    const allWorkspaces = this.listWorkspaces();
+    return allWorkspaces.filter(ws => ws.groupId === groupId);
   }
 
   // Utility methods

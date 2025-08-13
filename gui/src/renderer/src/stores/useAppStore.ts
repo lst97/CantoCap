@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { IpcRendererEvent } from 'electron';
 import { AppState, WindowState, AppStateUpdateEvent } from './types/StoreTypes';
 
 // ============================================================================
@@ -56,16 +57,35 @@ export const useAppStore = create<AppState>((set, get) => ({
     loadAppState: async () => {
       try {
         set({ isLoading: true });
+        
         const state = await window.electron.ipcRenderer.invoke('app:getState');
+        
+        if (!state) {
+          throw new Error('No state received from main process');
+        }
+        
+        
+        // Validate the state structure
+        const validatedState = {
+          activeWorkspaceId: state.activeWorkspaceId || null,
+          recentWorkspaces: Array.isArray(state.recentWorkspaces) ? state.recentWorkspaces : [],
+          windowState: state.windowState || { width: 1200, height: 800, maximized: false }
+        };
+        
+        
         set({
-          activeWorkspaceId: state.activeWorkspaceId,
-          recentWorkspaces: state.recentWorkspaces,
-          windowState: state.windowState,
+          activeWorkspaceId: validatedState.activeWorkspaceId,
+          recentWorkspaces: validatedState.recentWorkspaces,
+          windowState: validatedState.windowState,
           isLoading: false
         });
+        
+        // Return the loaded state for external use (like workspace restoration)
+        return validatedState;
       } catch (error) {
-        console.error('Failed to load app state:', error);
+        console.error('❌ AppStore: Failed to load app state:', error);
         set({ isLoading: false });
+        throw error; // Re-throw to allow calling code to handle the error
       }
     },
     
@@ -148,13 +168,33 @@ export const useAppStore = create<AppState>((set, get) => ({
 
 // Initialize IPC listeners with defensive state updates
 if (typeof window !== 'undefined' && window.electron?.ipcRenderer) {
-  // App state updates from main process - defensive update
-  window.electron.ipcRenderer.on('app:stateUpdated', (state: AppStateUpdateEvent) => {
+  // App state updates from main process - defensive update with validation
+  window.electron.ipcRenderer.on('app:stateUpdated', (_: IpcRendererEvent, state: AppStateUpdateEvent) => {
     useAppStore.setState((currentState) => {
-      // Only update if state actually changed
-      const hasActiveWorkspaceChanged = currentState.activeWorkspaceId !== state.activeWorkspaceId;
-      const hasRecentWorkspacesChanged = JSON.stringify(currentState.recentWorkspaces) !== JSON.stringify(state.recentWorkspaces);
-      const hasWindowStateChanged = JSON.stringify(currentState.windowState) !== JSON.stringify(state.windowState);
+      // CRITICAL FIX: If the main process sends undefined activeWorkspaceId, REJECT the update entirely
+      // and preserve the current renderer state
+      if (state.activeWorkspaceId === undefined) {
+        console.error('❌ App Store: REJECTING state update with undefined activeWorkspaceId!');
+        
+        // Only update non-activeWorkspaceId fields if they are valid
+        const safeUpdate = {
+          ...currentState,
+          recentWorkspaces: Array.isArray(state.recentWorkspaces) ? state.recentWorkspaces : currentState.recentWorkspaces,
+          windowState: state.windowState || currentState.windowState
+        };
+        
+        return safeUpdate;
+      }
+      
+      // Normal path - validate incoming state and normalize values
+      const normalizedActiveWorkspaceId = state.activeWorkspaceId === null ? null : state.activeWorkspaceId;
+      const normalizedRecentWorkspaces = Array.isArray(state.recentWorkspaces) ? state.recentWorkspaces : currentState.recentWorkspaces;
+      const normalizedWindowState = state.windowState || currentState.windowState;
+      
+      // Check if any changes are needed
+      const hasActiveWorkspaceChanged = currentState.activeWorkspaceId !== normalizedActiveWorkspaceId;
+      const hasRecentWorkspacesChanged = JSON.stringify(currentState.recentWorkspaces) !== JSON.stringify(normalizedRecentWorkspaces);
+      const hasWindowStateChanged = JSON.stringify(currentState.windowState) !== JSON.stringify(normalizedWindowState);
       
       if (!hasActiveWorkspaceChanged && !hasRecentWorkspacesChanged && !hasWindowStateChanged) {
         return currentState; // No change needed
@@ -162,15 +202,15 @@ if (typeof window !== 'undefined' && window.electron?.ipcRenderer) {
       
       return {
         ...currentState,
-        activeWorkspaceId: state.activeWorkspaceId,
-        recentWorkspaces: state.recentWorkspaces,
-        windowState: state.windowState
+        activeWorkspaceId: normalizedActiveWorkspaceId,
+        recentWorkspaces: normalizedRecentWorkspaces,
+        windowState: normalizedWindowState
       };
     });
   });
   
   // Window state updates from main process - defensive update
-  window.electron.ipcRenderer.on('app:windowStateUpdated', (windowState: WindowState) => {
+  window.electron.ipcRenderer.on('app:windowStateUpdated', (_: IpcRendererEvent, windowState: WindowState) => {
     useAppStore.setState(currentState => {
       // Only update if window state actually changed
       const hasWindowStateChanged = JSON.stringify(currentState.windowState) !== JSON.stringify({ ...currentState.windowState, ...windowState });

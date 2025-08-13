@@ -52,7 +52,6 @@ export const OutputLocationSelector: React.FC = () => {
     }
   }, [updateStepContent]);
 
-
   return (
     <Box>
       <Typography variant='body2' color='text.secondary' sx={{ mb: 2, lineHeight: 1.6 }}>
@@ -68,22 +67,24 @@ export const OutputLocationSelector: React.FC = () => {
             onChange={handleOutputChange}
             placeholder='Auto-generated from input file'
             size='small'
-            InputProps={{
-              endAdornment: config.outputFile && (
-                <IconButton
-                  size='small'
-                  onClick={handleClearOutput}
-                  sx={{
-                    transition: 'all 0.2s ease',
-                    '&:hover': {
-                      backgroundColor: 'rgba(237, 66, 69, 0.1)',
-                      color: 'error.main',
-                    },
-                  }}
-                >
-                  <ClearIcon fontSize='small' />
-                </IconButton>
-              ),
+            slotProps={{
+              input: {
+                endAdornment: config.outputFile && (
+                  <IconButton
+                    size='small'
+                    onClick={handleClearOutput}
+                    sx={{
+                      transition: 'all 0.2s ease',
+                      '&:hover': {
+                        backgroundColor: 'rgba(237, 66, 69, 0.1)',
+                        color: 'error.main',
+                      },
+                    }}
+                  >
+                    <ClearIcon fontSize='small' />
+                  </IconButton>
+                ),
+              },
             }}
           />
           <BaseButton

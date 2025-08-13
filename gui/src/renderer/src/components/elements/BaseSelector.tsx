@@ -13,7 +13,7 @@ export const BaseSelector: React.FC<BaseSelectorProps> = ({
   sx,
   ...props
 }) => {
-  const getBaseStyles = (): SxProps<Theme> => ({
+  const baseStyles: SxProps<Theme> = {
     '& .MuiOutlinedInput-root': {
       backgroundColor: '#2F3136',
       borderRadius: 2,
@@ -72,16 +72,13 @@ export const BaseSelector: React.FC<BaseSelectorProps> = ({
         color: 'error.main',
       },
     },
-  })
+  }
 
   return (
     <TextField
       variant={variant}
       size={size}
-      sx={{
-        ...getBaseStyles(),
-        ...sx,
-      }}
+      sx={[baseStyles, ...(Array.isArray(sx) ? sx : [sx])]}
       {...props}
     />
   )

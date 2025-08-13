@@ -19,10 +19,11 @@ import {
   ContentCopy as DuplicateIcon,
   Delete as DeleteIcon,
   RadioButtonChecked as ActiveIcon,
-  Folder as GroupIcon,
-  Remove as RemoveIcon} from '@mui/icons-material'
+  Remove as RemoveIcon,
+  Add as AddIcon
+} from '@mui/icons-material'
 import { WorkspaceContextMenuProps } from './types'
-import { WorkspaceDeleteDialog } from './WorkspaceDeleteDialog'
+import { getGroupColorRgb } from './GroupColorPicker'
 
 /**
  * WorkspaceContextMenu - Context menu for workspace management actions
@@ -40,42 +41,22 @@ export const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
   onAddToGroup,
   onRemoveFromGroup,
   onCreateGroup,
-  availableGroups = []
-}) => {
-  const [renameDialog, setRenameDialog] = useState(false)
-  const [deleteDialog, setDeleteDialog] = useState(false)
+  onCreateNewGroup,
+  availableGroups = []}) => {
   const [groupDialog, setGroupDialog] = useState(false)
-  const [newName, setNewName] = useState(workspace.name)
   const [newGroupName, setNewGroupName] = useState('')
   const [loading, setLoading] = useState(false)
 
+
   const handleClose = () => {
     onClose()
-    setRenameDialog(false)
-    setDeleteDialog(false)
     setGroupDialog(false)
-    setNewName(workspace.name)
+    // Don't close enhanced group dialog when context menu closes
+    // setEnhancedGroupDialog(false) - moved to dialog's own onClose
     setNewGroupName('')
     setLoading(false)
   }
 
-  const handleRename = async () => {
-    if (newName.trim() === workspace.name.trim()) {
-      handleClose()
-      return
-    }
-
-    if (newName.trim().length === 0) return
-
-    setLoading(true)
-    try {
-      await onRename(workspace.id, newName.trim())
-      handleClose()
-    } catch (error) {
-      console.error('Failed to rename workspace:', error)
-      setLoading(false)
-    }
-  }
 
   const handleDuplicate = async () => {
     setLoading(true)
@@ -88,16 +69,6 @@ export const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
     }
   }
 
-  const handleDelete = async () => {
-    setLoading(true)
-    try {
-      await onDelete(workspace.id)
-      handleClose()
-    } catch (error) {
-      console.error('Failed to delete workspace:', error)
-      setLoading(false)
-    }
-  }
 
   const handleSetActive = async () => {
     if (workspace.isActive) {
@@ -150,6 +121,7 @@ export const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
     }
   }
 
+
   return (
     <>
       <Menu
@@ -157,22 +129,24 @@ export const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
         open={Boolean(anchorEl)}
         onClose={handleClose}
         disableRestoreFocus
-        PaperProps={{
-          sx: {
-            width: 240,
-            backgroundColor: 'background.paper',
-            border: '1px solid',
-            borderColor: 'divider',
-            borderRadius: 2,
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12)',
-            '& .MuiMenuItem-root': {
-              borderRadius: 1,
-              mx: 0.5,
-              my: 0.25,
-              py: 1,
-              fontSize: '0.875rem',
-              '&:hover': {
-                backgroundColor: 'action.hover'
+        slotProps={{
+          paper: {
+            sx: {
+              width: 240,
+              backgroundColor: 'background.paper',
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: 2,
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12)',
+              '& .MuiMenuItem-root': {
+                borderRadius: 1,
+                mx: 0.5,
+                my: 0.25,
+                py: 1,
+                fontSize: '0.875rem',
+                '&:hover': {
+                  backgroundColor: 'action.hover'
+                }
               }
             }
           }
@@ -180,35 +154,39 @@ export const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
         transformOrigin={{ horizontal: 'left', vertical: 'top' }}
         anchorOrigin={{ horizontal: 'right', vertical: 'top' }}
       >
-        {!workspace.isActive && (
-          <>
-            <MenuItem onClick={handleSetActive} disabled={loading}>
-              <ListItemIcon>
-                <ActiveIcon fontSize="small" color="primary" />
-              </ListItemIcon>
-              <ListItemText 
-                primary="Switch to Workspace" 
-                secondary="Make this the active workspace"
-                secondaryTypographyProps={{
+        {!workspace.isActive && [
+          <MenuItem key="setActive" onClick={handleSetActive} disabled={loading}>
+            <ListItemIcon>
+              <ActiveIcon fontSize="small" color="primary" />
+            </ListItemIcon>
+            <ListItemText 
+              primary="Switch to Workspace" 
+              secondary="Make this the active workspace"
+              slotProps={{
+                secondary: {
                   variant: 'caption',
                   sx: { fontSize: '0.7rem', color: 'text.secondary' }
-                }}
-              />
-            </MenuItem>
-            <Divider sx={{ my: 0.5 }} />
-          </>
-        )}
+                }
+              }}
+            />
+          </MenuItem>,
+          <Divider key="divider1" sx={{ my: 0.5 }} />
+        ]}
 
-        <MenuItem onClick={() => setRenameDialog(true)} disabled={loading}>
+        <MenuItem onClick={() => {
+          onRename(workspace.id)
+        }} disabled={loading}>
           <ListItemIcon>
             <EditIcon fontSize="small" />
           </ListItemIcon>
           <ListItemText 
             primary="Rename Workspace" 
             secondary="Change workspace name"
-            secondaryTypographyProps={{
-              variant: 'caption',
-              sx: { fontSize: '0.7rem', color: 'text.secondary' }
+            slotProps={{
+              secondary: {
+                variant: 'caption',
+                sx: { fontSize: '0.7rem', color: 'text.secondary' }
+              }
             }}
           />
         </MenuItem>
@@ -220,83 +198,100 @@ export const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
           <ListItemText 
             primary="Duplicate Workspace" 
             secondary="Create a copy with same settings"
-            secondaryTypographyProps={{
-              variant: 'caption',
-              sx: { fontSize: '0.7rem', color: 'text.secondary' }
+            slotProps={{
+              secondary: {
+                variant: 'caption',
+                sx: { fontSize: '0.7rem', color: 'text.secondary' }
+              }
             }}
           />
         </MenuItem>
 
         <Divider sx={{ my: 0.5 }} />
 
-        {/* Group Management Section - Show existing groups for selection */}
-        {availableGroups.length > 0 && (
-          <>
-            {/* Header for group section */}
-            <Box sx={{ px: 2, py: 1, bgcolor: 'action.hover' }}>
-              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-                Add to Group
-              </Typography>
-            </Box>
-            
-            {/* List available groups */}
-            {availableGroups.map(group => (
-              <MenuItem
-                key={group.id}
-                onClick={() => handleAddToGroup(group.id)}
-                disabled={loading || workspace.groupId === group.id}
-                sx={{ pl: 3 }}
-              >
-                <ListItemIcon sx={{ minWidth: 32 }}>
-                  <Box
-                    sx={{
-                      width: 16,
-                      height: 16,
-                      borderRadius: '50%',
-                      backgroundColor: `${group.color || 'primary'}.main`
-                    }}
-                  />
-                </ListItemIcon>
-                <ListItemText 
-                  primary={group.name}
-                  secondary={workspace.groupId === group.id ? 'Current group' : `${group.metadata.workspaceCount} workspaces`}
-                  secondaryTypographyProps={{
-                    variant: 'caption',
-                    sx: { fontSize: '0.7rem', color: 'text.secondary' }
-                  }}
-                />
-              </MenuItem>
-            ))}
-          </>
-        )}
+        {/* Enhanced Group Management Section */}
+        <Box sx={{ px: 2, py: 1, bgcolor: 'action.hover' }}>
+          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+            📁 Group Management
+          </Typography>
+        </Box>
 
-        {availableGroups.length === 0 && (
-          <MenuItem onClick={() => setGroupDialog(true)} disabled={loading}>
-            <ListItemIcon>
-              <GroupIcon fontSize="small" />
-            </ListItemIcon>
-            <ListItemText 
-              primary="Create Group"
-              secondary="Create a new workspace group"
-              secondaryTypographyProps={{
+        {/* Create New Group - Always show this option */}
+        <MenuItem onClick={() => {
+          onCreateNewGroup?.(workspace.id)
+        }} disabled={loading}>
+          <ListItemIcon>
+            <AddIcon fontSize="small" color="primary" />
+          </ListItemIcon>
+          <ListItemText 
+            primary="Create New Group"
+            secondary="Create a group with multiple workspaces"
+            slotProps={{
+              secondary: {
                 variant: 'caption',
                 sx: { fontSize: '0.7rem', color: 'text.secondary' }
-              }}
-            />
-          </MenuItem>
-        )}
+              }
+            }}
+          />
+        </MenuItem>
 
-        {workspace.groupId && (
+        {/* Add to Existing Groups - Show if groups exist */}
+        {availableGroups.length > 0 && [
+          <Box key="addToGroupHeader" sx={{ px: 2, py: 0.5 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem', fontWeight: 500 }}>
+              Add to Existing Group
+            </Typography>
+          </Box>,
+          
+          ...availableGroups.map(group => (
+            <MenuItem
+              key={group.id}
+              onClick={() => handleAddToGroup(group.id)}
+              disabled={loading || workspace.group?.id === group.id}
+              sx={{ pl: 4 }}
+            >
+              <ListItemIcon sx={{ minWidth: 28 }}>
+                <Box
+                  sx={{
+                    width: 14,
+                    height: 14,
+                    borderRadius: '4px',
+                    backgroundColor: getGroupColorRgb(group.color)
+                  }}
+                />
+              </ListItemIcon>
+              <ListItemText 
+                primary={group.name}
+                secondary={
+                  workspace.group?.id === group.id 
+                    ? 'Current group' 
+                    : `${group.metadata.workspaceCount} workspace${group.metadata.workspaceCount !== 1 ? 's' : ''}`
+                }
+                slotProps={{
+                  secondary: {
+                    variant: 'caption',
+                    sx: { fontSize: '0.65rem', color: 'text.secondary' }
+                  }
+                }}
+              />
+            </MenuItem>
+          ))
+        ]}
+
+        {/* Remove from Group - Show if workspace is in a group */}
+        {workspace.group && (
           <MenuItem onClick={handleRemoveFromGroup} disabled={loading}>
             <ListItemIcon>
-              <RemoveIcon fontSize="small" />
+              <RemoveIcon fontSize="small" color="warning" />
             </ListItemIcon>
             <ListItemText 
               primary="Remove from Group"
-              secondary="Ungroup this workspace"
-              secondaryTypographyProps={{
-                variant: 'caption',
-                sx: { fontSize: '0.7rem', color: 'text.secondary' }
+              secondary={`Currently in: ${workspace.group.name}`}
+              slotProps={{
+                secondary: {
+                  variant: 'caption',
+                  sx: { fontSize: '0.7rem', color: 'text.secondary' }
+                }
               }}
             />
           </MenuItem>
@@ -305,67 +300,34 @@ export const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
         <Divider sx={{ my: 0.5 }} />
 
         <MenuItem 
-          onClick={() => setDeleteDialog(true)} 
-          disabled={loading || workspace.isActive}
+          onClick={() => {
+            onDelete(workspace.id)
+            onClose() // Context menu can close immediately now
+          }} 
+          disabled={loading}
           sx={{ 
-            color: workspace.isActive ? 'text.disabled' : 'error.main',
+            color: 'error.main',
             '&:hover': {
-              backgroundColor: workspace.isActive ? 'transparent' : 'rgba(237, 66, 69, 0.08)'
+              backgroundColor: 'rgba(237, 66, 69, 0.08)'
             }
           }}
         >
           <ListItemIcon>
-            <DeleteIcon fontSize="small" color={workspace.isActive ? 'disabled' : 'error'} />
+            <DeleteIcon fontSize="small" color="error" />
           </ListItemIcon>
           <ListItemText 
             primary="Delete Workspace" 
-            secondary={workspace.isActive ? 'Cannot delete active workspace' : 'Permanently remove workspace'}
-            secondaryTypographyProps={{
-              variant: 'caption',
-              sx: { fontSize: '0.7rem' }
+            secondary={workspace.isActive ? 'Will switch to another workspace automatically' : 'Permanently remove workspace'}
+            slotProps={{
+              secondary: {
+                variant: 'caption',
+                sx: { fontSize: '0.7rem' }
+              }
             }}
           />
         </MenuItem>
       </Menu>
 
-      {/* Rename Dialog */}
-      <Dialog 
-        open={renameDialog} 
-        onClose={handleClose}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>Rename Workspace</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            fullWidth
-            label="Workspace Name"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            inputProps={{ maxLength: 30 }}
-            helperText={`${newName.length}/30 characters`}
-            sx={{ mt: 1 }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && newName.trim()) {
-                handleRename()
-              }
-            }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleClose} disabled={loading}>
-            Cancel
-          </Button>
-          <Button 
-            onClick={handleRename} 
-            disabled={loading || !newName.trim() || newName.trim() === workspace.name.trim()}
-            variant="contained"
-          >
-            {loading ? 'Renaming...' : 'Rename'}
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       {/* Create Group Dialog */}
       <Dialog 
@@ -409,13 +371,7 @@ export const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
         </DialogActions>
       </Dialog>
 
-      {/* Enhanced Delete Confirmation Dialog */}
-      <WorkspaceDeleteDialog
-        open={deleteDialog}
-        workspace={workspace}
-        onClose={handleClose}
-        onConfirm={handleDelete}
-      />
+
     </>
   )
 }

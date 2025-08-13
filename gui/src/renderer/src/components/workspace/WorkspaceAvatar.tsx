@@ -4,7 +4,7 @@ import { WorkspaceAvatarProps } from './types'
 
 /**
  * WorkspaceAvatar - Smart avatar component for workspace representation
- * Features: Auto-generated emoji/initial, active state indicator, consistent sizing
+ * Features: Auto-generated emoji/initial, consistent sizing
  */
 export const WorkspaceAvatar: React.FC<WorkspaceAvatarProps> = ({
   workspace,
@@ -107,24 +107,7 @@ export const WorkspaceAvatar: React.FC<WorkspaceAvatarProps> = ({
         >
           {getDisplayContent()}
         </Avatar>
-        
-        {/* Active Indicator Dot */}
-        {isActive && (
-          <Box
-            sx={{
-              position: 'absolute',
-              bottom: -2,
-              right: -2,
-              width: 12,
-              height: 12,
-              backgroundColor: 'primary.main',
-              borderRadius: '50%',
-              border: '2px solid',
-              borderColor: 'background.paper',
-              boxShadow: '0 0 4px rgba(245, 158, 11, 0.4)'
-            }}
-          />
-        )}
+
       </Box>
     </Tooltip>
   )

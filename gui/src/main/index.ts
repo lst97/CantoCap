@@ -7,6 +7,7 @@ import { ProcessManager } from "./process-manager";
 import { InitializationService } from "./initialization-service";
 import { AppStateService } from "./config/AppStateService";
 import { WorkspaceConfigService } from "./config/WorkspaceConfigService";
+import { GroupConfigService } from "./config/GroupConfigService";
 import { IPCConfigHandlers } from "./ipc-handlers/IPCConfigHandlers";
 import { VideoIPCHandlers } from "./ipc-handlers/VideoIPCHandlers";
 import type {
@@ -36,6 +37,7 @@ class CantoCap {
   private initializationService: InitializationService;
   private appStateService: AppStateService;
   private workspaceConfigService: WorkspaceConfigService;
+  private groupConfigService: GroupConfigService;
   private ipcConfigHandlers: IPCConfigHandlers | null = null;
   private videoIPCHandlers: VideoIPCHandlers | null = null;
   private mainWindow: BrowserWindow | null = null;
@@ -46,6 +48,7 @@ class CantoCap {
     this.initializationService = new InitializationService();
     this.appStateService = new AppStateService();
     this.workspaceConfigService = new WorkspaceConfigService();
+    this.groupConfigService = new GroupConfigService();
   }
 
   private createWindow(): void {
@@ -189,6 +192,7 @@ class CantoCap {
     this.ipcConfigHandlers = new IPCConfigHandlers(
       this.appStateService,
       this.workspaceConfigService,
+      this.groupConfigService,
       this.mainWindow.webContents
     );
 
@@ -267,14 +271,9 @@ class CantoCap {
       try {
         await this.processManager.startTranscription(
           config,
-          (eventType: string, data: unknown) => {
-            // Handle both new and legacy message types
-            if (eventType === 'ipc-message') {
-              this.mainWindow?.webContents.send('ipc-message', data);
-            } else {
-              // Legacy events (for backward compatibility)
-              this.mainWindow?.webContents.send(eventType, data);
-            }
+          (_eventType: string, data: unknown) => {
+            // Send all events using the modern IPC message format
+            this.mainWindow?.webContents.send('ipc-message', data);
           }
         );
       } catch (error) {
@@ -352,7 +351,6 @@ class CantoCap {
       }
     );
 
-    // Legacy config management handlers removed - now handled by IPCConfigHandlers
 
     // Export Operations
     ipcMain.handle("dialog:saveFile", async (_event, options?: {
@@ -392,7 +390,6 @@ class CantoCap {
       }
     });
 
-    // Legacy workspace management handlers removed - now handled by IPCConfigHandlers
 
     // ============================================================================
     // SUBTITLE PERSISTENCE HANDLERS

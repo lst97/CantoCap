@@ -1,7 +1,6 @@
 /**
  * Simplified Workspace Hooks
  * Clean integration with new Zustand-based workspace store
- * Removes legacy migration complexity and performance utilities
  */
 
 import { useCallback, useMemo } from 'react'
@@ -256,26 +255,3 @@ export const useWorkspaceSession = () => {
   }
 }
 
-/**
- * Hook for workspace grouping functionality
- * 
- * DEPRECATED: This hook has been removed to fix React Error #185 (infinite loops).
- * The grouping functionality has been moved directly into the workspace store
- * with pre-computed stable references.
- * 
- * Use these store hooks instead:
- * - useGroupedWorkspaces() - Get grouped workspaces with stable references
- * - useAvailableGroups() - Get available groups with stable references
- */
-export const useWorkspaceGrouping = () => {
-  console.warn('useWorkspaceGrouping is deprecated. Use useGroupedWorkspaces() and useAvailableGroups() instead.');
-  
-  return {
-    groupedWorkspaces: {},
-    availableGroups: [],
-    createGroup: async () => '',
-    deleteGroup: async () => false,
-    addToGroup: async () => {},
-    removeFromGroup: async () => {}
-  };
-};
