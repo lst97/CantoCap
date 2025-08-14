@@ -6,8 +6,8 @@ export const ProcessingOptions = () => {
   const config = useConfigStepData()
   const { updateConfigStep } = useConfigStepActions()
 
-  const handleToggle = useCallback((key: keyof ConfigStepData) => {
-    updateConfigStep({ [key]: !config[key as keyof typeof config] } as Partial<ConfigStepData>)
+  const handleToggle = useCallback(async (key: keyof ConfigStepData) => {
+    await updateConfigStep({ [key]: !config[key as keyof typeof config] } as Partial<ConfigStepData>)
   }, [config, updateConfigStep])
 
   const processingOptions: Array<{

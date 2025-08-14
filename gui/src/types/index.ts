@@ -83,6 +83,18 @@ export interface ElectronWindow extends Window {
     openPyenvGuide: () => Promise<void>;
     openFFmpegDownload: () => Promise<void>;
     
+    // External URLs
+    openExternalUrl: (url: string) => Promise<void>;
+    
+    // Application Info
+    getAppVersion: () => Promise<string>;
+    getPlatform: () => Promise<string>;
+    
+    // DevTools Controls
+    openDevTools: () => Promise<void>;
+    closeDevTools: () => Promise<void>;
+    toggleDevTools: () => Promise<void>;
+    
     // File Dialogs
     openFileDialog: (options?: FileDialogOptions) => Promise<FileDialogResult>;
     openFolderDialog: () => Promise<FileDialogResult>;

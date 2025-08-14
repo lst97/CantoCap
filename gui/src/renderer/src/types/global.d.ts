@@ -1,0 +1,105 @@
+// Global type declarations for CantoCap GUI
+import type { 
+  DependencyStatus, 
+  InitializationResult, 
+  FileDialogOptions, 
+  FileDialogResult, 
+  SaveFileDialogResult, 
+  IPCMessage,
+  HardwareInfo,
+  AppConfig
+} from '../../../types';
+
+declare global {
+  interface Window {
+    cantocapAPI: {
+      // System Operations
+      checkDependencies: () => Promise<Record<string, DependencyStatus>>;
+      
+      // Initialization and Setup
+      runInitialization: () => Promise<InitializationResult>;
+      runEngineSetup: () => Promise<boolean>;
+      openPythonDownload: () => Promise<void>;
+      openPyenvGuide: () => Promise<void>;
+      openFFmpegDownload: () => Promise<void>;
+      
+      // External URLs
+      openExternalUrl: (url: string) => Promise<void>;
+      
+      // Application Info
+      getAppVersion: () => Promise<string>;
+      getPlatform: () => Promise<string>;
+      
+      // DevTools Controls
+      openDevTools: () => Promise<void>;
+      closeDevTools: () => Promise<void>;
+      toggleDevTools: () => Promise<void>;
+      
+      // File Dialogs
+      openFileDialog: (options?: FileDialogOptions) => Promise<FileDialogResult>;
+      openFolderDialog: () => Promise<FileDialogResult>;
+      saveFileDialog: (options?: {
+        defaultPath?: string;
+        filters?: Array<{ name: string; extensions: string[] }>;
+      }) => Promise<SaveFileDialogResult>;
+      writeExportFile: (filePath: string, content: string) => Promise<{ success: boolean }>;
+      readJsonFile: (filePath: string) => Promise<any>;
+      
+      // Video Processing
+      getVideoMetadata: (filePath: string) => Promise<{
+        metadata: {
+          duration: number;
+          width: number;
+          height: number;
+          framerate: number;
+          size: number;
+          format: string;
+        } | null;
+        thumbnail: string | null;
+        error?: string;
+      }>;
+      clearVideoCache: () => Promise<void>;
+      getVideoDataUrl: (filePath: string) => Promise<string | null>;
+      
+      // Process Management
+      startTranscription: (config: AppConfig) => void;
+      cancelProcess: () => void;
+      checkHardware: () => Promise<HardwareInfo>;
+      
+      // Modern IPC Message Handler
+      onIPCMessage: (callback: (data: IPCMessage) => void) => (() => void);
+      
+      // Subtitle Management - Workspace Operations
+      subtitleWorkspaceLoad: (workspaceId: string) => Promise<any>;
+      subtitleWorkspaceSave: (workspaceId: string, data: any) => Promise<{ success: boolean; error?: string }>;
+      subtitleWorkspaceExists: (workspaceId: string) => Promise<boolean>;
+      subtitleWorkspaceDelete: (workspaceId: string) => Promise<{ success: boolean }>;
+      
+      // Subtitle Management - Import Operations
+      subtitleImportJson: (filePath: string) => Promise<{ success: boolean; subtitles?: any[]; error?: string }>;
+      subtitleValidateFormat: (data: any) => Promise<{ isValid: boolean; errors?: string[] }>;
+      
+      // Subtitle Management - Step Integration
+      subtitleSyncToStep: (workspaceId: string, subtitles: any[]) => Promise<{ success: boolean }>;
+      subtitleSyncFromStep: (workspaceId: string) => Promise<{ subtitles?: any[] }>;
+      
+      // Utility Functions
+      removeAllListeners: () => void;
+    };
+
+    // Electron API alias for consistency
+    electronAPI: Window['cantocapAPI'];
+
+    // Debug API (development only)
+    debugAPI?: {
+      getProcessInfo: () => {
+        platform: string;
+        version: string;
+        versions: any;
+      };
+      testIPC: () => Promise<Record<string, DependencyStatus>>;
+    };
+  }
+}
+
+export {};

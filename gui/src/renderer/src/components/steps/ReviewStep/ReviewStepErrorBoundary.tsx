@@ -1,4 +1,4 @@
-import React, { Component, ReactNode } from 'react';
+import { Component, ReactNode } from 'react';
 import { Box, Typography, Button, Alert } from '@mui/material';
 import { useSubtitleEditStore } from '../../../stores/useSubtitleEditStore';
 

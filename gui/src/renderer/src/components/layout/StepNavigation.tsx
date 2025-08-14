@@ -83,7 +83,7 @@ export const StepNavigation: React.FC = React.memo(() => {
   const inputStepContent = useInputStepContent();
   
   // Subtitle editing state for unsaved changes detection
-  const { saveToWorkspace, hasUnsavedChanges, loadSubtitlesForWorkspace } = useSubtitleActions();
+  const { saveToWorkspace, loadSubtitlesForWorkspace } = useSubtitleActions();
   const { isDirty, isSaving, saveError } = useSaveState();
   
   // Dialog state for unsaved changes
@@ -123,7 +123,7 @@ export const StepNavigation: React.FC = React.memo(() => {
       }
 
       // Check for unsaved changes when navigating away from review step
-      if (currentStep === 'review' && stepId !== 'review' && hasUnsavedChanges()) {
+      if (currentStep === 'review' && stepId !== 'review' && isDirty) {
         setPendingStepNavigation(stepId);
         setShowUnsavedDialog(true);
         return;
@@ -136,7 +136,7 @@ export const StepNavigation: React.FC = React.memo(() => {
         console.error(`Navigation error for ${stepId}:`, error);
       }
     },
-    [workflowActions, currentStep, hasUnsavedChanges]
+    [workflowActions, currentStep, isDirty]
   );
 
   // Unsaved changes dialog handlers
@@ -858,27 +858,6 @@ export const StepNavigation: React.FC = React.memo(() => {
                               }}
                             >
                               Step encountered an error
-                            </Typography>
-                          )}
-
-                          {/* Warning details */}
-                          {state === StepStatus.WARNING && (
-                            <Typography
-                              variant='caption'
-                              component="span"
-                              sx={{
-                                fontSize: '0.65rem',
-                                color: 'warning.main',
-                                fontStyle: 'italic',
-                                mt: 0.25,
-                                backgroundColor: 'rgba(245, 124, 0, 0.1)',
-                                padding: '2px 6px',
-                                borderRadius: 0.5,
-                                border: '1px solid rgba(245, 124, 0, 0.2)',
-                                display: 'block',
-                              }}
-                            >
-                              Step completed with warnings
                             </Typography>
                           )}
                         </span>

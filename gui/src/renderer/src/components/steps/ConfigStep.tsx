@@ -18,13 +18,17 @@ import {
   useStepActions,
   useStepError,
   useStepLoading,
+  useInputStepContent,
+  useProcessingStepContent,
 } from '../../stores/useStepStore';
+import { useWorkflowStore } from '../../stores/useWorkflowStore';
 import type {
   TranslationLanguage,
   ProcessingLanguage,
   WhisperModel,
   ConfigStepData,
 } from '../../stores/types/StoreTypes';
+import { StepStatus } from '../../stores/types/StoreTypes';
 
 // Context for config updates
 const ConfigUpdateContext = React.createContext<{
@@ -143,7 +147,7 @@ const validateConfiguration = (config: ConfigStepData): { isValid: boolean; erro
     errors.push('Processing language is required');
   }
 
-  if (!config.model) {
+  if (!config.modelSettings?.whisperModel) {
     errors.push('Whisper model is required');
   }
 
@@ -167,7 +171,7 @@ const ConfigPreview: React.FC = () => {
     if (config.outputFile || config.inputFile) completed++;
     if (config.charset) completed++;
     if (config.language) completed++;
-    if (config.model) completed++;
+    if (config.modelSettings?.whisperModel) completed++;
     if (config.subtitle) completed++;
     if (config.geminiKey || config.speakers || config.written || config.music) completed++;
 
@@ -239,7 +243,7 @@ const ConfigPreview: React.FC = () => {
             ⚙️ Processing
           </Typography>
           <Typography variant='body2'>
-            {config.model ? getModelDisplayName(config.model) : 'Auto-select'} •{' '}
+            {config.modelSettings?.whisperModel ? getModelDisplayName(config.modelSettings.whisperModel) : 'Auto-select'} •{' '}
             {config.language ? getProcessingLanguageName(config.language) : 'Auto-detect'}
           </Typography>
         </Box>
@@ -316,7 +320,10 @@ const ConfigSection: React.FC<{
 
 export const ConfigStep: React.FC = () => {
   const config = useConfigStepContent();
+  const inputStep = useInputStepContent();
+  const processing = useProcessingStepContent();
   const { updateStepContent, clearError } = useStepActions();
+  const setStepState = useWorkflowStore(state => state.actions.setStepState);
   const error = useStepError();
   const isLoading = useStepLoading();
   const [showErrorNotification, setShowErrorNotification] = useState(false);
@@ -366,6 +373,30 @@ export const ConfigStep: React.FC = () => {
   useEffect(() => {
     setValidationErrors(validation.errors);
   }, [validation]);
+
+  // Update config step state based on validation and input file availability
+  useEffect(() => {
+    const inputFile = inputStep?.inputFile || inputStep?.selectedFile;
+    const isProcessingCompleted = processing?.status === 'completed';
+    const huggingFaceKey = config?.apiKeys?.huggingface;
+    
+    if (isProcessingCompleted) {
+      // If processing is complete, keep config step as READY
+      setStepState('config', StepStatus.READY);
+    } else if (!inputFile) {
+      // If no input file from step 1, show warning
+      setStepState('config', StepStatus.WARNING);
+    } else if (!huggingFaceKey) {
+      // If no Hugging Face API key, show warning (required)
+      setStepState('config', StepStatus.WARNING);
+    } else if (validation.isValid) {
+      // If validation passes and input file exists and API key provided, set to READY
+      setStepState('config', StepStatus.READY);
+    } else {
+      // If other validation fails, set to WARNING
+      setStepState('config', StepStatus.WARNING);
+    }
+  }, [inputStep?.inputFile, inputStep?.selectedFile, processing?.status, validation.isValid, config?.apiKeys?.huggingface, setStepState]);
 
   return (
     isReady && (
@@ -461,8 +492,8 @@ export const ConfigStep: React.FC = () => {
               </ConfigSection>
 
               <ConfigSection
-                title='AI Enhancement'
-                icon={<Box sx={{ fontSize: '1.25rem' }}>✨</Box>}
+                title='Keys Management'
+                icon={<Box sx={{ fontSize: '1.25rem' }}>🔑</Box>}
                 important={true}
               >
                 <APIKeyInput />

@@ -310,6 +310,7 @@ export interface ModelSettings {
 export interface ApiKeys {
   gemini?: string;
   openai?: string;
+  huggingface?: string;
 }
 
 export interface AdvancedSettings {
@@ -325,7 +326,6 @@ export interface ConfigStepData {
   inputFile?: string | null;
   charset?: 'traditional' | 'simplified';
   language?: ProcessingLanguage;
-  model?: WhisperModel;
   subtitle?: TranslationLanguage | null; // Translation language code for secondary captions
   geminiKey?: string;
   speakers?: boolean;
@@ -521,6 +521,10 @@ export interface SubtitleEditState {
     // Edit history
     undo: () => void;
     redo: () => void;
+    
+    // Import/Export
+    importFromJson: (workspaceId: string, videoPath: string, jsonData: unknown[]) => Promise<void>;
+    exportToStep: () => Promise<void>;
     
     // Persistence
     saveToWorkspace: () => Promise<void>;

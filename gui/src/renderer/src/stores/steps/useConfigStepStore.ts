@@ -1,12 +1,12 @@
 import { create } from 'zustand';
-import { ConfigStepData, ProcessingLanguage, WhisperModel } from '../types/StoreTypes';
+import { ConfigStepData, ProcessingLanguage, WhisperModel, ElectronWindow } from '../types/StoreTypes';
 
 interface ConfigStepState {
   data: ConfigStepData;
   actions: {
-    updateConfigStep: (content: Partial<ConfigStepData>) => void;
+    updateConfigStep: (content: Partial<ConfigStepData>) => Promise<void>;
     resetConfigStep: () => void;
-    setModel: (model: string) => void;
+    setModel: (model: string) => Promise<void>;
     setLanguage: (language: string) => void;
     setCharset: (charset: string) => void;
     setGeminiKey: (key: string | undefined) => void;
@@ -27,7 +27,6 @@ const defaultConfigStepData: ConfigStepData = {
   inputFile: null,
   charset: 'traditional',
   language: 'zh' as const,
-  model: 'openai/whisper-medium',
   subtitle: null, // No translation by default
   geminiKey: undefined,
   speakers: false,
@@ -64,39 +63,159 @@ export const useConfigStepStore = create<ConfigStepState>((set, get) => ({
   data: defaultConfigStepData,
   
   actions: {
-    updateConfigStep: (content: Partial<ConfigStepData>) => {
+    updateConfigStep: async (content: Partial<ConfigStepData>) => {
+      console.log(`🔄 UPDATE CONFIG: Updating config with:`, content);
+      
+      // Migrate legacy data: if 'model' field exists, move it to modelSettings.whisperModel
+      const migratedContent = { ...content };
+      if ('model' in migratedContent && (migratedContent as any).model) {
+        const legacyModel = (migratedContent as any).model;
+        console.log(`🔄 CONFIG STORE MIGRATION: Found legacy model field:`, legacyModel);
+        
+        if (!migratedContent.modelSettings) {
+          migratedContent.modelSettings = { 
+            whisperModel: legacyModel,
+            enableGemini: false,
+            temperature: 0.1
+          };
+        } else {
+          migratedContent.modelSettings = {
+            ...migratedContent.modelSettings,
+            whisperModel: legacyModel
+          };
+        }
+        
+        // Remove the legacy field
+        delete (migratedContent as any).model;
+        console.log(`✅ CONFIG STORE MIGRATION: Migrated to modelSettings.whisperModel:`, migratedContent.modelSettings.whisperModel);
+      }
+
+      // Update the store first
       set(state => ({
-        data: { ...state.data, ...content }
+        data: { 
+          ...state.data, 
+          ...migratedContent, 
+          lastModified: Date.now() 
+        }
       }));
+
+      // CRITICAL FIX: Call persistence directly to avoid circular dependency
+      // Do NOT call useStepStore.updateStepContent() as it will call us back!
+      try {
+        const { useAppStore } = await import('../useAppStore');
+        const workspaceId = useAppStore.getState().activeWorkspaceId;
+        
+        if (!workspaceId) {
+          console.warn('CONFIG STORE: No active workspace - cannot persist config changes');
+          return;
+        }
+
+        const updatedData = get().data;
+        console.log(`💾 UPDATE CONFIG: Persisting directly to Electron with data:`, updatedData);
+        
+        // Call IPC directly to avoid circular dependency
+        await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('step:updateContent', workspaceId, 'config', updatedData);
+        console.log(`✅ UPDATE CONFIG: Successfully persisted config changes to Electron store`);
+      } catch (error) {
+        console.error(`❌ UPDATE CONFIG: Failed to persist config changes:`, error);
+        throw error; // Re-throw to let calling code handle the error
+      }
     },
 
     resetConfigStep: () => {
       set({ data: defaultConfigStepData });
     },
 
-    setModel: (model: string) => {
-      set(state => ({
-        data: {
+    setModel: async (model: string) => {
+      console.log(`🔄 SET MODEL: Setting model to:`, model);
+      
+      // Update the store first
+      set(state => {
+        const newData = {
           ...state.data,
-          model: model as WhisperModel,
           modelSettings: {
             ...state.data.modelSettings,
             whisperModel: model as WhisperModel
-          }
+          },
+          lastModified: Date.now()
+        };
+        console.log(`✅ SET MODEL: Updated store data:`, newData);
+        return { data: newData };
+      });
+
+      // Call persistence directly to avoid circular dependency
+      try {
+        const { useAppStore } = await import('../useAppStore');
+        const workspaceId = useAppStore.getState().activeWorkspaceId;
+        
+        if (!workspaceId) {
+          console.warn('SET MODEL: No active workspace - cannot persist model change');
+          return;
         }
-      }));
+
+        const updatedData = get().data;
+        console.log(`💾 SET MODEL: Persisting directly to Electron with data:`, updatedData);
+        
+        // Call IPC directly to avoid circular dependency
+        await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('step:updateContent', workspaceId, 'config', updatedData);
+        console.log(`✅ SET MODEL: Successfully persisted model change to Electron store`);
+      } catch (error) {
+        console.error(`❌ SET MODEL: Failed to persist model change:`, error);
+      }
     },
 
-    setLanguage: (language: string) => {
+    setLanguage: async (language: string) => {
+      // Update the store first
       set(state => ({
-        data: { ...state.data, language: language as ProcessingLanguage }
+        data: { ...state.data, language: language as ProcessingLanguage, lastModified: Date.now() }
       }));
+
+      // Call persistence directly to avoid circular dependency
+      try {
+        const { useAppStore } = await import('../useAppStore');
+        const workspaceId = useAppStore.getState().activeWorkspaceId;
+        
+        if (!workspaceId) {
+          console.warn('SET LANGUAGE: No active workspace - cannot persist language change');
+          return;
+        }
+
+        const updatedData = get().data;
+        console.log(`💾 SET LANGUAGE: Persisting directly to Electron with data:`, updatedData);
+        
+        // Call IPC directly to avoid circular dependency
+        await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('step:updateContent', workspaceId, 'config', updatedData);
+        console.log(`✅ SET LANGUAGE: Successfully persisted language change to Electron store`);
+      } catch (error) {
+        console.error(`❌ SET LANGUAGE: Failed to persist language change:`, error);
+      }
     },
 
-    setCharset: (charset: string) => {
+    setCharset: async (charset: string) => {
+      // Update the store first
       set(state => ({
-        data: { ...state.data, charset: charset as "traditional" | "simplified" }
+        data: { ...state.data, charset: charset as "traditional" | "simplified", lastModified: Date.now() }
       }));
+
+      // Call persistence directly to avoid circular dependency
+      try {
+        const { useAppStore } = await import('../useAppStore');
+        const workspaceId = useAppStore.getState().activeWorkspaceId;
+        
+        if (!workspaceId) {
+          console.warn('SET CHARSET: No active workspace - cannot persist charset change');
+          return;
+        }
+
+        const updatedData = get().data;
+        console.log(`💾 SET CHARSET: Persisting directly to Electron with data:`, updatedData);
+        
+        // Call IPC directly to avoid circular dependency
+        await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('step:updateContent', workspaceId, 'config', updatedData);
+        console.log(`✅ SET CHARSET: Successfully persisted charset change to Electron store`);
+      } catch (error) {
+        console.error(`❌ SET CHARSET: Failed to persist charset change:`, error);
+      }
     },
 
     setGeminiKey: (key: string | undefined) => {
@@ -192,8 +311,8 @@ export const useConfigStepStore = create<ConfigStepState>((set, get) => ({
       }
 
       // Model
-      if (config.model) {
-        args.push('--model', config.model);
+      if (config.modelSettings?.whisperModel) {
+        args.push('--model', config.modelSettings.whisperModel);
       }
 
       // Priority (only if not default 'balanced')

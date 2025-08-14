@@ -174,7 +174,6 @@ export class WorkspaceConfigService {
           inputFile: null,
           charset: 'traditional',
           language: 'zh',
-          model: 'openai/whisper-medium',
           subtitle: null, // No translation by default
           geminiKey: undefined,
           speakers: false,
@@ -192,7 +191,7 @@ export class WorkspaceConfigService {
 
           // Structured settings
           modelSettings: {
-            whisperModel: 'openai/whisper-medium',
+            whisperModel: 'auto',
             enableGemini: false,
             temperature: 0.1,
           },
@@ -264,11 +263,19 @@ export class WorkspaceConfigService {
   updateStepContent(id: string, stepName: string, content: any): void {
     const store = this.getOrCreateStore(id);
     if (store) {
+      // CRITICAL FIX: Replace the step content entirely instead of merging
+      // This ensures deleted fields (like legacy 'model') are actually removed
+      console.log(`💾 WorkspaceConfigService: Replacing ${stepName} step content with:`, content);
+      
       const currentStepData = store.get(`steps.${stepName}` as any, {});
-      store.set(`steps.${stepName}` as any, {
-        ...currentStepData,
-        ...content,
-      });
+      console.log(`🔍 WorkspaceConfigService: Current ${stepName} step data:`, currentStepData);
+      
+      // Use complete replacement instead of merge to ensure field deletions work
+      store.set(`steps.${stepName}` as any, content);
+      
+      const savedData = store.get(`steps.${stepName}` as any, {});
+      console.log(`✅ WorkspaceConfigService: ${stepName} step data after save:`, savedData);
+      
       store.set('lastAccessed', new Date().toISOString());
     }
   }

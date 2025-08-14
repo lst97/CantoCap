@@ -23,9 +23,11 @@ import { useAppActions, useActiveWorkspaceId } from '../../stores/useAppStore'
 import { 
   useConfigStepContent, 
   useProcessingStepContent, 
-  useStepActions 
+  useStepActions,
+  useInputStepContent
 } from '../../stores/useStepStore'
-import { useWorkflowActions } from '../../stores/useWorkflowStore'
+import { useWorkflowActions, useWorkflowStore } from '../../stores/useWorkflowStore'
+import { StepStatus } from '../../stores/types/StoreTypes'
 
 export const ActionPanel = () => {
   // Get app-level data
@@ -34,14 +36,18 @@ export const ActionPanel = () => {
   
   // Get step-specific data
   const config = useConfigStepContent()
+  const inputStep = useInputStepContent()
   const processing = useProcessingStepContent()
   const stepActions = useStepActions()
   const workflowActions = useWorkflowActions()
+  const setStepState = useWorkflowStore(state => state.actions.setStepState)
   
   // Check if transcription can be started
   const canStartTranscription = useCallback(() => {
-    return !!(config.inputFile && activeWorkspaceId && processing.status !== 'running')
-  }, [config.inputFile, activeWorkspaceId, processing.status])
+    const inputFile = inputStep.inputFile || inputStep.selectedFile
+    const huggingFaceKey = config.apiKeys?.huggingface
+    return !!(inputFile && activeWorkspaceId && huggingFaceKey && processing.status !== 'running')
+  }, [inputStep.inputFile, inputStep.selectedFile, activeWorkspaceId, config.apiKeys?.huggingface, processing.status])
   
   // Helper to show notifications (placeholder)
   const showNotification = useCallback((message: string, type: string = 'info') => {
@@ -54,15 +60,22 @@ export const ActionPanel = () => {
 
   const handleStartTranscription = useCallback(async () => {
     if (!canStartTranscription()) {
-      if (!config.inputFile) {
+      const inputFile = inputStep.inputFile || inputStep.selectedFile
+      const huggingFaceKey = config.apiKeys?.huggingface
+      if (!inputFile) {
         showNotification('Please select an input file first', 'error')
       } else if (!activeWorkspaceId) {
         showNotification('Please select a workspace first', 'error')
+      } else if (!huggingFaceKey) {
+        showNotification('Hugging Face API key is required for subtitle generation', 'error')
       }
       return
     }
     
     try {
+      // Mark config step as complete first to allow navigation to processing
+      await setStepState('config', StepStatus.COMPLETE)
+      
       // Navigate to processing step and start transcription
       await workflowActions.navigateToStep('processing')
       showNotification('Starting transcription process...', 'info')
@@ -70,7 +83,7 @@ export const ActionPanel = () => {
       console.error('Failed to start transcription:', error)
       showNotification('Failed to start transcription', 'error')
     }
-  }, [canStartTranscription, config.inputFile, activeWorkspaceId, workflowActions, showNotification])
+  }, [canStartTranscription, inputStep.inputFile, inputStep.selectedFile, activeWorkspaceId, config.apiKeys?.huggingface, workflowActions, showNotification, setStepState])
 
   const handleCancelTranscription = useCallback(async () => {
     try {
@@ -136,9 +149,12 @@ export const ActionPanel = () => {
     }
     
     const issues = []
+    const inputFile = inputStep.inputFile || inputStep.selectedFile
+    const huggingFaceKey = config.apiKeys?.huggingface
     
-    if (!config.inputFile) issues.push('No input file selected')
+    if (!inputFile) issues.push('No input file selected')
     if (!activeWorkspaceId) issues.push('No workspace selected')
+    if (!huggingFaceKey) issues.push('Hugging Face API key is required')
     // Note: Dependencies check would need to be implemented in AppStore or separate dependency store
     
     if (issues.length === 0) {
@@ -153,6 +169,9 @@ export const ActionPanel = () => {
   }
 
   const readiness = getReadinessStatus()
+
+  // Note: Step state management is handled by the parent ConfigStep component
+  // This component only handles validation display and button actions
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -341,7 +360,7 @@ export const ActionPanel = () => {
           <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
             <Typography variant="body2" color="text.secondary">Model:</Typography>
             <Typography variant="body2">
-              {config.model || 'Auto-select'}
+              {config.modelSettings?.whisperModel || 'Auto-select'}
             </Typography>
           </Box>
           

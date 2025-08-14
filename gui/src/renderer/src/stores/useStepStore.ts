@@ -1,8 +1,8 @@
 import React from 'react';
 import { create } from 'zustand';
-import { 
+import {
   StepContentState,
-  StepType, 
+  StepType,
   StepContentUpdatedEvent,
   ExportStepData,
   ExportRecord,
@@ -18,7 +18,7 @@ import {
   useConfigStepStore,
   useProcessingStepStore,
   useReviewStepStore,
-  useExportStepStore
+  useExportStepStore,
 } from './steps';
 
 // ============================================================================
@@ -30,37 +30,37 @@ export const useStepStore = create<StepContentState>((set, get) => {
 
   // Set up subscriptions to individual stores
   useInputStepStore.subscribe((state) => {
-    set(currentState => ({
+    set((currentState) => ({
       ...currentState,
-      inputStep: state.data
+      inputStep: state.data,
     }));
   });
 
   useConfigStepStore.subscribe((state) => {
-    set(currentState => ({
+    set((currentState) => ({
       ...currentState,
-      configStep: state.data
+      configStep: state.data,
     }));
   });
 
   useProcessingStepStore.subscribe((state) => {
-    set(currentState => ({
+    set((currentState) => ({
       ...currentState,
-      processingStep: state.data
+      processingStep: state.data,
     }));
   });
 
   useReviewStepStore.subscribe((state) => {
-    set(currentState => ({
+    set((currentState) => ({
       ...currentState,
-      reviewStep: state.data
+      reviewStep: state.data,
     }));
   });
 
   useExportStepStore.subscribe((state) => {
-    set(currentState => ({
+    set((currentState) => ({
       ...currentState,
-      exportStep: state.data
+      exportStep: state.data,
     }));
   });
 
@@ -78,23 +78,30 @@ export const useStepStore = create<StepContentState>((set, get) => {
     processingStep: initialProcessingData,
     reviewStep: initialReviewData,
     exportStep: initialExportData,
-    
+
     // General State
     isLoading: false,
     error: null,
     hasUnsavedChanges: false,
     currentWorkspaceId: null,
-    
+
     // Actions
     actions: {
       updateStepContent: async <T>(step: StepType, content: Partial<T>, workspaceId?: string) => {
+        console.log(`🔄 STEP UPDATE: Updating ${step} step with content:`, content);
+
         // Delegate to individual step stores first
         switch (step) {
           case 'input':
             useInputStepStore.getState().actions.updateInputStep(content);
             break;
           case 'config':
-            useConfigStepStore.getState().actions.updateConfigStep(content);
+            console.log(`🔄 CONFIG UPDATE: Delegating to config store with:`, content);
+            await useConfigStepStore.getState().actions.updateConfigStep(content);
+            console.log(
+              `✅ CONFIG UPDATE: Config store updated, current data:`,
+              useConfigStepStore.getState().data
+            );
             break;
           case 'processing':
             useProcessingStepStore.getState().actions.updateProcessingStep(content);
@@ -106,10 +113,10 @@ export const useStepStore = create<StepContentState>((set, get) => {
             useExportStepStore.getState().actions.updateExportStep(content);
             break;
         }
-        
+
         // Handle workspace persistence
         let currentWorkspaceId = workspaceId || get().currentWorkspaceId;
-        
+
         if (!currentWorkspaceId) {
           try {
             const { useAppStore } = await import('./useAppStore');
@@ -118,45 +125,61 @@ export const useStepStore = create<StepContentState>((set, get) => {
             console.warn('StepStore: Could not get workspace ID from app store:', error);
           }
         }
-        
+
         if (!currentWorkspaceId) {
-          console.warn('StepStore: No current workspace - cannot update step content. Please select a workspace first.');
+          console.warn(
+            'StepStore: No current workspace - cannot update step content. Please select a workspace first.'
+          );
           return;
         }
-        
-        console.log(`🔄 StepStore: Updating ${step} step content for workspace:`, currentWorkspaceId);
-        
+
+        console.log(
+          `🔄 StepStore: Updating ${step} step content for workspace:`,
+          currentWorkspaceId
+        );
+
         try {
           set({ hasUnsavedChanges: true, currentWorkspaceId });
-          
+
           // Persist to main process
-          await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('step:updateContent', currentWorkspaceId, step, content);
-          console.log(`✅ StepStore: ${step} step content updated for workspace:`, currentWorkspaceId);
-          
+          await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke(
+            'step:updateContent',
+            currentWorkspaceId,
+            step,
+            content
+          );
+          console.log(
+            `✅ StepStore: ${step} step content updated for workspace:`,
+            currentWorkspaceId
+          );
         } catch (error) {
           console.error(`❌ StepStore: Failed to update ${step} step content:`, error);
-          set({ 
-            error: error instanceof Error ? error.message : 'Failed to update step content' 
+          set({
+            error: error instanceof Error ? error.message : 'Failed to update step content',
           });
         }
       },
-      
+
       getStepContent: (step: StepType) => {
         // Get from current state (which is synced from individual stores)
         const state = get();
         return state[`${step}Step` as keyof StepContentState];
       },
-      
+
       resetStepContent: async (step: StepType, workspaceId?: string) => {
         const currentWorkspaceId = workspaceId || get().currentWorkspaceId;
         if (!currentWorkspaceId) return;
-        
+
         try {
           set({ isLoading: true, error: null });
-          
+
           // Get default content from main process
-          await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('step:resetContent', currentWorkspaceId, step);
-          
+          await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke(
+            'step:resetContent',
+            currentWorkspaceId,
+            step
+          );
+
           // Reset the individual store
           switch (step) {
             case 'input':
@@ -175,26 +198,29 @@ export const useStepStore = create<StepContentState>((set, get) => {
               useExportStepStore.getState().actions.resetExportStep();
               break;
           }
-          
+
           set({ isLoading: false });
-          
         } catch (error) {
           console.error('Failed to reset step content:', error);
-          set({ 
+          set({
             isLoading: false,
-            error: error instanceof Error ? error.message : 'Failed to reset step content' 
+            error: error instanceof Error ? error.message : 'Failed to reset step content',
           });
         }
       },
-      
+
       loadStepContent: async (workspaceId: string, step: StepType) => {
         try {
           set({ isLoading: true, error: null });
-          
+
           console.log(`🔄 StepStore: Loading ${step} step content for workspace:`, workspaceId);
-          
-          const content = await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('step:getContent', workspaceId, step);
-          
+
+          const content = await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke(
+            'step:getContent',
+            workspaceId,
+            step
+          );
+
           if (content) {
             // Validate step content before updating
             const validation = validateStepContent(step, content);
@@ -205,16 +231,16 @@ export const useStepStore = create<StepContentState>((set, get) => {
             if (validation.warnings.length > 0) {
               console.warn(`⚠️ ${step} step content warnings:`, validation.warnings);
             }
-            
+
             console.log(`✅ Loaded ${step} step content:`, content);
-            
+
             // Update the individual store - this will trigger sync back to main store
             switch (step) {
               case 'input':
                 useInputStepStore.getState().actions.updateInputStep(content);
                 break;
               case 'config':
-                useConfigStepStore.getState().actions.updateConfigStep(content);
+                await useConfigStepStore.getState().actions.updateConfigStep(content);
                 break;
               case 'processing':
                 useProcessingStepStore.getState().actions.updateProcessingStep(content);
@@ -229,14 +255,13 @@ export const useStepStore = create<StepContentState>((set, get) => {
           } else {
             console.log(`ℹ️ No ${step} step content found for workspace:`, workspaceId);
           }
-          
+
           set({ isLoading: false });
-          
         } catch (error) {
           console.error(`Failed to load ${step} step content:`, error);
-          set({ 
+          set({
             isLoading: false,
-            error: error instanceof Error ? error.message : `Failed to load ${step} step content` 
+            error: error instanceof Error ? error.message : `Failed to load ${step} step content`,
           });
         }
       },
@@ -245,7 +270,7 @@ export const useStepStore = create<StepContentState>((set, get) => {
         await safeWorkspaceOperation(async () => {
           set({ isLoading: true, error: null });
           console.log('🔄 StepStore: Loading all step content for workspace:', workspaceId);
-          
+
           // CRITICAL: Reset all step stores to defaults before loading workspace-specific content
           // This ensures complete workspace isolation
           console.log('🔄 StepStore: Resetting all step stores to ensure workspace isolation...');
@@ -259,14 +284,16 @@ export const useStepStore = create<StepContentState>((set, get) => {
           } catch (resetError) {
             console.error('❌ StepStore: Failed to reset step stores:', resetError);
           }
-          
+
           const stepTypes: StepType[] = ['input', 'config', 'processing', 'review', 'export'];
-          
+
           // Load all steps in parallel for better performance
           const loadPromises = stepTypes.map(async (step) => {
             try {
-              const content = await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('step:getContent', workspaceId, step);
-              
+              const content = await (
+                window as unknown as ElectronWindow
+              ).electron.ipcRenderer.invoke('step:getContent', workspaceId, step);
+
               if (content) {
                 // Validate step content before updating
                 const validation = validateStepContent(step, content);
@@ -277,16 +304,19 @@ export const useStepStore = create<StepContentState>((set, get) => {
                 if (validation.warnings.length > 0) {
                   console.warn(`⚠️ ${step} step content warnings:`, validation.warnings);
                 }
-                
-                console.log(`✅ StepStore: Loaded ${step} step content for workspace ${workspaceId}`, content);
-                
+
+                console.log(
+                  `✅ StepStore: Loaded ${step} step content for workspace ${workspaceId}`,
+                  content
+                );
+
                 // Update the individual store with workspace context
                 switch (step) {
                   case 'input':
                     useInputStepStore.getState().actions.updateInputStep(content);
                     break;
                   case 'config':
-                    useConfigStepStore.getState().actions.updateConfigStep(content);
+                    await useConfigStepStore.getState().actions.updateConfigStep(content);
                     break;
                   case 'processing':
                     useProcessingStepStore.getState().actions.updateProcessingStep(content);
@@ -299,117 +329,128 @@ export const useStepStore = create<StepContentState>((set, get) => {
                     break;
                 }
               }
-              
+
               return { step, success: true, content };
             } catch (stepError) {
               console.warn(`⚠️ Failed to load ${step} step content:`, stepError);
               return { step, success: false, error: stepError };
             }
           });
-          
+
           const results = await Promise.all(loadPromises);
-          const failedSteps = results.filter(r => !r.success);
-          
+          const failedSteps = results.filter((r) => !r.success);
+
           if (failedSteps.length > 0) {
-            console.warn(`⚠️ Some steps failed to load:`, failedSteps.map(f => f.step));
+            console.warn(
+              `⚠️ Some steps failed to load:`,
+              failedSteps.map((f) => f.step)
+            );
           }
-          
-          set({ 
+
+          set({
             isLoading: false,
-            currentWorkspaceId: workspaceId
+            currentWorkspaceId: workspaceId,
           });
-          
-          console.log('✅ StepStore: All step content loading completed for workspace:', workspaceId);
-          console.log('✅ StepStore: Workspace', workspaceId, 'is now isolated with its own configuration');
-          
+
+          console.log(
+            '✅ StepStore: All step content loading completed for workspace:',
+            workspaceId
+          );
+          console.log(
+            '✅ StepStore: Workspace',
+            workspaceId,
+            'is now isolated with its own configuration'
+          );
         }, `load all step content for workspace ${workspaceId}`);
       },
-      
+
       setLoading: (loading: boolean) => {
         set({ isLoading: loading });
       },
-      
+
       setError: (error: string | null) => {
         set({ error });
       },
-      
+
       clearError: () => {
         set({ error: null });
       },
-      
+
       markUnsavedChanges: (hasChanges: boolean) => {
         set({ hasUnsavedChanges: hasChanges });
       },
-      
+
       saveAllChanges: async () => {
         const currentWorkspaceId = get().currentWorkspaceId;
         if (!currentWorkspaceId) return;
-        
+
         try {
           set({ isLoading: true, error: null });
-          
+
           // Save all step content to main process
           const state = get();
           const steps: StepType[] = ['input', 'config', 'processing', 'review', 'export'];
-          
+
           await Promise.all(
-            steps.map(step => 
+            steps.map((step) =>
               (window as unknown as ElectronWindow).electron.ipcRenderer.invoke(
-                'step:updateContent', 
-                currentWorkspaceId, 
-                step, 
+                'step:updateContent',
+                currentWorkspaceId,
+                step,
                 state[`${step}Step` as keyof StepContentState]
               )
             )
           );
-          
-          set({ 
+
+          set({
             isLoading: false,
-            hasUnsavedChanges: false
+            hasUnsavedChanges: false,
           });
-          
         } catch (error) {
           console.error('Failed to save all changes:', error);
-          set({ 
+          set({
             isLoading: false,
-            error: error instanceof Error ? error.message : 'Failed to save changes' 
+            error: error instanceof Error ? error.message : 'Failed to save changes',
           });
         }
       },
-      
+
       discardChanges: async () => {
         const currentWorkspaceId = get().currentWorkspaceId;
         if (!currentWorkspaceId) return;
-        
+
         try {
           set({ isLoading: true, error: null });
-          
+
           // Reload all step content from main process
           const steps: StepType[] = ['input', 'config', 'processing', 'review', 'export'];
-          
+
           const stepContents = await Promise.all(
-            steps.map(step => 
-              (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('step:getContent', currentWorkspaceId, step)
+            steps.map((step) =>
+              (window as unknown as ElectronWindow).electron.ipcRenderer.invoke(
+                'step:getContent',
+                currentWorkspaceId,
+                step
+              )
             )
           );
-          
+
           // Update individual stores with fresh data - this will sync back to main store
           steps.forEach((step, index) => {
             if (stepContents[index]) {
               get().actions.updateStepContent(step, stepContents[index]);
             }
           });
-          
-          set({ 
-            isLoading: false, 
-            hasUnsavedChanges: false 
+
+          set({
+            isLoading: false,
+            hasUnsavedChanges: false,
           });
-          
         } catch (error) {
           console.error('Failed to discard changes:', error);
-          set({ 
+          set({
             isLoading: false,
-            error: error instanceof Error ? error.message : 'Failed to discard changes' 
+            error: error instanceof Error ? error.message : 'Failed to discard changes',
           });
         }
       },
@@ -431,7 +472,7 @@ export const useStepStore = create<StepContentState>((set, get) => {
 
         return args;
       },
-      
+
       // Cancel ongoing transcription process
       cancelTranscription: async () => {
         try {
@@ -506,8 +547,8 @@ export const useStepStore = create<StepContentState>((set, get) => {
       generatePreviewContent: async () => {
         const subtitles = useReviewStepStore.getState().data.subtitles;
         await useExportStepStore.getState().actions.generatePreviewContent(subtitles);
-      }
-    }
+      },
+    },
   };
 });
 
@@ -518,33 +559,44 @@ export const useStepStore = create<StepContentState>((set, get) => {
 // Initialize IPC listeners with enhanced defensive checks
 if (typeof window !== 'undefined' && (window as unknown as ElectronWindow).electron?.ipcRenderer) {
   // Step content updated event - delegate to individual stores
-  (window as unknown as ElectronWindow).electron.ipcRenderer.on<StepContentUpdatedEvent>('step:contentUpdated', ({ workspaceId, stepName, content }) => {
-    const currentWorkspaceId = useStepStore.getState().currentWorkspaceId;
-    
-    // Only update if this is for the current workspace
-    if (workspaceId !== currentWorkspaceId) {
-      return; // No change needed - wrong workspace
+  (window as unknown as ElectronWindow).electron.ipcRenderer.on<StepContentUpdatedEvent>(
+    'step:contentUpdated',
+    async ({ workspaceId, stepName, content }) => {
+      const currentWorkspaceId = useStepStore.getState().currentWorkspaceId;
+
+      // Only update if this is for the current workspace
+      if (workspaceId !== currentWorkspaceId) {
+        return; // No change needed - wrong workspace
+      }
+
+      // Delegate to individual stores - this will automatically sync back to main store
+      switch (stepName) {
+        case 'input':
+          useInputStepStore.getState().actions.updateInputStep(content as Partial<InputStepData>);
+          break;
+        case 'config':
+          await useConfigStepStore
+            .getState()
+            .actions.updateConfigStep(content as Partial<ConfigStepData>);
+          break;
+        case 'processing':
+          useProcessingStepStore
+            .getState()
+            .actions.updateProcessingStep(content as Partial<ProcessingStepData>);
+          break;
+        case 'review':
+          useReviewStepStore
+            .getState()
+            .actions.updateReviewStep(content as Partial<ReviewStepData>);
+          break;
+        case 'export':
+          useExportStepStore
+            .getState()
+            .actions.updateExportStep(content as Partial<ExportStepData>);
+          break;
+      }
     }
-    
-    // Delegate to individual stores - this will automatically sync back to main store
-    switch (stepName) {
-      case 'input':
-        useInputStepStore.getState().actions.updateInputStep(content as Partial<InputStepData>);
-        break;
-      case 'config':
-        useConfigStepStore.getState().actions.updateConfigStep(content as Partial<ConfigStepData>);
-        break;
-      case 'processing':
-        useProcessingStepStore.getState().actions.updateProcessingStep(content as Partial<ProcessingStepData>);
-        break;
-      case 'review':
-        useReviewStepStore.getState().actions.updateReviewStep(content as Partial<ReviewStepData>);
-        break;
-      case 'export':
-        useExportStepStore.getState().actions.updateExportStep(content as Partial<ExportStepData>);
-        break;
-    }
-  });
+  );
 }
 
 // ============================================================================
@@ -552,130 +604,158 @@ if (typeof window !== 'undefined' && (window as unknown as ElectronWindow).elect
 // ============================================================================
 
 // Hooks to get specific step content - use main store for consistency
-export const useInputStepContent = () => useStepStore(state => state.inputStep);
-export const useConfigStepContent = () => useStepStore(state => state.configStep);
-export const useProcessingStepContent = () => useStepStore(state => state.processingStep);
-export const useReviewStepContent = () => useStepStore(state => state.reviewStep);
-export const useExportStepContent = () => useStepStore(state => state.exportStep);
+export const useInputStepContent = () => useStepStore((state) => state.inputStep);
+export const useConfigStepContent = () => useStepStore((state) => state.configStep);
+export const useProcessingStepContent = () => useStepStore((state) => state.processingStep);
+export const useReviewStepContent = () => useStepStore((state) => state.reviewStep);
+export const useExportStepContent = () => useStepStore((state) => state.exportStep);
 
 // Hook to get step content by step type
-export const useStepContent = <T>(step: StepType) => 
-  useStepStore(state => state[`${step}Step` as keyof StepContentState] as T);
+export const useStepContent = <T>(step: StepType) =>
+  useStepStore((state) => state[`${step}Step` as keyof StepContentState] as T);
 
 // Hook to get step actions
 export const useStepActions = () => {
-  const actions = useStepStore(state => state.actions);
+  const actions = useStepStore((state) => state.actions);
   return React.useMemo(() => actions, [actions]);
 };
 
 // Hook to get step loading state
-export const useStepLoading = () => useStepStore(state => state.isLoading);
+export const useStepLoading = () => useStepStore((state) => state.isLoading);
 
-// Hook to get step error state  
-export const useStepError = () => useStepStore(state => state.error);
+// Hook to get step error state
+export const useStepError = () => useStepStore((state) => state.error);
 
 // Hook to check if there are unsaved changes
-export const useHasUnsavedChanges = () => useStepStore(state => state.hasUnsavedChanges);
+export const useHasUnsavedChanges = () => useStepStore((state) => state.hasUnsavedChanges);
 
 // Specific content selectors for common use cases
-export const useSelectedFiles = () => useStepStore(state => state.inputStep.selectedFiles);
-export const useInputFile = () => useStepStore(state => state.inputStep.inputFile || state.inputStep.selectedFile);
-export const useSelectedRange = () => useStepStore(state => state.inputStep.selectedRange);
+export const useSelectedFiles = () => useStepStore((state) => state.inputStep.selectedFiles);
+export const useInputFile = () =>
+  useStepStore((state) => state.inputStep.inputFile || state.inputStep.selectedFile);
+export const useSelectedRange = () => useStepStore((state) => state.inputStep.selectedRange);
 export const useTimeRange = () => {
-  const inputStep = useStepStore(state => state.inputStep);
-  
-  return React.useMemo(() => ({
-    startTime: inputStep.startTime,
-    endTime: inputStep.endTime,
-    duration: inputStep.duration,
-    selectedRange: inputStep.selectedRange
-  }), [inputStep.startTime, inputStep.endTime, inputStep.duration, inputStep.selectedRange]);
+  const inputStep = useStepStore((state) => state.inputStep);
+
+  return React.useMemo(
+    () => ({
+      startTime: inputStep.startTime,
+      endTime: inputStep.endTime,
+      duration: inputStep.duration,
+      selectedRange: inputStep.selectedRange,
+    }),
+    [inputStep.startTime, inputStep.endTime, inputStep.duration, inputStep.selectedRange]
+  );
 };
-export const useVideoMetadata = () => useStepStore(state => state.inputStep.mediaMetadata);
-export const useModelSettings = () => useStepStore(state => state.configStep.modelSettings);
-export const useProcessingStatus = () => useStepStore(state => state.processingStep.status);
-export const useProcessingProgress = () => useStepStore(state => state.processingStep.progress);
-export const useSubtitles = () => useStepStore(state => state.reviewStep.subtitles);
-export const useExportFormat = () => useStepStore(state => state.exportStep.format);
+export const useVideoMetadata = () => useStepStore((state) => state.inputStep.mediaMetadata);
+export const useModelSettings = () => useStepStore((state) => state.configStep.modelSettings);
+export const useProcessingStatus = () => useStepStore((state) => state.processingStep.status);
+export const useProcessingProgress = () => useStepStore((state) => state.processingStep.progress);
+export const useSubtitles = () => useStepStore((state) => state.reviewStep.subtitles);
+export const useExportFormat = () => useStepStore((state) => state.exportStep.format);
 
 // Hook to get validation state
 export const useConfigValidation = () => {
-  const configStep = useStepStore(state => state.configStep);
-  
-  return React.useMemo(() => ({
-    isValid: configStep.isValid,
-    errors: configStep.validationErrors
-  }), [configStep.isValid, configStep.validationErrors]);
+  const configStep = useStepStore((state) => state.configStep);
+
+  return React.useMemo(
+    () => ({
+      isValid: configStep.isValid,
+      errors: configStep.validationErrors,
+    }),
+    [configStep.isValid, configStep.validationErrors]
+  );
 };
 
 // Hook to get processing logs
-export const useProcessingLogs = () => useStepStore(state => state.processingStep.logs);
+export const useProcessingLogs = () => useStepStore((state) => state.processingStep.logs);
 
 // Hook to get export history
-export const useExportHistory = () => useStepStore(state => state.exportStep.exportHistory);
+export const useExportHistory = () => useStepStore((state) => state.exportStep.exportHistory);
 
 // Hook to get CLI arguments for subtitle generation
-export const useConfigAsCliArgs = () => useStepStore(state => state.actions.getConfigAsCliArgs);
+export const useConfigAsCliArgs = () => useStepStore((state) => state.actions.getConfigAsCliArgs);
 
 // ============================================================================
 // EXPORT-SPECIFIC HOOKS
 // ============================================================================
 
 // Export state selectors
-export const useExportPreviewState = () => useStepStore(state => state.exportStep.previewState);
-export const useExportActionsState = () => useStepStore(state => state.exportStep.actionsState);
-export const useExportHighlightConfig = () => useStepStore(state => state.exportStep.highlightConfig);
-export const useExportValidationIssues = () => useStepStore(state => state.exportStep.validationIssues);
-export const useExportHistoryGrouping = () => useStepStore(state => state.exportStep.historyGrouping);
-export const useExportPreviewContent = () => useStepStore(state => state.exportStep.previewContent);
+export const useExportPreviewState = () => useStepStore((state) => state.exportStep.previewState);
+export const useExportActionsState = () => useStepStore((state) => state.exportStep.actionsState);
+export const useExportHighlightConfig = () =>
+  useStepStore((state) => state.exportStep.highlightConfig);
+export const useExportValidationIssues = () =>
+  useStepStore((state) => state.exportStep.validationIssues);
+export const useExportHistoryGrouping = () =>
+  useStepStore((state) => state.exportStep.historyGrouping);
+export const useExportPreviewContent = () =>
+  useStepStore((state) => state.exportStep.previewContent);
 export const useExportUserSelections = () => {
-  const exportStep = useStepStore(state => state.exportStep);
-  
-  return React.useMemo(() => ({
-    selectedLanguages: exportStep.selectedLanguages,
-    includeMetadata: exportStep.includeMetadata,
-    showTimestamps: exportStep.showTimestamps,
-    customOutputPath: exportStep.customOutputPath
-  }), [exportStep.selectedLanguages, exportStep.includeMetadata, exportStep.showTimestamps, exportStep.customOutputPath]);
+  const exportStep = useStepStore((state) => state.exportStep);
+
+  return React.useMemo(
+    () => ({
+      selectedLanguages: exportStep.selectedLanguages,
+      includeMetadata: exportStep.includeMetadata,
+      showTimestamps: exportStep.showTimestamps,
+      customOutputPath: exportStep.customOutputPath,
+    }),
+    [
+      exportStep.selectedLanguages,
+      exportStep.includeMetadata,
+      exportStep.showTimestamps,
+      exportStep.customOutputPath,
+    ]
+  );
 };
 export const useExportStatus = () => {
-  const exportStep = useStepStore(state => state.exportStep);
-  
-  return React.useMemo(() => ({
-    isExporting: exportStep.isExporting,
-    exportProgress: exportStep.exportProgress,
-    lastExportError: exportStep.lastExportError
-  }), [exportStep.isExporting, exportStep.exportProgress, exportStep.lastExportError]);
+  const exportStep = useStepStore((state) => state.exportStep);
+
+  return React.useMemo(
+    () => ({
+      isExporting: exportStep.isExporting,
+      exportProgress: exportStep.exportProgress,
+      lastExportError: exportStep.lastExportError,
+    }),
+    [exportStep.isExporting, exportStep.exportProgress, exportStep.lastExportError]
+  );
 };
 
 // Export actions selectors - memoized to prevent infinite loops
 export const useExportActions = () => {
-  const actions = useStepStore(state => state.actions);
-  
-  return React.useMemo(() => ({
-    updateExportFormat: actions.updateExportFormat,
-    updateExportSettings: actions.updateExportSettings,
-    updatePreviewState: actions.updatePreviewState,
-    updateActionsState: actions.updateActionsState,
-    updateHighlightConfig: actions.updateHighlightConfig,
-    setPreviewContent: actions.setPreviewContent,
-    updateUserSelections: actions.updateUserSelections,
-    addExportRecord: actions.addExportRecord,
-    removeExportRecord: actions.removeExportRecord,
-    removeFromHistory: actions.removeFromHistory,
-    clearHistory: actions.clearHistory,
-    setExportingState: actions.setExportingState,
-    generatePreviewContent: actions.generatePreviewContent
-  }), [actions]);
+  const actions = useStepStore((state) => state.actions);
+
+  return React.useMemo(
+    () => ({
+      updateExportFormat: actions.updateExportFormat,
+      updateExportSettings: actions.updateExportSettings,
+      updatePreviewState: actions.updatePreviewState,
+      updateActionsState: actions.updateActionsState,
+      updateHighlightConfig: actions.updateHighlightConfig,
+      setPreviewContent: actions.setPreviewContent,
+      updateUserSelections: actions.updateUserSelections,
+      addExportRecord: actions.addExportRecord,
+      removeExportRecord: actions.removeExportRecord,
+      removeFromHistory: actions.removeFromHistory,
+      clearHistory: actions.clearHistory,
+      setExportingState: actions.setExportingState,
+      generatePreviewContent: actions.generatePreviewContent,
+    }),
+    [actions]
+  );
 };
 
 // Combined export hook for components - memoized to prevent infinite loops
 export const useExportStepComplete = () => {
   const exportStep = useExportStepContent();
   const actions = useExportActions();
-  
-  return React.useMemo(() => ({
-    ...exportStep,
-    actions
-  }), [exportStep, actions]);
+
+  return React.useMemo(
+    () => ({
+      ...exportStep,
+      actions,
+    }),
+    [exportStep, actions]
+  );
 };

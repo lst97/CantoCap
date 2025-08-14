@@ -32,6 +32,16 @@ const getInputStepContent = (): { importedJsonFile?: string | null } => {
   }
 };
 
+// Get processing step content for status detection
+const getProcessingStepContent = (): { status?: 'idle' | 'running' | 'completed' | 'error' } => {
+  try {
+    return useStepStore.getState().processingStep || {};
+  } catch (error) {
+    console.warn('Failed to get processing step state:', error);
+    return {};
+  }
+};
+
 // ============================================================================
 // WORKFLOW STORE - STEP NAVIGATION AND STATE MANAGEMENT
 // ============================================================================
@@ -41,7 +51,8 @@ const STEP_ORDER: StepType[] = ['input', 'config', 'processing', 'review', 'expo
 // Helper method to calculate which steps can be navigated to
 const calculateNavigationPermissions = (
   stepStates: Record<StepType, StepStatusType>, 
-  inputStepContent?: { importedJsonFile?: string | null }
+  inputStepContent?: { importedJsonFile?: string | null },
+  processingStepContent?: { status?: 'idle' | 'running' | 'completed' | 'error' }
 ) => {
   const navigation: Record<StepType, boolean> = {
     input: true, // Always accessible
@@ -50,6 +61,20 @@ const calculateNavigationPermissions = (
     review: false,
     export: false,
   };
+
+  // Check if processing is currently running - disable navigation to other steps if so
+  const isProcessingRunning = processingStepContent?.status === 'running';
+  
+  // If processing is running, only allow navigation to the processing step itself
+  if (isProcessingRunning) {
+    return {
+      input: false,
+      config: false,
+      processing: true, // Keep processing step accessible when running
+      review: false,
+      export: false,
+    };
+  }
 
   // Check if JSON was imported - if so, allow skipping config and processing steps
   const hasJsonImport = !!(inputStepContent?.importedJsonFile);
@@ -92,8 +117,10 @@ const calculateNavigationPermissions = (
 
   console.log('🔍 Navigation permissions calculated:', {
     hasJsonImport,
+    isProcessingRunning,
     inputStatus: stepStates.input,
     processingStatus: stepStates.processing,
+    processingStepStatus: processingStepContent?.status,
     canAccessReview: navigation.review,
     navigation
   });
@@ -156,7 +183,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
       // Update navigation permissions based on step completion and JSON import status
       const inputStepContent = getInputStepContent();
-      const updatedNavigation = calculateNavigationPermissions(updatedStates, inputStepContent);
+      const processingStepContent = getProcessingStepContent();
+      const updatedNavigation = calculateNavigationPermissions(updatedStates, inputStepContent, processingStepContent);
 
       set({
         stepStates: updatedStates,
@@ -191,7 +219,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           processing: StepStatus.BLOCK,
           review: StepStatus.BLOCK,
           export: StepStatus.BLOCK,
-        }),
+        }, undefined, { status: 'idle' }),
       };
 
       set(defaultState);
@@ -217,7 +245,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             'currentStep' in persistedState && 'stepStates' in persistedState) {
             const typedState = persistedState as { currentStep: StepType; stepStates: Record<StepType, StepStatusType> };
             const inputStepContent = getInputStepContent();
-            const updatedNavigation = calculateNavigationPermissions(typedState.stepStates, inputStepContent);
+            const processingStepContent = getProcessingStepContent();
+            const updatedNavigation = calculateNavigationPermissions(typedState.stepStates, inputStepContent, processingStepContent);
             
             const currentState = get();
             console.log(`🔄 loadWorkflowState: Loading persisted state for ${workspaceId}`, {
@@ -287,7 +316,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     refreshNavigationPermissions: () => {
       const { stepStates } = get();
       const inputStepContent = getInputStepContent();
-      const updatedNavigation = calculateNavigationPermissions(stepStates, inputStepContent);
+      const processingStepContent = getProcessingStepContent();
+      const updatedNavigation = calculateNavigationPermissions(stepStates, inputStepContent, processingStepContent);
       
       set({ canNavigate: updatedNavigation });
       
@@ -330,7 +360,8 @@ if (typeof window !== 'undefined' && (window as unknown as ElectronWindow).elect
         if (currentState.stepStates[step] !== newState) {
           const updatedStates = { ...currentState.stepStates, [step]: newState };
           const inputStepContent = getInputStepContent();
-          const updatedNavigation = calculateNavigationPermissions(updatedStates, inputStepContent);
+          const processingStepContent = getProcessingStepContent();
+          const updatedNavigation = calculateNavigationPermissions(updatedStates, inputStepContent, processingStepContent);
 
           // Double-check if navigation actually changed to prevent unnecessary updates
           const navigationChanged = JSON.stringify(currentState.canNavigate) !== JSON.stringify(updatedNavigation);

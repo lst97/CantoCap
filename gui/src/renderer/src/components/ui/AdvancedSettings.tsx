@@ -24,9 +24,11 @@ import {
   ExpandMore as ExpandIcon,
   ExpandLess as CollapseIcon,
   Clear as ClearIcon,
-  Warning as WarningIcon
+  Warning as WarningIcon,
+  Memory as WorkersIcon,
+  Schedule as ChunkIcon
 } from '@mui/icons-material'
-import { useAppStore } from '../../stores/useAppStore'
+import { useConfigStepContent, useStepActions } from '../../stores/useStepStore'
 
 interface OptionType {
   value: string
@@ -35,7 +37,25 @@ interface OptionType {
 }
 
 export const AdvancedSettings: React.FC = () => {
-  const { config, updateConfig, showNotification } = useAppStore()
+  const config = useConfigStepContent()
+  const { updateStepContent } = useStepActions()
+  
+  const updateConfig = (key: string, value: any) => {
+    updateStepContent('config', { [key]: value })
+  }
+  
+  const updateAdvancedSetting = (key: string, value: any) => {
+    updateStepContent('config', { 
+      advancedSettings: { 
+        ...config.advancedSettings, 
+        [key]: value 
+      } 
+    })
+  }
+  
+  const showNotification = (message: string, type: string = 'info') => {
+    console.log(`Notification [${type}]:`, message)
+  }
   const [showFFmpegPath, setShowFFmpegPath] = useState(false)
 
   const handleNumericChange = useCallback((key: string, value: string) => {
@@ -285,6 +305,167 @@ export const AdvancedSettings: React.FC = () => {
             ))}
           </Select>
         </FormControl>
+      </SettingGroup>
+
+      <SettingGroup
+        icon={<WorkersIcon color="primary" fontSize="small" />}
+        title="Worker Threads"
+        description="Number of worker threads for parallel processing. Higher values can speed up processing on multi-core systems."
+      >
+        <Grid container spacing={3} alignItems="center">
+          <Grid item xs={12} md={8}>
+            <Box sx={{ px: 1, py: 2 }}>
+              <Slider
+                value={config.advancedSettings?.numWorkers ?? 4}
+                onChange={(_, value) => updateAdvancedSetting('numWorkers', value)}
+                min={1}
+                max={12}
+                step={1}
+                marks={[
+                  { value: 1, label: '1' },
+                  { value: 4, label: '4' },
+                  { value: 8, label: '8' },
+                  { value: 12, label: '12' }
+                ]}
+                valueLabelDisplay="auto"
+                sx={{
+                  color: '#F59E0B',
+                  height: 8,
+                  '& .MuiSlider-thumb': {
+                    backgroundColor: '#F59E0B',
+                    border: '2px solid #2F3136',
+                    width: 20,
+                    height: 20,
+                    '&:hover, &.Mui-focusVisible': {
+                      boxShadow: '0 0 0 8px rgba(245, 158, 11, 0.16)',
+                    },
+                  },
+                  '& .MuiSlider-track': {
+                    backgroundColor: '#F59E0B',
+                    height: 6,
+                  },
+                  '& .MuiSlider-rail': {
+                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                    height: 6,
+                  },
+                  '& .MuiSlider-mark': {
+                    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                    width: 3,
+                    height: 3,
+                  },
+                  '& .MuiSlider-markLabel': {
+                    color: '#96989D',
+                    fontSize: '0.7rem',
+                    top: 28,
+                  },
+                }}
+              />
+            </Box>
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <TextField
+              type="number"
+              value={config.advancedSettings?.numWorkers ?? 4}
+              onChange={(e) => updateAdvancedSetting('numWorkers', parseInt(e.target.value))}
+              inputProps={{ min: 1, max: 12, step: 1 }}
+              size="small"
+              fullWidth
+              InputProps={{
+                endAdornment: <InputAdornment position="end">threads</InputAdornment>
+              }}
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  backgroundColor: '#2F3136',
+                  '& fieldset': { borderColor: '#40444B' },
+                  '&:hover fieldset': { borderColor: '#5865F2' },
+                  '&.Mui-focused fieldset': { borderColor: '#5865F2' },
+                },
+                '& .MuiInputBase-input': { color: '#DCDDDE' },
+              }}
+            />
+          </Grid>
+        </Grid>
+      </SettingGroup>
+
+      <SettingGroup
+        icon={<ChunkIcon color="primary" fontSize="small" />}
+        title="Processing Chunk Duration"
+        description="Duration of audio chunks for processing. Shorter chunks use less memory but may reduce transcription quality at chunk boundaries."
+      >
+        <Grid container spacing={3} alignItems="center">
+          <Grid item xs={12} md={8}>
+            <Box sx={{ px: 1, py: 2 }}>
+              <Slider
+                value={config.advancedSettings?.chunkDuration ?? 30}
+                onChange={(_, value) => updateAdvancedSetting('chunkDuration', value)}
+                min={10}
+                max={60}
+                step={5}
+                marks={[
+                  { value: 10, label: '10s' },
+                  { value: 30, label: '30s' },
+                  { value: 45, label: '45s' },
+                  { value: 60, label: '60s' }
+                ]}
+                valueLabelDisplay="auto"
+                valueLabelFormat={(value) => `${value}s`}
+                sx={{
+                  color: '#F59E0B',
+                  height: 8,
+                  '& .MuiSlider-thumb': {
+                    backgroundColor: '#F59E0B',
+                    border: '2px solid #2F3136',
+                    width: 20,
+                    height: 20,
+                    '&:hover, &.Mui-focusVisible': {
+                      boxShadow: '0 0 0 8px rgba(245, 158, 11, 0.16)',
+                    },
+                  },
+                  '& .MuiSlider-track': {
+                    backgroundColor: '#F59E0B',
+                    height: 6,
+                  },
+                  '& .MuiSlider-rail': {
+                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                    height: 6,
+                  },
+                  '& .MuiSlider-mark': {
+                    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                    width: 3,
+                    height: 3,
+                  },
+                  '& .MuiSlider-markLabel': {
+                    color: '#96989D',
+                    fontSize: '0.7rem',
+                    top: 28,
+                  },
+                }}
+              />
+            </Box>
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <TextField
+              type="number"
+              value={config.advancedSettings?.chunkDuration ?? 30}
+              onChange={(e) => updateAdvancedSetting('chunkDuration', parseInt(e.target.value))}
+              inputProps={{ min: 10, max: 60, step: 5 }}
+              size="small"
+              fullWidth
+              InputProps={{
+                endAdornment: <InputAdornment position="end">seconds</InputAdornment>
+              }}
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  backgroundColor: '#2F3136',
+                  '& fieldset': { borderColor: '#40444B' },
+                  '&:hover fieldset': { borderColor: '#5865F2' },
+                  '&.Mui-focused fieldset': { borderColor: '#5865F2' },
+                },
+                '& .MuiInputBase-input': { color: '#DCDDDE' },
+              }}
+            />
+          </Grid>
+        </Grid>
       </SettingGroup>
 
       <SettingGroup

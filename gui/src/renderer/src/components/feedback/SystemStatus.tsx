@@ -3,15 +3,12 @@ import {
   Box,
   Typography,
   Button,
-  Paper,
   Stack,
   Chip,
   Card,
   Grid,
   CircularProgress,
-  Alert,
-  Divider
-} from '@mui/material'
+  Alert} from '@mui/material'
 import {
   CheckCircle as CheckIcon,
   Error as ErrorIcon,

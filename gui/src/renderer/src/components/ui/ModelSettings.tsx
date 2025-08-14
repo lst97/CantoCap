@@ -17,7 +17,7 @@ import {
   Star as StarIcon
 } from '@mui/icons-material'
 import { useConfigStepData, useConfigStepActions } from '../../stores/steps/useConfigStepStore'
-import { ProcessingLanguage, WhisperModel } from '../../stores/types/StoreTypes'
+import { ProcessingLanguage } from '../../stores/types/StoreTypes'
 
 interface OptionType {
   value: string
@@ -30,18 +30,18 @@ interface OptionType {
 
 export const ModelSettings: React.FC = () => {
   const config = useConfigStepData()
-  const { updateConfigStep } = useConfigStepActions()
+  const { updateConfigStep, setModel } = useConfigStepActions()
 
-  const handleModelChange = useCallback((e: SelectChangeEvent<string>) => {
-    updateConfigStep({ model: e.target.value as WhisperModel })
+  const handleModelChange = useCallback(async (e: SelectChangeEvent<string>) => {
+    await setModel(e.target.value)
+  }, [setModel])
+
+  const handlePriorityChange = useCallback(async (e: SelectChangeEvent<string>) => {
+    await updateConfigStep({ priority: e.target.value as 'balanced' | 'speed' | 'quality' })
   }, [updateConfigStep])
 
-  const handlePriorityChange = useCallback((e: SelectChangeEvent<string>) => {
-    updateConfigStep({ priority: e.target.value as 'balanced' | 'speed' | 'quality' })
-  }, [updateConfigStep])
-
-  const handleLanguageChange = useCallback((e: SelectChangeEvent<string>) => {
-    updateConfigStep({ language: e.target.value as ProcessingLanguage })
+  const handleLanguageChange = useCallback(async (e: SelectChangeEvent<string>) => {
+    await updateConfigStep({ language: e.target.value as ProcessingLanguage })
   }, [updateConfigStep])
 
   const modelOptions: OptionType[] = [
@@ -223,7 +223,7 @@ export const ModelSettings: React.FC = () => {
       >
         <FormControl fullWidth size="small">
           <Select
-            value={config.model || 'auto'}
+            value={config.modelSettings?.whisperModel || 'auto'}
             onChange={handleModelChange}
             displayEmpty
             renderValue={(value) => renderOption(modelOptions, value as string)}

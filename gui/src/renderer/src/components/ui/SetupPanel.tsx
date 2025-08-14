@@ -1,19 +1,6 @@
 import { DependencyStatus } from '../../../../types'
 import { useState, useEffect } from 'react'
 
-declare global {
-  interface Window {
-    cantocapAPI: {
-      checkDependencies: () => Promise<Record<string, DependencyStatus>>;
-      runInitialization: () => Promise<any>;
-      openPythonDownload: () => Promise<void>;
-      openPyenvGuide: () => Promise<void>;
-      openFFmpegDownload: () => Promise<void>;
-      runEngineSetup: () => Promise<boolean>;
-    };
-  }
-}
-
 interface SetupPanelProps {
   isVisible: boolean
   onClose: () => void
