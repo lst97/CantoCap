@@ -8,8 +8,11 @@ import { InitializationService } from "./initialization-service";
 import { AppStateService } from "./config/AppStateService";
 import { WorkspaceConfigService } from "./config/WorkspaceConfigService";
 import { GroupConfigService } from "./config/GroupConfigService";
+import { WorkflowStateService } from "./config/WorkflowStateService";
 import { IPCConfigHandlers } from "./ipc-handlers/IPCConfigHandlers";
 import { VideoIPCHandlers } from "./ipc-handlers/VideoIPCHandlers";
+import { SubtitleIPCHandlers } from "./ipc-handlers/SubtitleIPCHandlers";
+import { WorkflowIPCHandlers } from "./ipc-handlers/WorkflowIPCHandlers";
 import type {
   DependencyStatus,
   AppConfig,
@@ -19,7 +22,7 @@ import type {
 } from "../types";
 
 // Safe logging function to prevent EPIPE errors
-const safeLog = (message: string, ...args: any[]) => {
+const safeLog = (message: string, ...args: unknown[]) => {
   try {
     if (process.stdout && !process.stdout.destroyed) {
       console.log(message, ...args);
@@ -38,8 +41,11 @@ class CantoCap {
   private appStateService: AppStateService;
   private workspaceConfigService: WorkspaceConfigService;
   private groupConfigService: GroupConfigService;
+  private workflowStateService: WorkflowStateService;
   private ipcConfigHandlers: IPCConfigHandlers | null = null;
   private videoIPCHandlers: VideoIPCHandlers | null = null;
+  private subtitleIPCHandlers: SubtitleIPCHandlers | null = null;
+  private workflowIPCHandlers: WorkflowIPCHandlers | null = null;
   private mainWindow: BrowserWindow | null = null;
 
   constructor() {
@@ -49,6 +55,7 @@ class CantoCap {
     this.appStateService = new AppStateService();
     this.workspaceConfigService = new WorkspaceConfigService();
     this.groupConfigService = new GroupConfigService();
+    this.workflowStateService = new WorkflowStateService();
   }
 
   private createWindow(): void {
@@ -199,8 +206,19 @@ class CantoCap {
     // Initialize video processing handlers
     this.videoIPCHandlers = new VideoIPCHandlers();
 
+    // Initialize subtitle processing handlers
+    this.subtitleIPCHandlers = new SubtitleIPCHandlers();
+
+    // Initialize workflow state handlers
+    this.workflowIPCHandlers = new WorkflowIPCHandlers(
+      this.workflowStateService,
+      this.mainWindow.webContents
+    );
+
     safeLog('✅ IPC config handlers initialized');
     safeLog('✅ Video processing handlers initialized');
+    safeLog('✅ Subtitle processing handlers initialized');
+    safeLog('✅ Workflow state handlers initialized');
 
     // System Operations
     ipcMain.handle(
@@ -394,9 +412,10 @@ class CantoCap {
     // ============================================================================
     // SUBTITLE PERSISTENCE HANDLERS
     // ============================================================================
-    // Subtitle persistence is now handled by SubtitleIPCHandlers
+    // Subtitle persistence is now handled by SubtitleIPCHandlers - handlers are 
+    // automatically registered in the SubtitleIPCHandlers constructor
     
-    safeLog('✅ Subtitle persistence handlers initialized via SubtitleIPCHandlers');
+    safeLog('✅ All IPC handlers initialized successfully');
   }
 
   public cleanup(): void {
@@ -408,6 +427,11 @@ class CantoCap {
     // Cleanup video handlers
     if (this.videoIPCHandlers) {
       this.videoIPCHandlers.cleanup();
+    }
+    
+    // Cleanup subtitle handlers
+    if (this.subtitleIPCHandlers) {
+      this.subtitleIPCHandlers.cleanup();
     }
   }
 

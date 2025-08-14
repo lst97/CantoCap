@@ -1,3 +1,4 @@
+import React from 'react';
 import { create } from 'zustand';
 import { 
   StepContentState,
@@ -5,6 +6,11 @@ import {
   StepContentUpdatedEvent,
   ExportStepData,
   ExportRecord,
+  ElectronWindow,
+  InputStepData,
+  ConfigStepData,
+  ProcessingStepData,
+  ReviewStepData,
 } from './types/StoreTypes';
 import { validateStepContent, safeWorkspaceOperation } from '../utils/workspaceValidation';
 import {
@@ -14,16 +20,6 @@ import {
   useReviewStepStore,
   useExportStepStore
 } from './steps';
-
-// Window type declaration for electron
-interface ElectronWindow extends Window {
-  electron: {
-    ipcRenderer: {
-      invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
-      on: <T = unknown>(channel: string, callback: (event: T) => void) => void;
-    };
-  };
-}
 
 // ============================================================================
 // STEP STORE - COORDINATED STEP CONTENT MANAGEMENT
@@ -533,19 +529,19 @@ if (typeof window !== 'undefined' && (window as unknown as ElectronWindow).elect
     // Delegate to individual stores - this will automatically sync back to main store
     switch (stepName) {
       case 'input':
-        useInputStepStore.getState().actions.updateInputStep(content);
+        useInputStepStore.getState().actions.updateInputStep(content as Partial<InputStepData>);
         break;
       case 'config':
-        useConfigStepStore.getState().actions.updateConfigStep(content);
+        useConfigStepStore.getState().actions.updateConfigStep(content as Partial<ConfigStepData>);
         break;
       case 'processing':
-        useProcessingStepStore.getState().actions.updateProcessingStep(content);
+        useProcessingStepStore.getState().actions.updateProcessingStep(content as Partial<ProcessingStepData>);
         break;
       case 'review':
-        useReviewStepStore.getState().actions.updateReviewStep(content);
+        useReviewStepStore.getState().actions.updateReviewStep(content as Partial<ReviewStepData>);
         break;
       case 'export':
-        useExportStepStore.getState().actions.updateExportStep(content);
+        useExportStepStore.getState().actions.updateExportStep(content as Partial<ExportStepData>);
         break;
     }
   });
@@ -567,7 +563,10 @@ export const useStepContent = <T>(step: StepType) =>
   useStepStore(state => state[`${step}Step` as keyof StepContentState] as T);
 
 // Hook to get step actions
-export const useStepActions = () => useStepStore(state => state.actions);
+export const useStepActions = () => {
+  const actions = useStepStore(state => state.actions);
+  return React.useMemo(() => actions, [actions]);
+};
 
 // Hook to get step loading state
 export const useStepLoading = () => useStepStore(state => state.isLoading);
@@ -582,12 +581,16 @@ export const useHasUnsavedChanges = () => useStepStore(state => state.hasUnsaved
 export const useSelectedFiles = () => useStepStore(state => state.inputStep.selectedFiles);
 export const useInputFile = () => useStepStore(state => state.inputStep.inputFile || state.inputStep.selectedFile);
 export const useSelectedRange = () => useStepStore(state => state.inputStep.selectedRange);
-export const useTimeRange = () => useStepStore(state => ({
-  startTime: state.inputStep.startTime,
-  endTime: state.inputStep.endTime,
-  duration: state.inputStep.duration,
-  selectedRange: state.inputStep.selectedRange
-}));
+export const useTimeRange = () => {
+  const inputStep = useStepStore(state => state.inputStep);
+  
+  return React.useMemo(() => ({
+    startTime: inputStep.startTime,
+    endTime: inputStep.endTime,
+    duration: inputStep.duration,
+    selectedRange: inputStep.selectedRange
+  }), [inputStep.startTime, inputStep.endTime, inputStep.duration, inputStep.selectedRange]);
+};
 export const useVideoMetadata = () => useStepStore(state => state.inputStep.mediaMetadata);
 export const useModelSettings = () => useStepStore(state => state.configStep.modelSettings);
 export const useProcessingStatus = () => useStepStore(state => state.processingStep.status);
@@ -596,10 +599,14 @@ export const useSubtitles = () => useStepStore(state => state.reviewStep.subtitl
 export const useExportFormat = () => useStepStore(state => state.exportStep.format);
 
 // Hook to get validation state
-export const useConfigValidation = () => useStepStore(state => ({
-  isValid: state.configStep.isValid,
-  errors: state.configStep.validationErrors
-}));
+export const useConfigValidation = () => {
+  const configStep = useStepStore(state => state.configStep);
+  
+  return React.useMemo(() => ({
+    isValid: configStep.isValid,
+    errors: configStep.validationErrors
+  }), [configStep.isValid, configStep.validationErrors]);
+};
 
 // Hook to get processing logs
 export const useProcessingLogs = () => useStepStore(state => state.processingStep.logs);
@@ -621,42 +628,54 @@ export const useExportHighlightConfig = () => useStepStore(state => state.export
 export const useExportValidationIssues = () => useStepStore(state => state.exportStep.validationIssues);
 export const useExportHistoryGrouping = () => useStepStore(state => state.exportStep.historyGrouping);
 export const useExportPreviewContent = () => useStepStore(state => state.exportStep.previewContent);
-export const useExportUserSelections = () => useStepStore(state => ({
-  selectedLanguages: state.exportStep.selectedLanguages,
-  includeMetadata: state.exportStep.includeMetadata,
-  showTimestamps: state.exportStep.showTimestamps,
-  customOutputPath: state.exportStep.customOutputPath
-}));
-export const useExportStatus = () => useStepStore(state => ({
-  isExporting: state.exportStep.isExporting,
-  exportProgress: state.exportStep.exportProgress,
-  lastExportError: state.exportStep.lastExportError
-}));
+export const useExportUserSelections = () => {
+  const exportStep = useStepStore(state => state.exportStep);
+  
+  return React.useMemo(() => ({
+    selectedLanguages: exportStep.selectedLanguages,
+    includeMetadata: exportStep.includeMetadata,
+    showTimestamps: exportStep.showTimestamps,
+    customOutputPath: exportStep.customOutputPath
+  }), [exportStep.selectedLanguages, exportStep.includeMetadata, exportStep.showTimestamps, exportStep.customOutputPath]);
+};
+export const useExportStatus = () => {
+  const exportStep = useStepStore(state => state.exportStep);
+  
+  return React.useMemo(() => ({
+    isExporting: exportStep.isExporting,
+    exportProgress: exportStep.exportProgress,
+    lastExportError: exportStep.lastExportError
+  }), [exportStep.isExporting, exportStep.exportProgress, exportStep.lastExportError]);
+};
 
-// Export actions selectors
-export const useExportActions = () => useStepStore(state => ({
-  updateExportFormat: state.actions.updateExportFormat,
-  updateExportSettings: state.actions.updateExportSettings,
-  updatePreviewState: state.actions.updatePreviewState,
-  updateActionsState: state.actions.updateActionsState,
-  updateHighlightConfig: state.actions.updateHighlightConfig,
-  setPreviewContent: state.actions.setPreviewContent,
-  updateUserSelections: state.actions.updateUserSelections,
-  addExportRecord: state.actions.addExportRecord,
-  removeExportRecord: state.actions.removeExportRecord,
-  removeFromHistory: state.actions.removeFromHistory,
-  clearHistory: state.actions.clearHistory,
-  setExportingState: state.actions.setExportingState,
-  generatePreviewContent: state.actions.generatePreviewContent
-}));
+// Export actions selectors - memoized to prevent infinite loops
+export const useExportActions = () => {
+  const actions = useStepStore(state => state.actions);
+  
+  return React.useMemo(() => ({
+    updateExportFormat: actions.updateExportFormat,
+    updateExportSettings: actions.updateExportSettings,
+    updatePreviewState: actions.updatePreviewState,
+    updateActionsState: actions.updateActionsState,
+    updateHighlightConfig: actions.updateHighlightConfig,
+    setPreviewContent: actions.setPreviewContent,
+    updateUserSelections: actions.updateUserSelections,
+    addExportRecord: actions.addExportRecord,
+    removeExportRecord: actions.removeExportRecord,
+    removeFromHistory: actions.removeFromHistory,
+    clearHistory: actions.clearHistory,
+    setExportingState: actions.setExportingState,
+    generatePreviewContent: actions.generatePreviewContent
+  }), [actions]);
+};
 
-// Combined export hook for components
+// Combined export hook for components - memoized to prevent infinite loops
 export const useExportStepComplete = () => {
   const exportStep = useExportStepContent();
   const actions = useExportActions();
   
-  return {
+  return React.useMemo(() => ({
     ...exportStep,
     actions
-  };
+  }), [exportStep, actions]);
 };

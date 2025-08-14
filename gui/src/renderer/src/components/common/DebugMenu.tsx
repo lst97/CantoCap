@@ -18,9 +18,19 @@ import {
   Storage as StorageIcon,
   Memory as MemoryIcon
 } from '@mui/icons-material'
+import type { ElectronWindow } from '../../../../types'
 
 interface DebugMenuProps {
   show?: boolean
+}
+
+// Extend Performance interface to include memory property
+interface PerformanceWithMemory extends Performance {
+  memory?: {
+    usedJSHeapSize: number;
+    totalJSHeapSize: number;
+    jsHeapSizeLimit: number;
+  };
 }
 
 /**
@@ -62,14 +72,15 @@ export const DebugMenu: React.FC<DebugMenuProps> = ({ show = false }) => {
     viewport: `${window.innerWidth}x${window.innerHeight}`,
     timestamp: new Date().toISOString(),
     location: window.location.href,
-    electronAPI: !!window.electronAPI,
-    cantocapAPI: !!window.cantocapAPI,
+    electronAPI: !!(window as unknown as ElectronWindow).electron,
+    cantocapAPI: !!(window as unknown as ElectronWindow).cantocapAPI,
   }
 
   const handleOpenDevTools = async () => {
     try {
-      if (window.electronAPI?.toggleDevTools) {
-        await window.electronAPI.toggleDevTools()
+      const electronWindow = window as unknown as ElectronWindow;
+      if (electronWindow.electron?.ipcRenderer) {
+        await electronWindow.electron.ipcRenderer.invoke('devtools:toggle');
       }
     } catch (error) {
       console.error('Failed to open DevTools:', error)
@@ -224,18 +235,18 @@ export const DebugMenu: React.FC<DebugMenuProps> = ({ show = false }) => {
               <Typography variant="body2" color="text.secondary">
                 Timestamp: {debugInfo.timestamp}
               </Typography>
-              {(performance as any).memory && (
+              {(performance as PerformanceWithMemory).memory && (
                 <>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                     <Typography variant="body2">Used JS Heap:</Typography>
                     <Typography variant="body2" color="text.secondary">
-                      {Math.round((performance as any).memory.usedJSHeapSize / 1024 / 1024)}MB
+                      {Math.round((performance as PerformanceWithMemory).memory!.usedJSHeapSize / 1024 / 1024)}MB
                     </Typography>
                   </Box>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                     <Typography variant="body2">Total JS Heap:</Typography>
                     <Typography variant="body2" color="text.secondary">
-                      {Math.round((performance as any).memory.totalJSHeapSize / 1024 / 1024)}MB
+                      {Math.round((performance as PerformanceWithMemory).memory!.totalJSHeapSize / 1024 / 1024)}MB
                     </Typography>
                   </Box>
                 </>

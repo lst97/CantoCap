@@ -68,7 +68,7 @@ function App(): JSX.Element {
           const validation = validateWorkspaceId(currentActiveWorkspaceId);
           if (!validation.isValid) {
             console.warn('⚠️ Active workspace ID is invalid:', validation.errors);
-            await window.electron.ipcRenderer.invoke('app:setActiveWorkspace', '');
+            await window.electron.ipcRenderer.invoke('app:setActiveWorkspace', null);
             return;
           }
           
@@ -83,7 +83,7 @@ function App(): JSX.Element {
           } else {
             console.warn('⚠️ Previously active workspace no longer exists, clearing active workspace');
             // Clear the invalid active workspace
-            await window.electron.ipcRenderer.invoke('app:setActiveWorkspace', '');
+            await window.electron.ipcRenderer.invoke('app:setActiveWorkspace', null);
           }
         } else {
           console.log('ℹ️ No previous active workspace to restore');
@@ -125,9 +125,19 @@ function App(): JSX.Element {
         // Restore active workspace if it exists
         await restoreActiveWorkspace();
 
-        // Reset workflow to initial state
-        await workflowActions.resetWorkflow();
-        console.log('🔄 Workflow state initialized');
+        // Load workflow state for the active workspace (if any)
+        const { useAppStore: useAppStoreForWorkflowInit } = await import('./stores/useAppStore');
+        const currentActiveWorkspaceId = useAppStoreForWorkflowInit.getState().activeWorkspaceId;
+        
+        if (currentActiveWorkspaceId) {
+          console.log('🔄 Loading workflow state for active workspace:', currentActiveWorkspaceId);
+          await workflowActions.loadWorkflowState(currentActiveWorkspaceId);
+          console.log('✅ Workflow state loaded for workspace:', currentActiveWorkspaceId);
+        } else {
+          // Only reset workflow if no active workspace
+          await workflowActions.resetWorkflow();
+          console.log('🔄 Workflow state initialized (no active workspace)');
+        }
 
         console.log('✅ Application initialization completed');
         initializationCompleteRef.current = true;

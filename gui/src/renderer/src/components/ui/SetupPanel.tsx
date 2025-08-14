@@ -1,5 +1,18 @@
-import React, { useState, useEffect } from 'react'
-import type { DependencyStatus } from '../../types'
+import { DependencyStatus } from '../../../../types'
+import { useState, useEffect } from 'react'
+
+declare global {
+  interface Window {
+    cantocapAPI: {
+      checkDependencies: () => Promise<Record<string, DependencyStatus>>;
+      runInitialization: () => Promise<any>;
+      openPythonDownload: () => Promise<void>;
+      openPyenvGuide: () => Promise<void>;
+      openFFmpegDownload: () => Promise<void>;
+      runEngineSetup: () => Promise<boolean>;
+    };
+  }
+}
 
 interface SetupPanelProps {
   isVisible: boolean
@@ -29,7 +42,7 @@ export function SetupPanel({ isVisible, onClose, onComplete }: SetupPanelProps) 
   const checkDependencies = async () => {
     setIsLoading(true)
     try {
-      const deps = await window.electronAPI.checkDependencies()
+      const deps = await window.cantocapAPI.checkDependencies()
       setDependencies(deps)
     } catch (error) {
       console.error('Failed to check dependencies:', error)
@@ -41,7 +54,7 @@ export function SetupPanel({ isVisible, onClose, onComplete }: SetupPanelProps) 
   const runInitialization = async () => {
     setIsLoading(true)
     try {
-      const result = await window.electronAPI.runInitialization()
+      const result = await window.cantocapAPI.runInitialization()
       setInitializationResult(result)
       if (result.success) {
         setTimeout(() => {
@@ -61,21 +74,21 @@ export function SetupPanel({ isVisible, onClose, onComplete }: SetupPanelProps) 
   }
 
   const openPythonDownload = async () => {
-    await window.electronAPI.openPythonDownload()
+    await window.cantocapAPI.openPythonDownload()
   }
 
   const openPyenvGuide = async () => {
-    await window.electronAPI.openPyenvGuide()
+    await window.cantocapAPI.openPyenvGuide()
   }
 
   const openFFmpegDownload = async () => {
-    await window.electronAPI.openFFmpegDownload()
+    await window.cantocapAPI.openFFmpegDownload()
   }
 
   const runEngineSetup = async () => {
     setIsLoading(true)
     try {
-      const success = await window.electronAPI.runEngineSetup()
+      const success = await window.cantocapAPI.runEngineSetup()
       if (success) {
         await checkDependencies()
         setInitializationResult({
@@ -105,7 +118,7 @@ export function SetupPanel({ isVisible, onClose, onComplete }: SetupPanelProps) 
   if (!isVisible) return null
 
   const hasAnyMissing = Object.values(dependencies).some(dep => dep.status === 'missing')
-  const allSatisfied = Object.values(dependencies).every(dep => dep.status === 'found')
+  const allSatisfied = Object.values(dependencies).every(dep => dep.status === 'available')
 
   return (
     <div className="setup-panel-overlay">
@@ -133,7 +146,7 @@ export function SetupPanel({ isVisible, onClose, onComplete }: SetupPanelProps) 
                       <div className="dependency-info">
                         <span className="dependency-name">{dep.name}</span>
                         <span className={`dependency-status ${dep.status}`}>
-                          {dep.status === 'found' && '✓ Installed'}
+                          {dep.status === 'available' && '✓ Installed'}
                           {dep.status === 'missing' && '✗ Missing'}
                           {dep.status === 'checking' && '⏳ Checking...'}
                           {dep.status === 'error' && '⚠ Error'}
@@ -141,9 +154,6 @@ export function SetupPanel({ isVisible, onClose, onComplete }: SetupPanelProps) 
                       </div>
                       {dep.version && (
                         <div className="dependency-version">Version: {dep.version}</div>
-                      )}
-                      {dep.path && (
-                        <div className="dependency-path">Path: {dep.path}</div>
                       )}
                       {dep.status === 'missing' && (
                         <div className="dependency-actions">

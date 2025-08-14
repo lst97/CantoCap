@@ -2,6 +2,19 @@
 // TYPE DEFINITIONS FOR ZUSTAND STORES
 // ============================================================================
 
+// Import shared types that were previously duplicated
+import type { HardwareInfo, DependencyStatus } from '../../../../types';
+
+// Window type declaration for electron
+export interface ElectronWindow extends Window {
+  electron: {
+    ipcRenderer: {
+      invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
+      on: <T = unknown>(channel: string, callback: (event: T) => void) => void;
+    };
+  };
+}
+
 export type StepType = 'input' | 'config' | 'processing' | 'review' | 'export';
 
 export enum StepStatus {
@@ -31,25 +44,12 @@ export interface UIState {
   showAdvanced: boolean;
 }
 
-export interface DependencyStatus {
-  status: 'checking' | 'available' | 'missing' | 'error';
-  available: boolean;
-  version?: string;
-}
 
 export interface SystemDependencies {
   python: DependencyStatus;
   ffmpeg: DependencyStatus;
 }
 
-export interface HardwareInfo {
-  checking?: boolean;
-  gpuAcceleration?: boolean;
-  memoryUsage?: string;
-  deviceInfo?: string;
-  modelLoadTime?: number;
-  processingSpeed?: string;
-}
 
 export interface AppState {
   // State
@@ -225,6 +225,7 @@ export interface WorkflowState {
     navigateToStep: (step: StepType) => Promise<void>;
     setStepState: (step: StepType, state: StepStatusType) => Promise<void>;
     resetWorkflow: () => Promise<void>;
+    loadWorkflowState: (workspaceId: string) => Promise<void>;
     canNavigateToStep: (step: StepType) => boolean;
     getNextStep: () => StepType | null;
     getPreviousStep: () => StepType | null;
@@ -352,13 +353,7 @@ export interface ConfigStepData {
 }
 
 // Processing Step Types
-export interface HardwareInfo {
-  gpuAcceleration?: boolean;
-  memoryUsage?: string;
-  deviceInfo?: string;
-  modelLoadTime?: number;
-  processingSpeed?: string;
-}
+// HardwareInfo interface moved to shared types
 
 export interface QualityBreakdown {
   technical: number;
@@ -416,10 +411,49 @@ export interface Subtitle {
   confidence?: number;
 }
 
+// ============================================================================
+// EDIT ACTION DATA TYPES - COMPREHENSIVE TYPE SYSTEM
+// ============================================================================
+
+// Specific data types for each operation
+export interface AddEditData {
+  subtitle: Subtitle;
+}
+
+export interface DeleteEditData {
+  subtitle: Subtitle;
+}
+
+export interface UpdateEditData {
+  original: Subtitle;
+  changes: Partial<Subtitle>;
+}
+
+export interface SplitEditData {
+  original: Subtitle;
+  firstPart: Subtitle;
+  secondPart: Subtitle;
+}
+
+export interface MergeEditData {
+  subtitle1: Subtitle;
+  subtitle2: Subtitle;
+  merged: Subtitle;
+}
+
+// Discriminated union type for type-safe edit actions
+export type EditActionData = 
+  | AddEditData
+  | DeleteEditData
+  | UpdateEditData
+  | SplitEditData
+  | MergeEditData;
+
+// Type-safe EditAction with discriminated union
 export interface EditAction {
-  type: 'update' | 'add' | 'delete' | 'split' | 'merge';
+  type: 'add' | 'delete' | 'update' | 'split' | 'merge';
   subtitleId: string;
-  data: Record<string, unknown>;
+  data: EditActionData;
   timestamp: Date;
   description: string;
 }
@@ -612,7 +646,7 @@ export interface StepContentState {
   // Actions
   actions: {
     updateStepContent: <T>(step: StepType, content: Partial<T>, workspaceId?: string) => Promise<void>;
-    getStepContent: (step: StepType) => any;
+    getStepContent: (step: StepType) => unknown;
     resetStepContent: (step: StepType, workspaceId?: string) => Promise<void>;
     loadStepContent: (workspaceId: string, step: StepType) => Promise<void>;
     loadAllStepContent: (workspaceId: string) => Promise<void>;
@@ -674,7 +708,7 @@ export interface WorkspaceDeletedEvent {
 export interface StepContentUpdatedEvent {
   workspaceId: string;
   stepName: string;
-  content: any;
+  content: unknown;
 }
 
 export interface WorkflowStepChangedEvent {

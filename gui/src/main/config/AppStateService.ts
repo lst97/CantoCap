@@ -39,11 +39,19 @@ export class AppStateService {
       maximized: false
     });
     
-    return {
+    const state = {
       activeWorkspaceId: activeWorkspaceId === undefined ? null : activeWorkspaceId,
       recentWorkspaces: Array.isArray(recentWorkspaces) ? recentWorkspaces : [],
       windowState: windowState
     };
+    
+    // Defensive check to ensure we never return undefined activeWorkspaceId
+    if (state.activeWorkspaceId === undefined) {
+      console.warn('⚠️ AppStateService: Preventing undefined activeWorkspaceId from being returned');
+      state.activeWorkspaceId = null;
+    }
+    
+    return state;
   }
   
   setActiveWorkspace(workspaceId: string | null): void {

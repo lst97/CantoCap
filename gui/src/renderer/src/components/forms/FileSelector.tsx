@@ -26,6 +26,10 @@ import {
   Delete as DeleteIcon,
 } from '@mui/icons-material';
 import { useInputStepContent, useStepActions } from '../../stores/useStepStore';
+import { useSubtitleActions } from '../../stores/useSubtitleEditStore';
+import { useWorkflowActions } from '../../stores/useWorkflowStore';
+import { useActiveWorkspaceId } from '../../stores/useAppStore';
+import { StepStatus } from '../../stores/types/StoreTypes';
 
 // TypeScript interfaces for subtitle data structure
 interface SubtitleData {
@@ -79,6 +83,108 @@ interface FileSelectorProps {
   onJsonFileSelect?: (file: string | null) => void;
 }
 
+// Comprehensive cleanup utility for file removal operations
+interface CleanupOptions {
+  clearInputFile?: boolean;
+  clearJsonFile?: boolean;
+  resetWorkflow?: boolean;
+  targetStep?: 'input' | 'config';
+  preserveMediaWorkflow?: boolean;
+}
+
+const createComprehensiveCleanup = (
+  activeWorkspaceId: string | null,
+  updateStepContent: (step: string, content: any) => Promise<void>,
+  setStepState: (step: any, status: any) => Promise<void>,
+  navigateToStep: (step: any) => Promise<void>,
+  useSubtitleActions: () => any
+) => {
+  return async (options: CleanupOptions) => {
+    console.log('🧹 Starting comprehensive cleanup with options:', options);
+
+    try {
+      // Phase 1: Clear step content based on options
+      const stepUpdates: any = { lastModified: Date.now() };
+      
+      if (options.clearInputFile) {
+        stepUpdates.inputFile = null;
+        stepUpdates.selectedFile = null;
+      }
+      
+      if (options.clearJsonFile) {
+        stepUpdates.importedJsonFile = null;
+      }
+      
+      if (Object.keys(stepUpdates).length > 1) { // More than just lastModified
+        await updateStepContent('input', stepUpdates);
+        
+        // Refresh workflow navigation permissions when JSON status changes
+        if (options.clearJsonFile) {
+          const { useWorkflowStore } = await import('../../stores/useWorkflowStore');
+          const { refreshNavigationPermissions } = useWorkflowStore.getState().actions;
+          refreshNavigationPermissions();
+        }
+        console.log('✅ Step content cleared:', Object.keys(stepUpdates));
+      }
+
+      // Phase 2: Clear subtitle workspace and backend store
+      if (activeWorkspaceId && (options.clearInputFile || options.clearJsonFile)) {
+        console.log('🗄️ Clearing subtitle workspace and backend store');
+        try {
+          // Clear subtitle editing store (frontend)
+          const { clearWorkspace } = useSubtitleActions();
+          clearWorkspace();
+
+          // Clear backend subtitle workspace persistence
+          await (window as any).cantocapAPI.subtitleWorkspaceDelete(activeWorkspaceId);
+          
+          // Clear step sync data
+          await (window as any).cantocapAPI.subtitleSyncToStep(activeWorkspaceId, []);
+          
+          console.log('✅ Subtitle workspace and backend store cleared');
+        } catch (workspaceError) {
+          console.warn('⚠️ Failed to clear subtitle workspace:', workspaceError);
+        }
+      }
+
+      // Phase 3: Reset workflow state based on options
+      if (options.resetWorkflow) {
+        console.log('🔄 Resetting workflow state');
+        try {
+          if (options.preserveMediaWorkflow && !options.clearInputFile) {
+            // Media file exists, reset to allow re-processing from config
+            await setStepState('input', StepStatus.COMPLETE);   // Keep input complete
+            await setStepState('config', StepStatus.READY);     // Config ready
+            await setStepState('processing', StepStatus.BLOCK); // Processing blocked
+            await setStepState('review', StepStatus.BLOCK);     // Review blocked  
+            await setStepState('export', StepStatus.BLOCK);     // Export blocked
+          } else {
+            // Full reset to initial state
+            await setStepState('input', StepStatus.READY);      // Step 1 ready
+            await setStepState('config', StepStatus.BLOCK);     // Step 2 blocked
+            await setStepState('processing', StepStatus.BLOCK); // Step 3 blocked
+            await setStepState('review', StepStatus.BLOCK);     // Step 4 blocked
+            await setStepState('export', StepStatus.BLOCK);     // Step 5 blocked
+          }
+          
+          // Navigate to target step
+          const targetStep = options.targetStep || 'input';
+          await navigateToStep(targetStep);
+          
+          console.log(`✅ Workflow state reset, navigated to ${targetStep}`);
+        } catch (workflowError) {
+          console.error('❌ Failed to reset workflow state:', workflowError);
+        }
+      }
+
+      console.log('✅ Comprehensive cleanup completed successfully');
+    } catch (error) {
+      console.error('❌ Comprehensive cleanup failed:', error);
+      throw error;
+    }
+  };
+};
+
 export const FileSelector: React.FC<FileSelectorProps> = ({
   onFileRemoved,
   initialFile,
@@ -89,22 +195,33 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
   // Use centralized stores as the single source of truth for component state
   const inputStep = useInputStepContent();
   const { updateStepContent } = useStepActions();
+  
+  // Subtitle editing and workflow management
+  const { importFromJson, exportToStep } = useSubtitleActions();
+  const { setStepState, navigateToStep } = useWorkflowActions();
+  const activeWorkspaceId = useActiveWorkspaceId();
 
+  // Optimized debug effect - only log on significant changes, not every render
   useEffect(() => {
-    console.log('🔧 [VIDEO DEBUG] FileSelector State Change:', {
-      timestamp: new Date().toISOString(),
-      props: { initialFile, initialJsonFile },
-      storeConfig: {
-        inputFile: inputStep.inputFile,
-        importedJsonFile: inputStep.importedJsonFile,
-      },
-      hasFileInStore: !!(inputStep.inputFile || inputStep.selectedFile),
-      propsVsStore: {
-        inputFileMatch: initialFile === (inputStep.inputFile || inputStep.selectedFile),
-        jsonFileMatch: initialJsonFile === inputStep.importedJsonFile,
-      },
-      stackTrace: new Error().stack?.split('\n').slice(1, 3).join('\n'),
-    });
+    // Only log if there are actual differences or changes
+    const hasSignificantChanges = initialFile !== (inputStep.inputFile || inputStep.selectedFile) ||
+                                  initialJsonFile !== inputStep.importedJsonFile;
+    
+    if (hasSignificantChanges) {
+      console.log('🔧 [VIDEO DEBUG] FileSelector State Change:', {
+        timestamp: new Date().toISOString(),
+        props: { initialFile, initialJsonFile },
+        storeConfig: {
+          inputFile: inputStep.inputFile,
+          importedJsonFile: inputStep.importedJsonFile,
+        },
+        hasFileInStore: !!(inputStep.inputFile || inputStep.selectedFile),
+        propsVsStore: {
+          inputFileMatch: initialFile === (inputStep.inputFile || inputStep.selectedFile),
+          jsonFileMatch: initialJsonFile === inputStep.importedJsonFile,
+        },
+      });
+    }
   }, [
     initialFile,
     initialJsonFile,
@@ -210,12 +327,12 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
     regenerateMetadata();
   }, [
     inputStep.inputFile,
-    videoMetadata,
-    videoThumbnail,
-    generateVideoMetadata,
+    // Remove videoMetadata and videoThumbnail from deps to prevent infinite loops
+    // They are checked in the condition above, not needed as dependencies
     isLoading,
     isGeneratingMetadata,
     metadataGenerationFailed,
+    generateVideoMetadata,
     videoExtensions,
   ]);
 
@@ -298,16 +415,29 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
     }
   }, [updateStepContent, generateVideoMetadata, onFileSelect, inputStep.inputFile]);
 
+  // Create cleanup utility instance
+  const performCleanup = useMemo(() => 
+    createComprehensiveCleanup(
+      activeWorkspaceId,
+      updateStepContent,
+      setStepState,
+      navigateToStep,
+      () => ({ clearWorkspace: useSubtitleActions().clearWorkspace })
+    ), 
+    [activeWorkspaceId, updateStepContent, setStepState, navigateToStep]
+  );
+
   const handleClearFile = useCallback(async () => {
-    console.log('🗑️ Removing video file with comprehensive cleanup (video + JSON)');
+    console.log('🗑️ Removing video file with comprehensive cleanup (video + JSON + workspace reset)');
 
     try {
-      // Clear input step data through centralized store
-      await updateStepContent('input', {
-        inputFile: null,
-        selectedFile: null,
-        importedJsonFile: null,
-        lastModified: Date.now(),
+      // Use comprehensive cleanup utility for complete media file removal
+      await performCleanup({
+        clearInputFile: true,
+        clearJsonFile: true,
+        resetWorkflow: true,
+        targetStep: 'input',
+        preserveMediaWorkflow: false
       });
 
       // Clear local component state
@@ -319,11 +449,11 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
       // Notify parent component that file was removed
       onFileRemoved?.();
 
-      console.log('✅ Video file removal completed');
+      console.log('✅ Comprehensive video file removal completed');
     } catch (error) {
       console.error('Failed to clear file:', error);
     }
-  }, [updateStepContent, onFileRemoved]);
+  }, [performCleanup, onFileRemoved]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -642,88 +772,187 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
       });
   };
 
-  // Simplified JSON import handler
+  // Enhanced JSON-only import handler
   const handleJsonImport = useCallback(async () => {
     const importStartTime = performance.now();
     let importSuccess = false;
 
     try {
       setIsImportingJson(true);
-      console.log('🔄 Starting JSON import process...');
+      console.log('🔄 Starting JSON subtitle import...');
 
       const result = await window.cantocapAPI.openFileDialog({
         filters: [
           {
-            name: 'JSON Files',
+            name: 'JSON Subtitle Files',
             extensions: ['json'],
           },
-          { name: 'All Files', extensions: ['*'] },
         ],
       });
 
       if (!result.canceled && result.filePaths.length > 0) {
         const filePath = result.filePaths[0];
-        console.log('📁 Reading JSON file:', filePath);
+        console.log('📁 Importing JSON file:', filePath);
 
-        // Read the JSON file
-        const jsonContent = await window.cantocapAPI.readJsonFile(filePath);
-        console.log('📄 JSON content loaded, validating structure...');
-
-        // Validate the JSON structure
-        if (!validateCantocapJson(jsonContent)) {
-          console.error('❌ JSON validation failed');
-          console.error(
-            'Invalid CantoCap JSON format. Please select a valid subtitle export file.'
-          );
-          return;
+        // DEBUG: Read the raw JSON file to see what's actually in it
+        try {
+          const rawFileContent = await (window as any).cantocapAPI.readTextFile(filePath);
+          const parsedJson = JSON.parse(rawFileContent);
+          console.log('📄 Raw JSON file content (first 3 items):', {
+            totalItems: parsedJson.length,
+            firstFew: parsedJson.slice(0, 3).map((item: any) => ({
+              caption: item.caption,
+              text: item.text,
+              translation: item.translation,
+              hasTranslation: !!item.translation,
+              allKeys: Object.keys(item)
+            }))
+          });
+        } catch (err) {
+          console.warn('Could not read raw JSON for debugging:', err);
         }
 
-        console.log('✅ JSON validation passed, converting format...');
+        // Use backend import validation (more robust than frontend validation)
+        const importResult = await window.cantocapAPI.subtitleImportJson(filePath);
+        
+        if (!importResult.success) {
+          console.error('❌ JSON import validation failed:', importResult.error);
+          throw new Error(`Invalid JSON format: ${importResult.error}`);
+        }
 
-        // Convert to Step 4 format and store in app config
+        console.log('✅ JSON import validation passed, processing subtitles...');
+        
+        // Debug: Check what backend returned
+        console.log('🔍 Backend import result structure:', {
+          success: importResult.success,
+          subtitleCount: importResult.subtitles?.length || 0,
+          firstFewSubtitles: importResult.subtitles?.slice(0, 3).map(sub => ({
+            id: sub.id,
+            caption: sub.caption,
+            text: sub.text,
+            translation: sub.translation,
+            hasTranslation: !!sub.translation,
+            allKeys: Object.keys(sub)
+          })) || []
+        });
+        
+        if (!importResult.subtitles || importResult.subtitles.length === 0) {
+          throw new Error('No valid subtitles found in JSON file');
+        }
+
+        // Convert to internal format
         const conversionStartTime = performance.now();
-        const convertedSubtitles = convertJsonToStep4Format(jsonContent);
+        const convertedSubtitles = importResult.subtitles.map((sub: any, index: number) => {
+          // Debug logging for first few items
+          if (index < 3) {
+            console.log(`📊 FileSelector converting subtitle ${index}:`, {
+              originalSub: sub,
+              caption: sub.caption,
+              text: sub.text,
+              translation: sub.translation,
+              hasTranslation: !!sub.translation
+            });
+          }
+          
+          const converted = {
+            id: sub.id || `imported_${index}`,
+            index: index,
+            startTime: sub.start ?? sub.startTime,
+            endTime: sub.end ?? sub.endTime,
+            duration: (sub.end ?? sub.endTime) - (sub.start ?? sub.startTime),
+            text: sub.text ?? sub.caption,
+            translation: (sub.translation && typeof sub.translation === 'string') ? sub.translation : '',
+            speaker: sub.speaker || null,
+            confidence: sub.confidence || 1,
+            isMusic: sub.isMusic || false,
+          };
+          
+          if (index < 3) {
+            console.log(`✅ FileSelector converted subtitle ${index}:`, {
+              id: converted.id,
+              text: converted.text,
+              translation: converted.translation,
+              hasTranslation: !!converted.translation
+            });
+          }
+          
+          return converted;
+        });
         const conversionTime = performance.now() - conversionStartTime;
 
-        console.log('🔄 Conversion completed:', {
-          originalCount: jsonContent.subtitles?.length || 0,
+        console.log('✅ Subtitle processing completed:', {
+          importedCount: importResult.subtitles.length,
           convertedCount: convertedSubtitles.length,
           conversionTime: `${conversionTime.toFixed(2)}ms`,
-          dataLossDetected: (jsonContent.subtitles?.length || 0) !== convertedSubtitles.length,
+          filePath: filePath.split('/').pop(),
         });
 
-        // Check for data loss
-        if ((jsonContent.subtitles?.length || 0) !== convertedSubtitles.length) {
-          const lostCount = (jsonContent.subtitles?.length || 0) - convertedSubtitles.length;
-          console.warn(
-            `⚠️ DATA LOSS DETECTED: ${lostCount} subtitles were filtered out during conversion`
-          );
-          console.warn(`Warning: ${lostCount} subtitles were filtered out due to invalid data`);
-        }
-
-        // Store subtitle data as temp file for persistence across app restarts
-        const tempResult = await window.cantocapAPI.storeTempSubtitleData(convertedSubtitles);
-        if (!tempResult.success) {
-          console.error('❌ Failed to store temp subtitle data:', tempResult.error);
-        } else {
-          console.log('📄 Subtitle data stored in temp file:', tempResult.tempFilePath);
-        }
-
-        // Update step content with imported subtitle data - simplified approach
+        // Import subtitles using the new workflow
         try {
-          // Store subtitle data directly in the centralized store
-          // Note: This is a simplified approach - full implementation would need proper ReviewStepData integration
+          if (!activeWorkspaceId) {
+            throw new Error('No active workspace found');
+          }
+
+          // CRITICAL FIX: Clear existing workspace data before importing new JSON
+          // This ensures the new JSON becomes the baseline for diff comparison
+          console.log('🧹 Clearing existing workspace data before JSON import');
+          try {
+            await (window as any).cantocapAPI.subtitleWorkspaceDelete(activeWorkspaceId);
+            console.log('✅ Existing workspace data cleared');
+          } catch (clearError) {
+            console.log('ℹ️ No existing workspace data to clear:', clearError);
+          }
+
+          // Debug: Check what we're passing to importFromJson
+          console.log('🔥 FILESELECTOR: About to call importFromJson with data:', {
+            workspaceId: activeWorkspaceId,
+            filePath,
+            subtitleCount: convertedSubtitles.length,
+            subtitlesWithTranslations: convertedSubtitles.filter(s => s.translation && s.translation.trim()).length,
+            firstFewConverted: convertedSubtitles.slice(0, 3).map(sub => ({
+              id: sub.id,
+              text: sub.text,
+              translation: sub.translation,
+              hasTranslation: !!sub.translation,
+              translationType: typeof sub.translation,
+              translationLength: sub.translation ? sub.translation.length : 0
+            }))
+          });
+
+          // Import JSON data into subtitle editing store
+          // Note: importFromJson handles creating fresh baseline data
+          await importFromJson(activeWorkspaceId, filePath, convertedSubtitles);
+
+          // Export to step store for step navigation
+          await exportToStep();
+
+          // Update input step with JSON file info
           await updateStepContent('input', {
             importedJsonFile: filePath,
             lastModified: Date.now(),
           });
 
-          // Add duration if available from metadata
-          if (jsonContent.metadata?.statistics?.totalDuration) {
+          // Refresh workflow navigation permissions to allow direct access to Step 4
+          const { useWorkflowStore } = await import('../../stores/useWorkflowStore');
+          const { refreshNavigationPermissions } = useWorkflowStore.getState().actions;
+          refreshNavigationPermissions();
+
+          // Calculate total duration from subtitles
+          const totalDuration = Math.max(...convertedSubtitles.map(sub => sub.endTime));
+          if (totalDuration > 0) {
             await updateStepContent('input', {
-              duration: jsonContent.metadata.statistics.totalDuration,
+              duration: totalDuration,
             });
           }
+
+          // Update workflow states for JSON import
+          await setStepState('input', StepStatus.COMPLETE);  // Step 1 complete
+          await setStepState('config', StepStatus.SKIP);     // Skip step 2
+          await setStepState('processing', StepStatus.SKIP); // Skip step 3  
+          await setStepState('review', StepStatus.READY);    // Step 4 ready
+
+          // Navigate to step 4 (review) 
+          await navigateToStep('review');
 
           // Notify parent component if callback is provided
           if (onJsonFileSelect) {
@@ -733,9 +962,11 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
           console.log('✅ JSON import completed:', {
             subtitleCount: convertedSubtitles.length,
             importedFile: filePath,
+            workspaceId: activeWorkspaceId,
+            navigatedToStep: 'review',
           });
         } catch (error) {
-          console.error('Failed to update step content with JSON data:', error);
+          console.error('Failed to complete JSON import workflow:', error);
           throw error;
         }
 
@@ -774,22 +1005,34 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
     }
   }, [updateStepContent, onJsonFileSelect]);
 
-  // Handle JSON caption removal
+  // Handle JSON caption removal with comprehensive cleanup
   const handleRemoveJsonCaption = useCallback(async () => {
-    console.log('🗑️ Removing imported JSON caption');
+    console.log('🗑️ Removing imported JSON caption with comprehensive cleanup');
 
     try {
-      await updateStepContent('input', {
-        importedJsonFile: null,
-        lastModified: Date.now(),
+      // Determine cleanup strategy based on media file presence
+      const hasMediaFile = !!inputStep.inputFile;
+      
+      // Use comprehensive cleanup utility for JSON removal
+      await performCleanup({
+        clearInputFile: false,  // Don't clear media file
+        clearJsonFile: true,    // Clear JSON file
+        resetWorkflow: true,    // Reset workflow state
+        targetStep: hasMediaFile ? 'config' : 'input',  // Navigate appropriately
+        preserveMediaWorkflow: hasMediaFile  // Preserve media workflow if media exists
       });
 
+      // Notify through callback if provided
+      if (onJsonFileSelect) {
+        onJsonFileSelect(null);
+      }
+
       console.log('Imported subtitle removed. You can now configure subtitle generation.');
-      console.log('✅ JSON caption removal completed');
+      console.log('✅ Comprehensive JSON caption removal completed');
     } catch (error) {
       console.error('Failed to remove JSON caption:', error);
     }
-  }, [updateStepContent]);
+  }, [performCleanup, inputStep.inputFile, onJsonFileSelect]);
 
   return (
     <Box>
@@ -1119,7 +1362,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
                         flexShrink: 0,
                       }}
                     >
-                      {isImportingJson ? 'Importing...' : 'Import Caption'}
+                      {isImportingJson ? 'Importing JSON...' : 'Import JSON'}
                     </Button>
                   </Box>
 
@@ -1327,7 +1570,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
                         flexShrink: 0,
                       }}
                     >
-                      {isImportingJson ? 'Importing...' : 'Import Caption'}
+                      {isImportingJson ? 'Importing JSON...' : 'Import JSON'}
                     </Button>
                   </Box>
                 </Box>

@@ -28,7 +28,9 @@ import {
   useToggleGroupExpansion
 } from '../../stores/useWorkspaceStore'
 import { useActiveWorkspaceId } from '../../stores/useAppStore'
+import { useSubtitleActions, useSaveState } from '../../stores/useSubtitleEditStore'
 import { WorkspaceSwitchingOverlay } from '../ui/WorkspaceSwitchingOverlay'
+import { UnsavedChangesDialog } from '../common/UnsavedChangesDialog'
 import { getGroupColorRgb } from '../workspace/GroupColorPicker'
 import type { WorkspaceWithGrouping, WorkspaceGroupColor } from '../../stores/types/StoreTypes'
 
@@ -46,6 +48,9 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
   // Use direct store hooks with stable references
   const workspaceListRaw = useWorkspaceList()
   const activeWorkspaceId = useActiveWorkspaceId()
+  
+  // Ref for debug logging optimization
+  const prevActiveIdRef = React.useRef<string | null>(null)
   const isLoading = useWorkspaceLoading()
   const workspaceCount = useWorkspaceCount()
   
@@ -62,10 +67,11 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
       };
     }) as WorkspaceWithGrouping[];
     
-    // Debug info for active workspace 
+    // Debug info for active workspace - only log on changes to avoid spam
     const activeWorkspace = computedWorkspaces.find(w => w.isActive);
-    if (workspaceListRaw.length > 0) {
+    if (workspaceListRaw.length > 0 && prevActiveIdRef.current !== activeWorkspaceId) {
       console.log('🔍 Workspaces:', workspaceListRaw.length, 'Active:', activeWorkspace?.name || 'None');
+      prevActiveIdRef.current = activeWorkspaceId;
     }
     
     return computedWorkspaces;
@@ -109,6 +115,12 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
   // Workspace switching overlay state
   const [isSwitching, setIsSwitching] = useState(false)
   const [switchingWorkspaceName, setSwitchingWorkspaceName] = useState('')
+  
+  // Unsaved changes detection state
+  const { saveToWorkspace, loadSubtitlesForWorkspace } = useSubtitleActions()
+  const { isDirty, isSaving, saveError } = useSaveState()
+  const [showUnsavedDialog, setShowUnsavedDialog] = useState(false)
+  const [pendingWorkspaceSwitch, setPendingWorkspaceSwitch] = useState<WorkspaceWithGrouping | null>(null)
 
   // Organize workspaces by groups
   const groupedWorkspaces = useMemo(() => {
@@ -165,11 +177,18 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
     }
   }, [toggleGroupExpansion])
 
-  // Event handlers with proper error handling
+  // Event handlers with proper error handling and unsaved changes detection
   const handleWorkspaceClick = useCallback(async (workspace: WorkspaceWithGrouping) => {
     try {
       // Skip if already active workspace
       if (workspace.isActive) {
+        return
+      }
+      
+      // Check for unsaved changes before switching
+      if (isDirty) {
+        setPendingWorkspaceSwitch(workspace)
+        setShowUnsavedDialog(true)
         return
       }
       
@@ -191,7 +210,7 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
       console.error('Failed to switch workspace:', error)
       setIsSwitching(false)
     }
-  }, [switchWorkspace, handleGroupToggle])
+  }, [switchWorkspace, handleGroupToggle, isDirty])
 
   const handleWorkspaceContextMenu = useCallback((event: React.MouseEvent<HTMLElement>, workspace: WorkspaceWithGrouping) => {
     event.preventDefault()
@@ -429,6 +448,80 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
     
     setShowTopIndicator(hasScrollableContent && isAtTop)
     setShowBottomIndicator(hasScrollableContent && isAtBottom)
+  }, [])
+
+  // Unsaved changes dialog handlers for workspace switching
+  const handleSaveAndSwitchWorkspace = useCallback(async () => {
+    try {
+      await saveToWorkspace()
+      setShowUnsavedDialog(false)
+      
+      if (pendingWorkspaceSwitch) {
+        // Auto-expand group if workspace belongs to collapsed group
+        if (pendingWorkspaceSwitch.group && !pendingWorkspaceSwitch.group.isExpanded) {
+          await handleGroupToggle(pendingWorkspaceSwitch.group.id)
+        }
+        
+        // Show loading overlay
+        setSwitchingWorkspaceName(pendingWorkspaceSwitch.name)
+        setIsSwitching(true)
+        
+        // Switch workspace
+        await switchWorkspace(pendingWorkspaceSwitch.id)
+        
+        // Hide loading overlay
+        setIsSwitching(false)
+        setPendingWorkspaceSwitch(null)
+      }
+    } catch (error) {
+      console.error('Failed to save before workspace switch:', error)
+      // Dialog stays open to show error
+    }
+  }, [saveToWorkspace, switchWorkspace, handleGroupToggle, pendingWorkspaceSwitch])
+
+  const handleDiscardAndSwitchWorkspace = useCallback(async () => {
+    try {
+      // Reload from last saved state to discard changes
+      if (activeWorkspaceId) {
+        await loadSubtitlesForWorkspace(activeWorkspaceId, '', [])
+      }
+      
+      setShowUnsavedDialog(false)
+      
+      if (pendingWorkspaceSwitch) {
+        // Auto-expand group if workspace belongs to collapsed group
+        if (pendingWorkspaceSwitch.group && !pendingWorkspaceSwitch.group.isExpanded) {
+          await handleGroupToggle(pendingWorkspaceSwitch.group.id)
+        }
+        
+        // Show loading overlay
+        setSwitchingWorkspaceName(pendingWorkspaceSwitch.name)
+        setIsSwitching(true)
+        
+        // Switch workspace
+        await switchWorkspace(pendingWorkspaceSwitch.id)
+        
+        // Hide loading overlay
+        setIsSwitching(false)
+        setPendingWorkspaceSwitch(null)
+      }
+    } catch (error) {
+      console.error('Failed to switch workspace after discard:', error)
+      // Continue anyway
+      setShowUnsavedDialog(false)
+      if (pendingWorkspaceSwitch) {
+        setSwitchingWorkspaceName(pendingWorkspaceSwitch.name)
+        setIsSwitching(true)
+        await switchWorkspace(pendingWorkspaceSwitch.id)
+        setIsSwitching(false)
+        setPendingWorkspaceSwitch(null)
+      }
+    }
+  }, [loadSubtitlesForWorkspace, activeWorkspaceId, switchWorkspace, handleGroupToggle, pendingWorkspaceSwitch])
+
+  const handleCancelWorkspaceSwitch = useCallback(() => {
+    setShowUnsavedDialog(false)
+    setPendingWorkspaceSwitch(null)
   }, [])
 
   return (
@@ -961,6 +1054,16 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
       <WorkspaceSwitchingOverlay
         isVisible={isSwitching}
         workspaceName={switchingWorkspaceName}
+      />
+      
+      {/* Unsaved Changes Dialog */}
+      <UnsavedChangesDialog
+        open={showUnsavedDialog}
+        onSave={handleSaveAndSwitchWorkspace}
+        onDiscard={handleDiscardAndSwitchWorkspace}
+        onCancel={handleCancelWorkspaceSwitch}
+        isSaving={isSaving}
+        saveError={saveError}
       />
     </Box>
   )

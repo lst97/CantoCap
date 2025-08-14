@@ -17,10 +17,11 @@ interface Subtitle {
   confidence?: number;
 }
 
+// Import shared EditAction type from renderer types
 interface EditAction {
   type: 'update' | 'add' | 'delete' | 'split' | 'merge';
   subtitleId: string;
-  data: any;
+  data: Record<string, unknown>;
   timestamp: Date;
   description: string;
 }
@@ -57,11 +58,11 @@ export class SubtitleIPCHandlers {
 
   private setupHandlers(): void {
     // ============================================================================
-    // SUBTITLE WORKSPACE HANDLERS
+    // SUBTITLE WORKSPACE HANDLERS - Updated to match frontend API
     // ============================================================================
 
-    // Load subtitle data for a workspace
-    ipcMain.handle('subtitle:load-workspace', (_, workspaceId: string): WorkspaceSubtitleData | null => {
+    // Load subtitle data for a workspace (updated API name)
+    ipcMain.handle('subtitle:workspace-load', (_, workspaceId: string): WorkspaceSubtitleData | null => {
       try {
         const key = `subtitles.${workspaceId}`;
         const data = this.subtitleStore.get(key, null) as WorkspaceSubtitleData | null;
@@ -79,8 +80,8 @@ export class SubtitleIPCHandlers {
       }
     });
 
-    // Save subtitle data for a workspace
-    ipcMain.handle('subtitle:save-workspace', (_, workspaceId: string, data: WorkspaceSubtitleData): void => {
+    // Save subtitle data for a workspace (updated API name)
+    ipcMain.handle('subtitle:workspace-save', (_, workspaceId: string, data: WorkspaceSubtitleData): { success: boolean; error?: string } => {
       try {
         const key = `subtitles.${workspaceId}`;
         
@@ -97,9 +98,208 @@ export class SubtitleIPCHandlers {
         this.subtitleStore.set(key, saveData);
         
         console.log(`✅ Saved subtitle data for workspace ${workspaceId}: ${data.currentSubtitles.length} subtitles`);
+        return { success: true };
       } catch (error) {
         console.error(`❌ Failed to save subtitle data for workspace ${workspaceId}:`, error);
-        throw new Error(`Failed to save subtitle data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        return { success: false, error: errorMessage };
+      }
+    });
+
+    // Check if workspace exists (new API)
+    ipcMain.handle('subtitle:workspace-exists', (_, workspaceId: string): boolean => {
+      try {
+        const key = `subtitles.${workspaceId}`;
+        const exists = this.subtitleStore.has(key);
+        console.log(`ℹ️ Workspace ${workspaceId} exists: ${exists}`);
+        return exists;
+      } catch (error) {
+        console.error(`❌ Failed to check workspace existence ${workspaceId}:`, error);
+        return false;
+      }
+    });
+
+    // Delete workspace (new API)
+    ipcMain.handle('subtitle:workspace-delete', (_, workspaceId: string): { success: boolean } => {
+      try {
+        const key = `subtitles.${workspaceId}`;
+        if (this.subtitleStore.has(key)) {
+          this.subtitleStore.delete(key);
+        }
+        console.log(`✅ Deleted workspace ${workspaceId}`);
+        return { success: true };
+      } catch (error) {
+        console.error(`❌ Failed to delete workspace ${workspaceId}:`, error);
+        return { success: false };
+      }
+    });
+
+    // ============================================================================
+    // IMPORT OPERATIONS - JSON only support
+    // ============================================================================
+
+    // Import JSON subtitle data - simplified to JSON only
+    ipcMain.handle('subtitle:import-json', async (_, filePath: string): Promise<{ success: boolean; subtitles?: unknown[]; error?: string }> => {
+      try {
+        const { readFile } = await import('fs/promises');
+        const content = await readFile(filePath, 'utf8');
+        const jsonData = JSON.parse(content);
+        
+        // Validate JSON structure - support both flat array and CantoCap format
+        let subtitlesToProcess: unknown[];
+        
+        if (Array.isArray(jsonData)) {
+          // Direct array format
+          subtitlesToProcess = jsonData;
+        } else if (jsonData && typeof jsonData === 'object' && 'subtitles' in jsonData && Array.isArray(jsonData.subtitles)) {
+          // CantoCap format with nested structure
+          subtitlesToProcess = jsonData.subtitles;
+        } else {
+          return { success: false, error: 'Invalid JSON format: Expected array of subtitle objects or CantoCap format with subtitles array' };
+        }
+
+        // Enhanced validation of subtitle structure with type guard
+        for (const [index, subtitle] of subtitlesToProcess.entries()) {
+          // Type guard: Ensure subtitle is an object with expected properties
+          if (!subtitle || typeof subtitle !== 'object') {
+            return { 
+              success: false, 
+              error: `Invalid subtitle at index ${index}: Expected object, got ${typeof subtitle}` 
+            };
+          }
+
+          const subtitleObj = subtitle as Record<string, unknown>;
+          
+          // Support both formats: generic (start/end/text) and CantoCap (startTime/endTime/caption)
+          const startTime = subtitleObj.start ?? subtitleObj.startTime;
+          const endTime = subtitleObj.end ?? subtitleObj.endTime;
+          const text = subtitleObj.text ?? subtitleObj.caption;
+          
+          // Check required fields
+          if (typeof startTime === 'undefined' || typeof endTime === 'undefined' || typeof text === 'undefined') {
+            return { 
+              success: false, 
+              error: `Invalid subtitle at index ${index}: Missing required fields (start/startTime, end/endTime, text/caption)` 
+            };
+          }
+          
+          // Validate field types
+          if (typeof startTime !== 'number' || typeof endTime !== 'number') {
+            return { 
+              success: false, 
+              error: `Invalid subtitle at index ${index}: Time fields must be numbers (seconds)` 
+            };
+          }
+          
+          if (typeof text !== 'string' || text.trim() === '') {
+            return { 
+              success: false, 
+              error: `Invalid subtitle at index ${index}: Text field must be a non-empty string` 
+            };
+          }
+          
+          // Validate time logic
+          if (startTime >= endTime) {
+            return { 
+              success: false, 
+              error: `Invalid subtitle at index ${index}: Start time (${startTime}s) must be less than end time (${endTime}s)` 
+            };
+          }
+          
+          if (startTime < 0 || endTime < 0) {
+            return { 
+              success: false, 
+              error: `Invalid subtitle at index ${index}: Times must be positive numbers` 
+            };
+          }
+        }
+
+        console.log(`✅ Successfully imported and validated JSON with ${subtitlesToProcess.length} subtitles from ${filePath}`);
+        return { success: true, subtitles: subtitlesToProcess };
+      } catch (error) {
+        console.error('Failed to import JSON:', error);
+        
+        if (error instanceof SyntaxError) {
+          return { success: false, error: 'Invalid JSON file: Please check the file format and syntax' };
+        }
+        
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        return { success: false, error: `Import failed: ${errorMessage}` };
+      }
+    });
+
+    // Validate subtitle format
+    ipcMain.handle('subtitle:validate-format', (_, data: unknown): { isValid: boolean; errors?: string[] } => {
+      try {
+        const errors: string[] = [];
+        
+        if (!Array.isArray(data)) {
+          errors.push('Data must be an array of subtitle objects');
+          return { isValid: false, errors };
+        }
+        
+        for (const [index, subtitle] of data.entries()) {
+          if (typeof subtitle.start !== 'number') {
+            errors.push(`Subtitle ${index}: 'start' must be a number`);
+          }
+          if (typeof subtitle.end !== 'number') {
+            errors.push(`Subtitle ${index}: 'end' must be a number`);
+          }
+          if (typeof subtitle.text !== 'string') {
+            errors.push(`Subtitle ${index}: 'text' must be a string`);
+          }
+          if (subtitle.start >= subtitle.end) {
+            errors.push(`Subtitle ${index}: 'start' time must be less than 'end' time`);
+          }
+        }
+        
+        return { isValid: errors.length === 0, errors: errors.length > 0 ? errors : undefined };
+      } catch (error) {
+        console.error('Failed to validate format:', error);
+        return { isValid: false, errors: ['Validation failed due to internal error'] };
+      }
+    });
+
+    // ============================================================================
+    // STEP INTEGRATION - New API handlers
+    // ============================================================================
+
+    // Sync subtitles to step workflow
+    ipcMain.handle('subtitle:sync-to-step', (_, workspaceId: string, subtitles: unknown[]): { success: boolean } => {
+      try {
+        // For now, we'll store this in the same store with a different key
+        const stepKey = `step-data.${workspaceId}`;
+        const stepData = {
+          workspaceId,
+          subtitles,
+          timestamp: new Date().toISOString()
+        };
+
+        this.subtitleStore.set(stepKey, stepData);
+        console.log(`✅ Synced ${subtitles.length} subtitles to step for workspace ${workspaceId}`);
+        return { success: true };
+      } catch (error) {
+        console.error('Failed to sync to step:', error);
+        return { success: false };
+      }
+    });
+
+    // Sync subtitles from step workflow
+    ipcMain.handle('subtitle:sync-from-step', (_, workspaceId: string): { subtitles?: unknown[] } => {
+      try {
+        const stepKey = `step-data.${workspaceId}`;
+        const stepData = this.subtitleStore.get(stepKey, null) as { subtitles?: unknown[] } | null;
+        
+        if (stepData && stepData.subtitles) {
+          console.log(`✅ Retrieved ${stepData.subtitles.length} subtitles from step for workspace ${workspaceId}`);
+          return { subtitles: stepData.subtitles };
+        }
+        
+        console.log(`ℹ️ No step data found for workspace ${workspaceId}`);
+        return {};
+      } catch (error) {
+        console.error('Failed to sync from step:', error);
+        return {};
       }
     });
 
@@ -255,8 +455,17 @@ export class SubtitleIPCHandlers {
 
   // Cleanup method to remove all handlers
   public cleanup(): void {
-    ipcMain.removeAllListeners('subtitle:load-workspace');
-    ipcMain.removeAllListeners('subtitle:save-workspace');
+    // Remove new API handlers
+    ipcMain.removeAllListeners('subtitle:workspace-load');
+    ipcMain.removeAllListeners('subtitle:workspace-save');
+    ipcMain.removeAllListeners('subtitle:workspace-exists');
+    ipcMain.removeAllListeners('subtitle:workspace-delete');
+    ipcMain.removeAllListeners('subtitle:import-json');
+    ipcMain.removeAllListeners('subtitle:validate-format');
+    ipcMain.removeAllListeners('subtitle:sync-to-step');
+    ipcMain.removeAllListeners('subtitle:sync-from-step');
+    
+    // Remove legacy handlers
     ipcMain.removeAllListeners('subtitle:clear-workspace');
     ipcMain.removeAllListeners('subtitle:list-workspaces');
     ipcMain.removeAllListeners('subtitle:get-workspace-metadata');
@@ -266,6 +475,7 @@ export class SubtitleIPCHandlers {
     
     console.log('✅ Subtitle IPC handlers cleaned up');
   }
+
 
   // Get store statistics for debugging
   public getStoreStats(): object {

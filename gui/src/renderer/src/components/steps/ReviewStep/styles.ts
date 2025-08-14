@@ -20,7 +20,9 @@ export const ReviewCard = styled(Paper)(({ theme }) => ({
   height: "fit-content",
 }));
 
-export const ModificationChip = styled(Chip)<ModificationChipProps>(
+export const ModificationChip = styled(Chip, {
+  shouldForwardProp: (prop) => prop !== 'modificationType',
+})<ModificationChipProps>(
   ({ modificationType }) => {
     const colors = {
       added: {

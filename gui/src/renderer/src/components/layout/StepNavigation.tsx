@@ -4,7 +4,7 @@
  * Maintains the same polished UI design with updated architecture
  */
 
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   Box,
   Typography,
@@ -42,8 +42,10 @@ import {
 } from '../../stores/useWorkflowStore';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useInputStepContent } from '../../stores/useStepStore';
+import { useSubtitleActions, useSaveState } from '../../stores/useSubtitleEditStore';
 import type { StepType, StepStatusType } from '../../stores/types/StoreTypes';
 import { StepStatus } from '../../stores/types/StoreTypes';
+import { UnsavedChangesDialog } from '../common/UnsavedChangesDialog';
 
 // Step metadata to provide titles and descriptions
 const STEP_METADATA: Record<StepType, { title: string; description: string }> = {
@@ -73,10 +75,20 @@ const STEP_METADATA: Record<StepType, { title: string; description: string }> = 
 export const StepNavigation: React.FC = React.memo(() => {
   // Use centralized store hooks - optimized to prevent infinite renders
   const currentStep = useCurrentStep();
+  const stepStates = useWorkflowStore((state) => state.stepStates);
+  const canNavigate = useWorkflowStore((state) => state.canNavigate);
   const workflowActions = useWorkflowActions();
   const workspaces = useWorkspaceStore(state => state.workspaces);
   const currentWorkspaceId = useWorkspaceStore(state => state.currentWorkspaceId);
   const inputStepContent = useInputStepContent();
+  
+  // Subtitle editing state for unsaved changes detection
+  const { saveToWorkspace, hasUnsavedChanges, loadSubtitlesForWorkspace } = useSubtitleActions();
+  const { isDirty, isSaving, saveError } = useSaveState();
+  
+  // Dialog state for unsaved changes
+  const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
+  const [pendingStepNavigation, setPendingStepNavigation] = useState<StepType | null>(null);
 
   // Get current workspace
   const currentWorkspace = currentWorkspaceId ? workspaces[currentWorkspaceId] : null;
@@ -89,8 +101,6 @@ export const StepNavigation: React.FC = React.memo(() => {
 
   // Get steps with states - memoized to prevent infinite renders
   const stepsWithStates = useMemo(() => {
-    const stepStates = useWorkflowStore.getState().stepStates;
-    const canNavigate = useWorkflowStore.getState().canNavigate;
     const STEP_ORDER: StepType[] = ['input', 'config', 'processing', 'review', 'export'];
     
     return STEP_ORDER.map((step) => ({
@@ -99,10 +109,9 @@ export const StepNavigation: React.FC = React.memo(() => {
       canNavigate: canNavigate[step],
       isCurrent: currentStep === step,
     }));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentStep, processingStepState]); // Only depend on current step and processing state
+  }, [currentStep, stepStates, canNavigate]); // Depend on the actual store values
 
-  // Enhanced handleStepClick with centralized navigation
+  // Enhanced handleStepClick with unsaved changes detection
   const handleStepClick = useCallback(
     async (stepId: StepType, event?: React.MouseEvent | React.KeyboardEvent) => {
       // Accessibility support for keyboard navigation
@@ -113,14 +122,67 @@ export const StepNavigation: React.FC = React.memo(() => {
         event.preventDefault();
       }
 
+      // Check for unsaved changes when navigating away from review step
+      if (currentStep === 'review' && stepId !== 'review' && hasUnsavedChanges()) {
+        setPendingStepNavigation(stepId);
+        setShowUnsavedDialog(true);
+        return;
+      }
+
+      // Navigate normally if no unsaved changes
       try {
         await workflowActions.navigateToStep(stepId);
       } catch (error) {
         console.error(`Navigation error for ${stepId}:`, error);
       }
     },
-    [workflowActions]
+    [workflowActions, currentStep, hasUnsavedChanges]
   );
+
+  // Unsaved changes dialog handlers
+  const handleSaveAndContinue = useCallback(async () => {
+    try {
+      await saveToWorkspace();
+      setShowUnsavedDialog(false);
+      
+      if (pendingStepNavigation) {
+        await workflowActions.navigateToStep(pendingStepNavigation);
+        setPendingStepNavigation(null);
+      }
+    } catch (error) {
+      console.error('Failed to save before navigation:', error);
+      // Dialog stays open to show error
+    }
+  }, [saveToWorkspace, workflowActions, pendingStepNavigation]);
+
+  const handleDiscardAndContinue = useCallback(async () => {
+    try {
+      // Reload from last saved state to discard changes
+      if (currentWorkspaceId) {
+        await loadSubtitlesForWorkspace(currentWorkspaceId, '', []);
+      }
+      
+      setShowUnsavedDialog(false);
+      
+      if (pendingStepNavigation) {
+        await workflowActions.navigateToStep(pendingStepNavigation);
+        setPendingStepNavigation(null);
+      }
+    } catch (error) {
+      console.error('Failed to discard changes:', error);
+      // Continue anyway
+      setShowUnsavedDialog(false);
+      if (pendingStepNavigation) {
+        await workflowActions.navigateToStep(pendingStepNavigation);
+        setPendingStepNavigation(null);
+      }
+    }
+  }, [loadSubtitlesForWorkspace, currentWorkspaceId, workflowActions, pendingStepNavigation]);
+
+  const handleCancelNavigation = useCallback(() => {
+    setShowUnsavedDialog(false);
+    setPendingStepNavigation(null);
+  }, []);
 
   // Memoized icon rendering function
   const getStepIcon = useCallback(
@@ -526,7 +588,7 @@ export const StepNavigation: React.FC = React.memo(() => {
           <List dense sx={{ mt: 0.5 }}>
             {stepsWithStates.map((stepData, index) => {
               const { step, state, canNavigate, isCurrent } = stepData;
-              const isDisabled = !canNavigate || (isProcessingActive && step !== 'processing');
+              const isDisabled = !canNavigate || (isProcessingActive && step !== 'processing') || state === StepStatus.SKIP;
               const isSelected = isCurrent;
 
               return (
@@ -829,6 +891,16 @@ export const StepNavigation: React.FC = React.memo(() => {
           </List>
         </Box>
       </Box>
+      
+      {/* Unsaved Changes Dialog */}
+      <UnsavedChangesDialog
+        open={showUnsavedDialog}
+        onSave={handleSaveAndContinue}
+        onDiscard={handleDiscardAndContinue}
+        onCancel={handleCancelNavigation}
+        isSaving={isSaving}
+        saveError={saveError}
+      />
     </Box>
   );
 });

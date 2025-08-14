@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Box,
   Typography,
@@ -68,8 +68,8 @@ export const FormatSelector: React.FC = () => {
   
   const [localValidationIssues, setLocalValidationIssues] = useState<Record<string, string[]>>({})
   
-  // Validate formats when subtitles change
-  useEffect(() => {
+  // Memoize validation issues to prevent unnecessary recalculation
+  const validationIssues = useMemo(() => {
     const issues: Record<string, string[]> = {}
     EXPORT_FORMATS.forEach(format => {
       const formatIssues = validateForFormat(subtitles, format.id)
@@ -77,8 +77,35 @@ export const FormatSelector: React.FC = () => {
         issues[format.id] = formatIssues
       }
     })
-    setLocalValidationIssues(issues)
+    return issues
   }, [subtitles])
+
+  // Update local state only when validation issues actually change
+  useEffect(() => {
+    setLocalValidationIssues(prevIssues => {
+      const issueKeys = Object.keys(validationIssues).sort()
+      const prevKeys = Object.keys(prevIssues).sort()
+      
+      // Compare keys first
+      if (issueKeys.length !== prevKeys.length || !issueKeys.every(key => prevKeys.includes(key))) {
+        return validationIssues
+      }
+      
+      // Compare issue arrays for each key
+      for (const key of issueKeys) {
+        const currentIssues = validationIssues[key] || []
+        const prevKeyIssues = prevIssues[key] || []
+        
+        if (currentIssues.length !== prevKeyIssues.length || 
+            !currentIssues.every(issue => prevKeyIssues.includes(issue))) {
+          return validationIssues
+        }
+      }
+      
+      // No changes, return previous state to prevent re-render
+      return prevIssues
+    })
+  }, [validationIssues])
   
   const handleFormatChange = useCallback((formatId: string) => {
     updateExportFormat(formatId)

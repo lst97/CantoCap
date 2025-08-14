@@ -21,6 +21,33 @@ import { useInputFile, useSubtitles } from "../../../stores/useStepStore";
 import { Subtitle } from "../../../stores/types/StoreTypes";
 import { ActionButton } from "./styles";
 import { formatTime } from "./utils";
+import { ElectronWindow } from "../../../../../types";
+
+// Supported video formats in typical browsers/Electron
+const SUPPORTED_VIDEO_FORMATS = [
+  { ext: 'mp4', mimeType: 'video/mp4', codecs: ['avc1', 'mp4v', 'h264'] },
+  { ext: 'webm', mimeType: 'video/webm', codecs: ['vp8', 'vp9'] },
+  { ext: 'ogg', mimeType: 'video/ogg', codecs: ['theora'] },
+  { ext: 'avi', mimeType: 'video/x-msvideo', codecs: [] },
+  { ext: 'mov', mimeType: 'video/quicktime', codecs: [] },
+  { ext: 'mkv', mimeType: 'video/x-matroska', codecs: [] }
+];
+
+const validateVideoFile = (filePath: string) => {
+  if (!filePath) return { isValid: false, reason: 'No file path provided' };
+  
+  const ext = filePath.split('.').pop()?.toLowerCase();
+  const supportedFormat = SUPPORTED_VIDEO_FORMATS.find(f => f.ext === ext);
+  
+  if (!supportedFormat) {
+    return { 
+      isValid: false, 
+      reason: `Unsupported format: .${ext}. Supported: ${SUPPORTED_VIDEO_FORMATS.map(f => f.ext).join(', ')}` 
+    };
+  }
+  
+  return { isValid: true, format: supportedFormat };
+};
 
 export const VideoPreviewSection: React.FC = () => {
   const subtitles = useSubtitles();
@@ -30,9 +57,68 @@ export const VideoPreviewSection: React.FC = () => {
   const inputFile = useInputFile();
   const [duration, setDuration] = useState(0);
   const lastUpdateRef = useRef<number>(0);
+  const [isJumpTriggered, setIsJumpTriggered] = useState(false);
 
-  // Video path resolution with fallback logic
-  const resolvedVideoPath = videoPath || inputFile || '';
+  // Video path resolution - prioritize inputFile from Step 1, fallback to videoPath from subtitle store
+  const rawVideoPath = inputFile || videoPath || '';
+  const [videoDataUrl, setVideoDataUrl] = React.useState<string | null>(null);
+  const [isLoadingVideo, setIsLoadingVideo] = React.useState(false);
+  
+  // Convert local file path to data URL for secure playback (same as Step 1)
+  React.useEffect(() => {
+    const convertVideoSource = async () => {
+      if (!rawVideoPath) {
+        setVideoDataUrl(null);
+        setIsLoadingVideo(false);
+        return;
+      }
+
+      // Check if it's already a data URL or web URL
+      if (rawVideoPath.startsWith('data:') || rawVideoPath.startsWith('http://') || rawVideoPath.startsWith('https://')) {
+        setVideoDataUrl(rawVideoPath);
+        setIsLoadingVideo(false);
+        return;
+      }
+
+      // Convert local file path to data URL
+      setIsLoadingVideo(true);
+      try {
+        const dataUrl = await (window as unknown as ElectronWindow).cantocapAPI.getVideoDataUrl(rawVideoPath);
+        setVideoDataUrl(dataUrl);
+        console.log('🎬 VideoPreviewSection: Successfully converted to data URL');
+      } catch (error) {
+        console.error('🎬 VideoPreviewSection: Failed to convert video to data URL:', error);
+        setVideoDataUrl(null);
+      } finally {
+        setIsLoadingVideo(false);
+      }
+    };
+
+    convertVideoSource();
+  }, [rawVideoPath]);
+  
+  // Enhanced debug logging for video source resolution
+  React.useEffect(() => {
+    const validation = validateVideoFile(rawVideoPath);
+    
+    console.log('🎬 VideoPreviewSection video source:', {
+      inputFile,
+      videoPath,
+      rawVideoPath,
+      videoDataUrl: videoDataUrl ? 'data URL created' : 'no data URL',
+      isLoadingVideo,
+      usingInputFile: !!inputFile,
+      isEmpty: !rawVideoPath,
+      validation
+    });
+    
+    if (!validation.isValid && rawVideoPath) {
+      console.warn('🎬 Video format issue:', validation.reason);
+    }
+  }, [inputFile, videoPath, rawVideoPath, videoDataUrl, isLoadingVideo]);
+
+  // Use data URL for video source
+  const resolvedVideoPath = videoDataUrl;
   
   const isPlaying = isVideoPlaying;
 
@@ -58,7 +144,15 @@ export const VideoPreviewSection: React.FC = () => {
 
   const jumpToSelected = () => {
     if (selectedSubtitle?.id) {
+      setIsJumpTriggered(true);
       jumpToSubtitle(selectedSubtitle.id);
+      
+      // Reset the trigger flag after the subtitle duration plus some buffer time
+      // This ensures the video player has enough time to detect the boundary
+      const subtitleDuration = selectedSubtitle.endTime - selectedSubtitle.startTime;
+      setTimeout(() => {
+        setIsJumpTriggered(false);
+      }, subtitleDuration * 1000 + 2000); // subtitle duration + 2 second buffer
     }
   };
 
@@ -102,7 +196,30 @@ export const VideoPreviewSection: React.FC = () => {
       </Typography>
 
       {/* Video player - fixed height to prevent subtitle expansion from affecting it */}
-      {resolvedVideoPath ? (
+      {isLoadingVideo ? (
+        <Box
+          sx={{
+            height: "calc(100% - 190px)", // Same height as video player
+            width: "100%",
+            backgroundColor: "rgba(0, 0, 0, 0.8)",
+            borderRadius: 1,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            mb: 1,
+            flexShrink: 0,
+            gap: 2,
+          }}
+        >
+          <Typography variant="h6" color="text.secondary">
+            Loading video...
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+            Converting video for secure playback
+          </Typography>
+        </Box>
+      ) : resolvedVideoPath ? (
         <Box
           sx={{
             height: "calc(100% - 190px)", // Adjusted height: total minus header(40px), controls(40px), and subtitle preview(110px)
@@ -131,6 +248,13 @@ export const VideoPreviewSection: React.FC = () => {
               isPlaying={isPlaying}
               onPlay={() => setVideoPlaying(true)}
               onPause={() => setVideoPlaying(false)}
+              selectedSubtitle={selectedSubtitle ? {
+                id: selectedSubtitle.id,
+                startTime: selectedSubtitle.startTime,
+                endTime: selectedSubtitle.endTime,
+              } : undefined}
+              autoReturnToStart={true}
+              isJumpTriggered={isJumpTriggered}
             />
           </Box>
         </Box>
@@ -244,8 +368,9 @@ export const VideoPreviewSection: React.FC = () => {
               )}
             </Box>
 
-            {/* Centered subtitle text */}
+            {/* Centered subtitle text with caption and translation */}
             <Box sx={{ pt: 1 }}>
+              {/* Main caption text */}
               <Typography
                 variant="h6"
                 sx={{
@@ -255,11 +380,32 @@ export const VideoPreviewSection: React.FC = () => {
                   color: "white",
                   textAlign: "center",
                   whiteSpace: "pre-line",
-                  mb: 0,
+                  mb: currentSubtitle.translation && currentSubtitle.translation.trim() && 
+                      currentSubtitle.translation !== currentSubtitle.text ? 0.5 : 0,
                 }}
               >
                 {currentSubtitle.text}
               </Typography>
+
+              {/* Translation text if available and different from caption */}
+              {currentSubtitle.translation && 
+               currentSubtitle.translation.trim() && 
+               currentSubtitle.translation !== currentSubtitle.text && (
+                <Typography
+                  variant="body2"
+                  sx={{
+                    fontWeight: 400,
+                    fontSize: "0.9rem",
+                    lineHeight: 1.3,
+                    color: "rgba(255, 255, 255, 0.8)",
+                    textAlign: "center",
+                    whiteSpace: "pre-line",
+                    fontStyle: "italic",
+                  }}
+                >
+                  {currentSubtitle.translation}
+                </Typography>
+              )}
             </Box>
           </>
         ) : (

@@ -1,8 +1,7 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react'
+import { Component, ErrorInfo, ReactNode } from 'react'
 import { ErrorBoundary } from './ErrorBoundary'
 import { 
   ErrorCategory, 
-  ErrorSeverity, 
   EngineError, 
   EngineErrorContext, 
   EngineRecoveryAction 

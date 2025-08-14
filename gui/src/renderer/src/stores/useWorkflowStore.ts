@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { IpcRendererEvent } from 'electron';
 import {
   WorkflowState,
   StepType,
@@ -8,6 +7,30 @@ import {
   WorkflowStepChangedEvent,
   WorkflowStepStateChangedEvent,
 } from './types/StoreTypes';
+import { useStepStore } from './useStepStore';
+import { ElectronWindow } from '@/types';
+
+// Import to get current workspace ID for persistence
+let getAppStore: (() => { activeWorkspaceId: string | null }) | null = null;
+
+// Dynamically import to avoid circular dependencies
+const getWorkspaceId = async (): Promise<string | null> => {
+  if (!getAppStore) {
+    const { useAppStore } = await import('./useAppStore');
+    getAppStore = () => useAppStore.getState();
+  }
+  return getAppStore().activeWorkspaceId;
+};
+
+// Get input step content for JSON import detection
+const getInputStepContent = (): { importedJsonFile?: string | null } => {
+  try {
+    return useStepStore.getState().inputStep || {};
+  } catch (error) {
+    console.warn('Failed to get step store state:', error);
+    return {};
+  }
+};
 
 // ============================================================================
 // WORKFLOW STORE - STEP NAVIGATION AND STATE MANAGEMENT
@@ -16,7 +39,10 @@ import {
 const STEP_ORDER: StepType[] = ['input', 'config', 'processing', 'review', 'export'];
 
 // Helper method to calculate which steps can be navigated to
-const calculateNavigationPermissions = (stepStates: Record<StepType, StepStatusType>) => {
+const calculateNavigationPermissions = (
+  stepStates: Record<StepType, StepStatusType>, 
+  inputStepContent?: { importedJsonFile?: string | null }
+) => {
   const navigation: Record<StepType, boolean> = {
     input: true, // Always accessible
     config: false,
@@ -25,6 +51,9 @@ const calculateNavigationPermissions = (stepStates: Record<StepType, StepStatusT
     export: false,
   };
 
+  // Check if JSON was imported - if so, allow skipping config and processing steps
+  const hasJsonImport = !!(inputStepContent?.importedJsonFile);
+  
   // Config accessible if input is complete or has warning
   if (stepStates.input === StepStatus.COMPLETE || stepStates.input === StepStatus.WARNING) {
     navigation.config = true;
@@ -36,9 +65,11 @@ const calculateNavigationPermissions = (stepStates: Record<StepType, StepStatusT
   }
 
   // Review accessible if processing is complete or has warning
+  // OR if JSON was imported (bypass config and processing requirements)
   if (
     stepStates.processing === StepStatus.COMPLETE ||
-    stepStates.processing === StepStatus.WARNING
+    stepStates.processing === StepStatus.WARNING ||
+    (hasJsonImport && (stepStates.input === StepStatus.COMPLETE || stepStates.input === StepStatus.WARNING))
   ) {
     navigation.review = true;
   }
@@ -57,6 +88,14 @@ const calculateNavigationPermissions = (stepStates: Record<StepType, StepStatusT
         navigation[STEP_ORDER[nextStepIndex]] = true;
       }
     }
+  });
+
+  console.log('🔍 Navigation permissions calculated:', {
+    hasJsonImport,
+    inputStatus: stepStates.input,
+    processingStatus: stepStates.processing,
+    canAccessReview: navigation.review,
+    navigation
   });
 
   return navigation;
@@ -84,19 +123,30 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   actions: {
     navigateToStep: async (step: StepType) => {
       const { actions } = get();
+      const currentState = get();
+      
+      console.log(`🔄 Navigation request: ${currentState.currentStep} → ${step}`, {
+        canNavigate: actions.canNavigateToStep(step),
+        currentState: currentState.currentStep,
+        targetStep: step
+      });
 
       if (actions.canNavigateToStep(step)) {
         set({ currentStep: step });
+        console.log(`✅ Navigation completed: current step set to ${step}`);
 
-        // Optionally persist to main process for cross-session state
+        // Persist to main process for cross-session state
         try {
-          // This could be used to persist workflow state if needed
-          // await window.electron.ipcRenderer.invoke('workflow:setCurrentStep', workspaceId, step);
+          const workspaceId = await getWorkspaceId();
+          if (workspaceId && (window as unknown as ElectronWindow).electron?.ipcRenderer) {
+            await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('workflow:setCurrentStep', workspaceId, step);
+            console.log(`💾 Persisted current step: ${step} for workspace ${workspaceId}`);
+          }
         } catch (error) {
           console.error('Failed to persist current step:', error);
         }
       } else {
-        console.warn(`Cannot navigate to step ${step} - step is blocked or invalid`);
+        console.warn(`❌ Cannot navigate to step ${step} - step is blocked or invalid`);
       }
     },
 
@@ -104,26 +154,30 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       const currentStates = get().stepStates;
       const updatedStates = { ...currentStates, [step]: state };
 
-      // Update navigation permissions based on step completion
-      const updatedNavigation = calculateNavigationPermissions(updatedStates);
+      // Update navigation permissions based on step completion and JSON import status
+      const inputStepContent = getInputStepContent();
+      const updatedNavigation = calculateNavigationPermissions(updatedStates, inputStepContent);
 
       set({
         stepStates: updatedStates,
         canNavigate: updatedNavigation,
       });
 
-      // Broadcast step state change for other components
+      // Persist step state change to main process
       try {
-        // This could be used to persist step states if needed
-        // await window.electron.ipcRenderer.invoke('workflow:setStepState', workspaceId, step, state);
+        const workspaceId = await getWorkspaceId();
+        if (workspaceId && (window as unknown as ElectronWindow).electron?.ipcRenderer) {
+          await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('workflow:setStepState', workspaceId, step, state);
+          console.log(`💾 Persisted step state: ${step} = ${state} for workspace ${workspaceId}`);
+        }
       } catch (error) {
         console.error('Failed to persist step state:', error);
       }
     },
 
     resetWorkflow: async () => {
-      set({
-        currentStep: 'input',
+      const defaultState = {
+        currentStep: 'input' as StepType,
         stepStates: {
           input: StepStatus.READY,
           config: StepStatus.BLOCK,
@@ -131,14 +185,64 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           review: StepStatus.BLOCK,
           export: StepStatus.BLOCK,
         },
-        canNavigate: {
-          input: true,
-          config: false,
-          processing: false,
-          review: false,
-          export: false,
-        },
-      });
+        canNavigate: calculateNavigationPermissions({
+          input: StepStatus.READY,
+          config: StepStatus.BLOCK,
+          processing: StepStatus.BLOCK,
+          review: StepStatus.BLOCK,
+          export: StepStatus.BLOCK,
+        }),
+      };
+
+      set(defaultState);
+
+      // Persist the reset state
+      try {
+        const workspaceId = await getWorkspaceId();
+        if (workspaceId && (window as unknown as ElectronWindow).electron?.ipcRenderer) {
+          await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('workflow:resetState', workspaceId);
+          console.log(`💾 Reset workflow state for workspace ${workspaceId}`);
+        }
+      } catch (error) {
+        console.error('Failed to persist workflow reset:', error);
+      }
+    },
+
+    loadWorkflowState: async (workspaceId: string) => {
+      try {
+        if ((window as unknown as ElectronWindow).electron?.ipcRenderer) {
+          const persistedState = await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('workflow:getState', workspaceId);
+          
+          if (persistedState && typeof persistedState === 'object' && 
+            'currentStep' in persistedState && 'stepStates' in persistedState) {
+            const typedState = persistedState as { currentStep: StepType; stepStates: Record<StepType, StepStatusType> };
+            const inputStepContent = getInputStepContent();
+            const updatedNavigation = calculateNavigationPermissions(typedState.stepStates, inputStepContent);
+            
+            const currentState = get();
+            console.log(`🔄 loadWorkflowState: Loading persisted state for ${workspaceId}`, {
+              currentInStore: currentState.currentStep,
+              persistedStep: typedState.currentStep,
+              willOverride: currentState.currentStep !== typedState.currentStep
+            });
+            
+            set({
+              currentStep: typedState.currentStep,
+              stepStates: typedState.stepStates,
+              canNavigate: updatedNavigation,
+            });
+            
+            console.log(`💾 Loaded persisted workflow state for workspace ${workspaceId}:`, {
+              currentStep: typedState.currentStep,
+              stepStates: typedState.stepStates,
+            });
+          } else {
+            console.log(`💾 No persisted workflow state found for workspace ${workspaceId}, using defaults`);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load workflow state:', error);
+      }
     },
 
     canNavigateToStep: (step: StepType) => {
@@ -178,6 +282,17 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         await actions.navigateToStep(nextStep);
       }
     },
+
+    // Refresh navigation permissions (e.g., when JSON import status changes)
+    refreshNavigationPermissions: () => {
+      const { stepStates } = get();
+      const inputStepContent = getInputStepContent();
+      const updatedNavigation = calculateNavigationPermissions(stepStates, inputStepContent);
+      
+      set({ canNavigate: updatedNavigation });
+      
+      console.log('🔄 Navigation permissions refreshed due to input step changes');
+    },
   },
 }));
 
@@ -186,30 +301,36 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 // ============================================================================
 
 // Initialize IPC listeners with enhanced defensive checks
-if (typeof window !== 'undefined' && window.electron?.ipcRenderer) {
+if (typeof window !== 'undefined' && (window as unknown as ElectronWindow).electron?.ipcRenderer) {
   // Workflow step changed event - enhanced defensive update
-  window.electron.ipcRenderer.on(
+  (window as unknown as ElectronWindow).electron.ipcRenderer.on(
     'workflow:stepChanged',
-    (_: IpcRendererEvent, { currentStep }: WorkflowStepChangedEvent) => {
+    (_event: never, data: WorkflowStepChangedEvent) => {
+      const { currentStep } = data;
+      console.log(`📡 IPC stepChanged event received: setting step to ${currentStep}`, data);
       useWorkflowStore.setState((currentState) => {
         // Only update if step actually changed
         if (currentState.currentStep !== currentStep) {
+          console.log(`🔄 IPC updating step: ${currentState.currentStep} → ${currentStep}`);
           return { ...currentState, currentStep };
         }
+        console.log(`⏸️ IPC step change skipped - already at ${currentStep}`);
         return currentState; // No change needed - return exact same reference
       });
     }
   );
 
   // Workflow step state changed event - enhanced defensive update
-  window.electron.ipcRenderer.on(
+  (window as unknown as ElectronWindow).electron.ipcRenderer.on(
     'workflow:stepStateChanged',
-    (_: IpcRendererEvent, { step, state: newState }: WorkflowStepStateChangedEvent) => {
+    (_event: never, data: WorkflowStepStateChangedEvent) => {
+      const { step, state: newState } = data;
       useWorkflowStore.setState((currentState) => {
         // Only update if step state actually changed
         if (currentState.stepStates[step] !== newState) {
           const updatedStates = { ...currentState.stepStates, [step]: newState };
-          const updatedNavigation = calculateNavigationPermissions(updatedStates);
+          const inputStepContent = getInputStepContent();
+          const updatedNavigation = calculateNavigationPermissions(updatedStates, inputStepContent);
 
           // Double-check if navigation actually changed to prevent unnecessary updates
           const navigationChanged = JSON.stringify(currentState.canNavigate) !== JSON.stringify(updatedNavigation);
@@ -276,6 +397,9 @@ export const useWorkflowProgress = () =>
     ).length;
     return (completedSteps / STEP_ORDER.length) * 100;
   });
+
+// Hook to load workflow state for a workspace
+export const useLoadWorkflowState = () => useWorkflowStore((state) => state.actions.loadWorkflowState);
 
 // Hook to check if workflow is complete
 export const useIsWorkflowComplete = () =>

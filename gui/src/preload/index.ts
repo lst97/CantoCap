@@ -9,10 +9,6 @@ import type {
   FileDialogResult,
   SaveFileDialogResult,
   IPCMessage,
-  IPCProgressUpdate,
-  IPCProcessComplete,
-  IPCProcessError,
-  IPCProcessMessage,
   InitializationResult,
 } from "../types";
 
@@ -110,6 +106,33 @@ const api: ElectronAPI = {
 
 
   
+  // Subtitle Management - Workspace Operations
+  subtitleWorkspaceLoad: (workspaceId: string): Promise<any> =>
+    ipcRenderer.invoke("subtitle:workspace-load", workspaceId),
+
+  subtitleWorkspaceSave: (workspaceId: string, data: any): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke("subtitle:workspace-save", workspaceId, data),
+
+  subtitleWorkspaceExists: (workspaceId: string): Promise<boolean> =>
+    ipcRenderer.invoke("subtitle:workspace-exists", workspaceId),
+
+  subtitleWorkspaceDelete: (workspaceId: string): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke("subtitle:workspace-delete", workspaceId),
+
+  // Subtitle Management - Import Operations (JSON only)
+  subtitleImportJson: (filePath: string): Promise<{ success: boolean; subtitles?: any[]; error?: string }> =>
+    ipcRenderer.invoke("subtitle:import-json", filePath),
+
+  subtitleValidateFormat: (data: any): Promise<{ isValid: boolean; errors?: string[] }> =>
+    ipcRenderer.invoke("subtitle:validate-format", data),
+
+  // Subtitle Management - Step Integration
+  subtitleSyncToStep: (workspaceId: string, subtitles: any[]): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke("subtitle:sync-to-step", workspaceId, subtitles),
+
+  subtitleSyncFromStep: (workspaceId: string): Promise<{ subtitles?: any[] }> =>
+    ipcRenderer.invoke("subtitle:sync-from-step", workspaceId),
+
   // Utility Functions
   removeAllListeners: (): void => {
     ipcRenderer.removeAllListeners("ipc-message");

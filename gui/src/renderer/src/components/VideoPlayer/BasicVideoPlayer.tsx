@@ -23,6 +23,13 @@ interface BasicVideoPlayerProps {
   isPlaying?: boolean;
   onPlay?: () => void;
   onPause?: () => void;
+  selectedSubtitle?: {
+    id: string;
+    startTime: number;
+    endTime: number;
+  };
+  autoReturnToStart?: boolean;
+  isJumpTriggered?: boolean; // New prop to indicate explicit jump action
 }
 
 export const BasicVideoPlayer: React.FC<BasicVideoPlayerProps> = React.memo(
@@ -39,6 +46,9 @@ export const BasicVideoPlayer: React.FC<BasicVideoPlayerProps> = React.memo(
     isPlaying: externalIsPlaying,
     onPlay: externalOnPlay,
     onPause: externalOnPause,
+    selectedSubtitle,
+    autoReturnToStart = false,
+    isJumpTriggered = false,
   }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [isPlaying, setIsPlaying] = useState(false);
@@ -49,6 +59,11 @@ export const BasicVideoPlayer: React.FC<BasicVideoPlayerProps> = React.memo(
     const [showControls, setShowControls] = useState(true);
     const [, setContainerSize] = useState({ width: 0, height: 0 });
     const containerRef = useRef<HTMLDivElement>(null);
+    
+    // Refs for debounced time sync and subtitle boundary management
+    const lastSyncTimeRef = useRef<number>(0);
+    const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const isJumpingToSubtitleRef = useRef<boolean>(false);
 
     const formatTime = (seconds: number): string => {
       const mins = Math.floor(seconds / 60);
@@ -80,8 +95,32 @@ export const BasicVideoPlayer: React.FC<BasicVideoPlayerProps> = React.memo(
     const handleTimeUpdateInternal = useCallback(() => {
       if (!videoRef.current) return;
       const time = videoRef.current.currentTime;
+      
+      // Handle subtitle boundary checking for auto-pause and return
+      // Only trigger auto-pause if this was an explicit jump (isJumpingToSubtitleRef is true)
+      if (autoReturnToStart && selectedSubtitle && isJumpingToSubtitleRef.current) {
+        // Check if we've reached the end of the selected subtitle
+        if (time >= selectedSubtitle.endTime) {
+          // Pause the video
+          videoRef.current.pause();
+          setIsPlaying(false);
+          externalOnPause?.();
+          
+          // Jump back to start time with a small delay to ensure smooth playback
+          setTimeout(() => {
+            if (videoRef.current) {
+              videoRef.current.currentTime = selectedSubtitle.startTime;
+              onTimeUpdate?.(selectedSubtitle.startTime);
+            }
+            isJumpingToSubtitleRef.current = false;
+          }, 50);
+          
+          return;
+        }
+      }
+      
       onTimeUpdate?.(time);
-    }, [onTimeUpdate]);
+    }, [onTimeUpdate, autoReturnToStart, selectedSubtitle, externalOnPause]);
 
     const handleLoadedMetadataInternal = useCallback(() => {
       if (!videoRef.current) return;
@@ -125,12 +164,71 @@ export const BasicVideoPlayer: React.FC<BasicVideoPlayerProps> = React.memo(
       onTimeUpdate?.(newTime);
     }, [duration, onTimeUpdate]);
 
-    // Sync external currentTime with video
+    // Debug logging for src changes
     useEffect(() => {
-      if (videoRef.current && Math.abs(videoRef.current.currentTime - currentTime) > 0.1) {
-        videoRef.current.currentTime = currentTime;
+      console.log('🎬 BasicVideoPlayer src changed:', {
+        src,
+        isEmpty: !src,
+        isFileUrl: src?.startsWith('file://'),
+        length: src?.length,
+      });
+    }, [src]);
+
+    // Debounced sync external currentTime with video to prevent oscillation
+    useEffect(() => {
+      if (!videoRef.current) return;
+      
+      const timeDifference = Math.abs(videoRef.current.currentTime - currentTime);
+      const now = Date.now();
+      
+      // Only sync if:
+      // 1. The time difference is significant (> 0.5s to avoid micro-adjustments)
+      // 2. Enough time has passed since the last sync (debounce)
+      // 3. We're not in the middle of a subtitle jump
+      if (timeDifference > 0.5 && 
+          (now - lastSyncTimeRef.current) > 200 && 
+          !isJumpingToSubtitleRef.current) {
+        
+        // Clear any existing sync timeout
+        if (syncTimeoutRef.current) {
+          clearTimeout(syncTimeoutRef.current);
+        }
+        
+        // Debounced sync with 100ms delay
+        syncTimeoutRef.current = setTimeout(() => {
+          if (videoRef.current && Math.abs(videoRef.current.currentTime - currentTime) > 0.5) {
+            videoRef.current.currentTime = currentTime;
+            lastSyncTimeRef.current = Date.now();
+          }
+        }, 100);
       }
+      
+      return () => {
+        if (syncTimeoutRef.current) {
+          clearTimeout(syncTimeoutRef.current);
+        }
+      };
     }, [currentTime]);
+
+    // Detect when jumping to a selected subtitle (only when explicitly triggered)
+    useEffect(() => {
+      if (selectedSubtitle && autoReturnToStart && isJumpTriggered) {
+        // Set the flag to indicate we're jumping to a subtitle
+        isJumpingToSubtitleRef.current = true;
+        
+        // Clear the flag after a reasonable time if not cleared by boundary detection
+        const timeoutId = setTimeout(() => {
+          isJumpingToSubtitleRef.current = false;
+        }, (selectedSubtitle.endTime - selectedSubtitle.startTime) * 1000 + 1000);
+
+        return () => {
+          clearTimeout(timeoutId);
+        };
+      } else {
+        // If not jumping explicitly, clear the flag
+        isJumpingToSubtitleRef.current = false;
+      }
+    }, [selectedSubtitle, autoReturnToStart, isJumpTriggered]);
 
     // Check if external control is being used
     useEffect(() => {
@@ -145,7 +243,16 @@ export const BasicVideoPlayer: React.FC<BasicVideoPlayerProps> = React.memo(
         // Actually control the video element based on external state
         if (videoRef.current) {
           if (externalIsPlaying) {
-            videoRef.current.play().catch(console.error);
+            videoRef.current.play().catch((error) => {
+              console.error('🎬 VideoPlayer play() failed:', {
+                name: error.name,
+                code: error.code,
+                src: videoRef.current?.src,
+                readyState: videoRef.current?.readyState,
+                networkState: videoRef.current?.networkState,
+                error: videoRef.current?.error
+              });
+            });
           } else {
             videoRef.current.pause();
           }
@@ -270,13 +377,25 @@ export const BasicVideoPlayer: React.FC<BasicVideoPlayerProps> = React.memo(
             onLoadedMetadata={handleLoadedMetadataInternal}
             onError={(e) => {
               const videoElement = e.target as HTMLVideoElement;
-              // Only log critical errors
-              if (videoElement.error?.code && videoElement.error.code !== 4) {
-                console.error('Video playback error:', {
-                  code: videoElement.error.code,
-                  message: videoElement.error.message,
-                });
-              }
+              console.error('🎬 Video onError event:', {
+                src: videoElement.src,
+                errorCode: videoElement.error?.code,
+                errorMessage: videoElement.error?.message,
+                readyState: videoElement.readyState,
+                networkState: videoElement.networkState,
+                currentSrc: videoElement.currentSrc,
+                mediaError: {
+                  MEDIA_ERR_ABORTED: 1,
+                  MEDIA_ERR_NETWORK: 2,
+                  MEDIA_ERR_DECODE: 3,
+                  MEDIA_ERR_SRC_NOT_SUPPORTED: 4,
+                },
+                errorCodeMeaning: videoElement.error?.code === 1 ? 'MEDIA_ERR_ABORTED' :
+                                 videoElement.error?.code === 2 ? 'MEDIA_ERR_NETWORK' :
+                                 videoElement.error?.code === 3 ? 'MEDIA_ERR_DECODE' :
+                                 videoElement.error?.code === 4 ? 'MEDIA_ERR_SRC_NOT_SUPPORTED' :
+                                 'UNKNOWN'
+              });
             }}
             autoPlay={autoPlay}
             style={{

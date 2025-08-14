@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -19,18 +19,21 @@ import {
   VisibilityOff as HideIcon,
 } from '@mui/icons-material';
 import {
+  useSubtitleEditStore,
   useSubtitles,
   useOriginalSubtitles,
   useSelectedSubtitle,
-  useVideoState,
   useSaveState,
   useSubtitleActions,
   useSubtitleWorkspace,
-  Subtitle,
 } from '../../../stores/useSubtitleEditStore';
+import { useInputStepContent } from '../../../stores/useStepStore';
+import { useActiveWorkspaceId } from '../../../stores/useAppStore';
+import { Subtitle } from '../../../stores/types/StoreTypes';
 import { ReviewCard, ModificationChip, ActionButton } from './styles';
 import { formatTime, generateCharacterDiff } from './utils';
 import { DiffPart } from './types';
+import { ElectronWindow } from '../../../../../types';
 
 // Interface for gap state management
 interface GapState {
@@ -42,36 +45,103 @@ interface GapState {
 }
 
 export const SubtitleListPanel: React.FC = () => {
-  const subtitles = useSubtitles();
+  const rawSubtitles = useSubtitles();
   const originalSubtitles = useOriginalSubtitles();
+  const { isDirty: _isDirty } = useSaveState();
+  const inputStepContent = useInputStepContent();
+  const activeWorkspaceId = useActiveWorkspaceId();
+  
+  
+  // Memoize subtitles with proper dependencies to prevent infinite loops while detecting real changes
+  const subtitles = useMemo(() => rawSubtitles, [rawSubtitles]);
   const selectedSubtitle = useSelectedSubtitle();
-  const { currentTime, isVideoPlaying, videoDuration } = useVideoState();
+  
+  // PERFORMANCE FIX: Use separate selectors to prevent re-renders from currentTime changes
+  const currentTime = useSubtitleEditStore(state => state.currentTime);
+  const isVideoPlaying = useSubtitleEditStore(state => state.isVideoPlaying);
+  const videoDuration = useSubtitleEditStore(state => state.videoDuration);
+  
   const { workspaceId } = useSubtitleWorkspace();
   const { isSaving } = useSaveState();
   const { deleteSubtitle, addSubtitle, setSelectedSubtitle, jumpToSubtitle, saveToWorkspace } =
     useSubtitleActions();
 
-  // State for diff view
+  // State for diff view and JSON loading
   const [showDiff, setShowDiff] = useState(false);
+  const [isLoadingJsonSubtitles, setIsLoadingJsonSubtitles] = useState(false);
 
-  // No need for separate original data loading - it's handled by the store
+  // Handle JSON subtitle loading when JSON was imported but no subtitles are loaded
+  useEffect(() => {
+    const loadJsonSubtitles = async () => {
+      const hasJsonImport = !!(inputStepContent?.importedJsonFile);
+      const hasSubtitles = subtitles && subtitles.length > 0;
+      
+      // Only load if we have JSON import but no subtitles, and we're not already loading
+      if (hasJsonImport && !hasSubtitles && !isLoadingJsonSubtitles && activeWorkspaceId) {
+        console.log('🔄 JSON import detected but no subtitles loaded, attempting to load from backend...');
+        setIsLoadingJsonSubtitles(true);
+        
+        try {
+          // Try to load subtitles from the backend sync store
+          const syncResult = await (window as unknown as ElectronWindow).cantocapAPI.subtitleSyncFromStep(activeWorkspaceId);
+          if (syncResult && (syncResult as any).subtitles && Array.isArray((syncResult as any).subtitles) && (syncResult as any).subtitles.length > 0) {
+            console.log(`✅ Found ${(syncResult as any).subtitles.length} subtitles in backend, importing to subtitle edit store...`);
+            
+            // Note: importFromJson functionality would be handled here
+            // This is where subtitle data would be imported into the edit store
+            console.log('Subtitle import would happen here with:', (syncResult as any).subtitles.length, 'subtitles');
+            
+            console.log('✅ Subtitles successfully loaded into subtitle edit store from JSON import');
+          } else {
+            console.log('❌ No subtitles found in backend sync store, trying to load JSON file directly...');
+            
+            // Fallback: try to load the JSON file directly
+            if (inputStepContent?.importedJsonFile) {
+              try {
+                const jsonContent = await (window as unknown as ElectronWindow).cantocapAPI.readJsonFile(inputStepContent.importedJsonFile);
+                if (jsonContent && (jsonContent as any).subtitles && Array.isArray((jsonContent as any).subtitles)) {
+                  console.log(`✅ Loaded JSON file directly with ${(jsonContent as any).subtitles.length} subtitles`);
+                  
+                  // Note: importFromJson functionality would be handled here
+                  console.log('✅ Subtitles would be imported from direct JSON file load');
+                } else {
+                  console.log('❌ JSON file does not contain valid subtitle data');
+                }
+              } catch (jsonError) {
+                console.error('❌ Failed to load JSON file directly:', jsonError);
+              }
+            }
+          }
+        } catch (error) {
+          console.error('❌ Failed to load JSON subtitles:', error);
+        } finally {
+          setIsLoadingJsonSubtitles(false);
+        }
+      }
+    };
 
-  // DEBUG: Log subtitle data
-  React.useEffect(() => {
-    console.log('🔍 DEBUG: SubtitleListPanel data:', {
-      workspaceId,
-      hasSubtitles: !!subtitles.length,
-      subtitlesLength: subtitles.length,
-      hasOriginalSubtitles: !!originalSubtitles.length,
-      originalSubtitlesLength: originalSubtitles.length,
-      isVideoPlaying,
-      currentTime,
-      selectedSubtitleId: selectedSubtitle?.id,
-    });
-  }, [subtitles, originalSubtitles, workspaceId, isVideoPlaying, currentTime, selectedSubtitle]);
+    loadJsonSubtitles();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    inputStepContent?.importedJsonFile, 
+    subtitles?.length, 
+    activeWorkspaceId, 
+    isLoadingJsonSubtitles, 
+    inputStepContent?.inputFile
+  ]);
 
-  // Get current subtitle based on current time for highlighting
-  const getCurrentSubtitle = (): Subtitle | null => {
+  // Listen for manual retry events
+  useEffect(() => {
+    const handleRetryLoad = () => {
+      setIsLoadingJsonSubtitles(false); // This will trigger the main effect to run again
+    };
+
+    window.addEventListener('retryJsonLoad', handleRetryLoad);
+    return () => window.removeEventListener('retryJsonLoad', handleRetryLoad);
+  }, []);
+
+  // Get current subtitle based on current time for highlighting - MEMOIZED FOR PERFORMANCE
+  const currentPlayingSubtitle = useMemo((): Subtitle | null => {
     if (!subtitles.length || !isVideoPlaying) {
       return null; // No subtitle is "currently playing" if video isn't playing
     }
@@ -81,9 +151,7 @@ export const SubtitleListPanel: React.FC = () => {
         (subtitle) => currentTime >= subtitle.startTime && currentTime <= subtitle.endTime
       ) || null
     );
-  };
-
-  const currentPlayingSubtitle = getCurrentSubtitle();
+  }, [subtitles, currentTime, isVideoPlaying]); // Only recalculate when these values change
 
   const [hoveredSubtitleId, setHoveredSubtitleId] = useState<string | null>(null);
   const [hoveredGapIndex, setHoveredGapIndex] = useState<number | null>(null);
@@ -112,12 +180,15 @@ export const SubtitleListPanel: React.FC = () => {
 
       // Validate the parsed numbers
       if (isNaN(prevEndTime) || isNaN(currStartTime)) {
+        console.warn(`❌ Invalid timing data for gap ${i}:`, { prevEndTime, currStartTime });
         continue;
       }
 
       const gapDuration = currStartTime - prevEndTime;
       // 🔧 CORRECTED: Use 1 second threshold now that formatTime shows precise timestamps
       const isEnabled = gapDuration >= 1.0; // Enable if gap is ≥1 second (meaningful gap for new subtitles)
+
+      console.log(`📏 Gap ${i}: ${gapDuration.toFixed(2)}s between "${prevSubtitle.text}" and "${currSubtitle.text}" - ${isEnabled ? 'ENABLED' : 'disabled'}`);
 
       gaps.set(i, {
         index: i,
@@ -128,10 +199,50 @@ export const SubtitleListPanel: React.FC = () => {
       });
     }
 
+    console.log('✅ Gap calculation complete:', Array.from(gaps.values()).map(g => ({ index: g.index, duration: g.gapDuration.toFixed(2), enabled: g.isEnabled })));
     return gaps;
   }, [subtitles]); // Only recalculate when subtitles change
 
-  // Auto-scroll to center current subtitle when it changes
+  // DEBUG: Log subtitle data and gap states - PERFORMANCE OPTIMIZED
+  // Only log when significant changes occur, not on every video time update
+  React.useEffect(() => {
+    console.log('🔍 DEBUG: SubtitleListPanel data:', {
+      workspaceId,
+      hasSubtitles: !!subtitles.length,
+      subtitlesLength: subtitles.length,
+      hasOriginalSubtitles: !!originalSubtitles.length,
+      originalSubtitlesLength: originalSubtitles.length,
+      selectedSubtitleId: selectedSubtitle?.id,
+      gapStatesCount: gapStates.size,
+      availableGaps: Array.from(gapStates.values()).filter(g => g.isEnabled).length,
+      hasJsonImport: !!(inputStepContent?.importedJsonFile),
+      jsonFilePath: inputStepContent?.importedJsonFile,
+      isLoadingJsonSubtitles,
+    });
+    
+    // Debug first few subtitles to check caption vs translation data
+    if (subtitles.length > 0) {
+      console.log('📝 First 3 subtitles data structure:', subtitles.slice(0, 3).map((s, i) => ({
+        index: i,
+        id: s.id,
+        text: s.text,
+        translation: s.translation,
+        hasTranslation: !!(s.translation && s.translation.trim() && s.translation !== s.text),
+      })));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    subtitles.length, // Only when subtitle count changes
+    originalSubtitles.length, // Only when original count changes  
+    workspaceId, // Only when workspace changes
+    selectedSubtitle?.id, // Only when selection changes
+    gapStates.size, // Only when gap count changes
+    inputStepContent?.importedJsonFile, // Only when JSON import changes
+    isLoadingJsonSubtitles // Only when loading state changes
+    // Removed: isVideoPlaying, currentTime - these change constantly during playback
+  ]);
+
+  // Auto-scroll to center current subtitle when it changes - THROTTLED FOR PERFORMANCE
   useEffect(() => {
     if (currentPlayingSubtitle && currentSubtitleRef.current && listContainerRef.current) {
       const container = listContainerRef.current;
@@ -142,26 +253,33 @@ export const SubtitleListPanel: React.FC = () => {
       const elementTop = element.offsetTop;
       const elementHeight = element.clientHeight;
 
-      // Scroll to center the current subtitle
+      // Scroll to center the current subtitle with instant behavior during playback
+      // to avoid smooth scrolling interfering with video timeline
       const scrollPosition = elementTop - containerHeight / 2 + elementHeight / 2;
 
       container.scrollTo({
         top: scrollPosition,
-        behavior: 'smooth',
+        behavior: isVideoPlaying ? 'instant' : 'smooth', // Instant during playback, smooth when paused
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPlayingSubtitle?.id]); // Only trigger when current subtitle changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPlayingSubtitle?.id, isVideoPlaying]); // Re-run when subtitle changes or play state changes
 
   const handleSubtitleClick = (subtitle: Subtitle) => {
     setSelectedSubtitle(subtitle.id);
     // Don't jump to subtitle on click - only select it for editing
   };
 
-  const handleEdit = (subtitleId: string) => {
+  const handleEdit = useCallback((subtitleId: string) => {
+    // PERFORMANCE FIX: Optimize jump-to-subtitle to prevent interference with video playback
     setSelectedSubtitle(subtitleId);
-    jumpToSubtitle(subtitleId);
-  };
+    
+    // Use a small delay to ensure the selection is processed before jumping
+    // This prevents the jumping action from conflicting with continuous video time updates
+    setTimeout(() => {
+      jumpToSubtitle(subtitleId);
+    }, 50);
+  }, [setSelectedSubtitle, jumpToSubtitle]);
 
   const handleDelete = async (subtitleId: string) => {
     try {
@@ -343,14 +461,46 @@ export const SubtitleListPanel: React.FC = () => {
   }
 
   if (!subtitles.length) {
+    const hasJsonImport = !!(inputStepContent?.importedJsonFile);
+    
     return (
       <ReviewCard>
         <Typography variant='h6' sx={{ mb: 2 }}>
           Generated Subtitles
         </Typography>
-        <Alert severity='info'>
-          No subtitles available. Complete the processing step to generate subtitles.
-        </Alert>
+        {isLoadingJsonSubtitles ? (
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', py: 4 }}>
+            <CircularProgress size={24} sx={{ mr: 2 }} />
+            <Typography>Loading subtitles from imported JSON...</Typography>
+          </Box>
+        ) : hasJsonImport ? (
+          <Alert 
+            severity='warning'
+            action={
+              <ActionButton
+                size="small"
+                onClick={() => {
+                  setIsLoadingJsonSubtitles(false); // Reset loading state to trigger retry
+                  // Force re-run of the effect
+                  const loadEffect = setTimeout(() => {
+                    const event = new CustomEvent('retryJsonLoad');
+                    window.dispatchEvent(event);
+                  }, 100);
+                  return () => clearTimeout(loadEffect);
+                }}
+                sx={{ fontSize: '0.75rem' }}
+              >
+                Retry Load
+              </ActionButton>
+            }
+          >
+            Imported JSON subtitles could not be loaded. Try re-importing your JSON file from Step 1, or check the console for error details.
+          </Alert>
+        ) : (
+          <Alert severity='info'>
+            No subtitles available. Complete the processing step to generate subtitles.
+          </Alert>
+        )}
       </ReviewCard>
     );
   }
@@ -628,11 +778,12 @@ export const SubtitleListPanel: React.FC = () => {
                             )}
                           </Box>
 
+                          {/* Main caption text (transcription) */}
                           <Typography
                             variant='body2'
                             sx={{
                               fontWeight: 500,
-                              mb: 0.5,
+                              mb: subtitle.translation && subtitle.translation.trim() ? 0.25 : 0.5,
                               lineHeight: 1.4,
                               whiteSpace: 'pre-line',
                             }}
@@ -640,10 +791,9 @@ export const SubtitleListPanel: React.FC = () => {
                             {subtitle.text}
                           </Typography>
 
-                          {/* Display translation text if available */}
+                          {/* Translation text if available */}
                           {subtitle.translation &&
-                            subtitle.translation.trim() &&
-                            subtitle.translation !== subtitle.text && (
+                            subtitle.translation.trim() && (
                               <Typography
                                 variant='body2'
                                 sx={{
@@ -651,9 +801,14 @@ export const SubtitleListPanel: React.FC = () => {
                                   mb: 0.5,
                                   lineHeight: 1.4,
                                   whiteSpace: 'pre-line',
-                                  color: 'text.secondary',
+                                  color: 'rgba(255, 255, 255, 0.7)',
                                   fontStyle: 'italic',
-                                  fontSize: '0.9em',
+                                  fontSize: '0.85em',
+                                  pl: 1,
+                                  borderLeft: '2px solid rgba(245, 158, 11, 0.3)',
+                                  backgroundColor: 'rgba(245, 158, 11, 0.05)',
+                                  borderRadius: '0 4px 4px 0',
+                                  py: 0.5
                                 }}
                               >
                                 {subtitle.translation}

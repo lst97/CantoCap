@@ -29,7 +29,7 @@ export class IPCConfigHandlers {
       return this.appStateService.getState();
     });
     
-    ipcMain.handle('app:setActiveWorkspace', (_, workspaceId: string) => {
+    ipcMain.handle('app:setActiveWorkspace', (_, workspaceId: string | null) => {
       this.appStateService.setActiveWorkspace(workspaceId);
       this.broadcast('app:stateUpdated', this.appStateService.getState());
       return true;
@@ -83,7 +83,7 @@ export class IPCConfigHandlers {
         if (wasActiveWorkspace) {
           const remainingWorkspaces = this.workspaceService.listWorkspaces();
           if (remainingWorkspaces.length === 0) {
-            this.appStateService.setActiveWorkspace('');
+            this.appStateService.setActiveWorkspace(null);
           }
         }
         
@@ -157,22 +157,6 @@ export class IPCConfigHandlers {
         content: defaultContent 
       });
       return defaultContent;
-    });
-    
-    // ============================================================================
-    // WORKFLOW HANDLERS
-    // ============================================================================
-    
-    ipcMain.handle('workflow:setCurrentStep', (_, workspaceId: string, step: string) => {
-      // This could be stored in workspace data if needed for persistence
-      this.broadcast('workflow:stepChanged', { workspaceId, currentStep: step });
-      return true;
-    });
-    
-    ipcMain.handle('workflow:setStepState', (_, workspaceId: string, step: string, state: string) => {
-      // This could be stored in workspace data if needed for persistence  
-      this.broadcast('workflow:stepStateChanged', { workspaceId, step, state });
-      return true;
     });
     
     // ============================================================================
@@ -408,8 +392,6 @@ export class IPCConfigHandlers {
     ipcMain.removeAllListeners('step:getContent');
     ipcMain.removeAllListeners('step:resetContent');
     
-    ipcMain.removeAllListeners('workflow:setCurrentStep');
-    ipcMain.removeAllListeners('workflow:setStepState');
     
     // Remove group management handlers
     ipcMain.removeAllListeners('group:create');

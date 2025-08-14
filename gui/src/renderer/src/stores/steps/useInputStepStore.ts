@@ -107,7 +107,7 @@ export const useInputStepStore = create<InputStepState>((set, get) => ({
 export const useInputStepData = () => useInputStepStore(state => state.data);
 export const useInputStepActions = () => useInputStepStore(state => state.actions);
 export const useSelectedFiles = () => useInputStepStore(state => state.data.selectedFiles);
-export const useInputFile = () => useInputStepStore(state => state.data.inputFile || state.data.selectedFile);
+// Removed duplicate useInputFile - use the one from useStepStore instead to avoid conflicts
 export const useSelectedRange = () => useInputStepStore(state => state.data.selectedRange);
 export const useTimeRange = () => useInputStepStore(state => ({
   startTime: state.data.startTime,

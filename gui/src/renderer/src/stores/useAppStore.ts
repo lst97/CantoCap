@@ -1,6 +1,5 @@
 import { create } from 'zustand';
-import { IpcRendererEvent } from 'electron';
-import { AppState, WindowState, AppStateUpdateEvent } from './types/StoreTypes';
+import { AppState, WindowState, AppStateUpdateEvent, ElectronWindow } from './types/StoreTypes';
 
 // ============================================================================
 // APP STORE - GLOBAL APPLICATION STATE
@@ -39,7 +38,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     setActiveWorkspace: async (id: string) => {
       try {
         set({ isLoading: true });
-        await window.electron.ipcRenderer.invoke('app:setActiveWorkspace', id);
+        await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('app:setActiveWorkspace', id);
         // State will be updated via IPC event listener
       } catch (error) {
         console.error('Failed to set active workspace:', error);
@@ -58,12 +57,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       try {
         set({ isLoading: true });
         
-        const state = await window.electron.ipcRenderer.invoke('app:getState');
+        const rawState = await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('app:getState');
         
-        if (!state) {
+        if (!rawState) {
           throw new Error('No state received from main process');
         }
         
+        // Type the state object properly
+        const state = rawState as Partial<AppStateUpdateEvent>;
         
         // Validate the state structure
         const validatedState = {
@@ -97,7 +98,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         }));
         
         // Persist to main process
-        await window.electron.ipcRenderer.invoke('app:updateWindowState', windowState);
+        await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('app:updateWindowState', windowState);
       } catch (error) {
         console.error('Failed to update window state:', error);
       }
@@ -105,7 +106,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     
     clearRecentWorkspaces: async () => {
       try {
-        await window.electron.ipcRenderer.invoke('app:clearRecentWorkspaces');
+        await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('app:clearRecentWorkspaces');
         // State will be updated via IPC event
       } catch (error) {
         console.error('Failed to clear recent workspaces:', error);
@@ -167,14 +168,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 // ============================================================================
 
 // Initialize IPC listeners with defensive state updates
-if (typeof window !== 'undefined' && window.electron?.ipcRenderer) {
+if (typeof window !== 'undefined' && (window as unknown as ElectronWindow).electron?.ipcRenderer) {
   // App state updates from main process - defensive update with validation
-  window.electron.ipcRenderer.on('app:stateUpdated', (_: IpcRendererEvent, state: AppStateUpdateEvent) => {
+  (window as unknown as ElectronWindow).electron.ipcRenderer.on('app:stateUpdated', (state: AppStateUpdateEvent) => {
     useAppStore.setState((currentState) => {
-      // CRITICAL FIX: If the main process sends undefined activeWorkspaceId, REJECT the update entirely
-      // and preserve the current renderer state
+      // DEFENSIVE: If the main process sends undefined activeWorkspaceId, REJECT the update entirely
+      // and preserve the current renderer state (this is expected behavior during certain state transitions)
       if (state.activeWorkspaceId === undefined) {
-        console.error('❌ App Store: REJECTING state update with undefined activeWorkspaceId!');
+        console.warn('⚠️ App Store: Rejecting state update with undefined activeWorkspaceId (expected during transitions)');
         
         // Only update non-activeWorkspaceId fields if they are valid
         const safeUpdate = {
@@ -210,7 +211,7 @@ if (typeof window !== 'undefined' && window.electron?.ipcRenderer) {
   });
   
   // Window state updates from main process - defensive update
-  window.electron.ipcRenderer.on('app:windowStateUpdated', (_: IpcRendererEvent, windowState: WindowState) => {
+  (window as unknown as ElectronWindow).electron.ipcRenderer.on('app:windowStateUpdated', (windowState: WindowState) => {
     useAppStore.setState(currentState => {
       // Only update if window state actually changed
       const hasWindowStateChanged = JSON.stringify(currentState.windowState) !== JSON.stringify({ ...currentState.windowState, ...windowState });

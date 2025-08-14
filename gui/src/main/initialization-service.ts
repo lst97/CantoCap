@@ -3,14 +3,7 @@ import { app, shell, dialog } from 'electron'
 import { join } from 'path'
 import { existsSync } from 'fs'
 import { DependencyChecker } from './dependency-checker'
-import type { DependencyStatus } from '../types'
-
-export interface InitializationResult {
-  success: boolean
-  message: string
-  dependencies: Record<string, DependencyStatus>
-  requiresRestart?: boolean
-}
+import type { DependencyStatus, InitializationResult } from '../types'
 
 export class InitializationService {
   private dependencyChecker: DependencyChecker

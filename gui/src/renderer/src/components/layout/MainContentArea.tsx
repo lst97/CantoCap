@@ -89,54 +89,60 @@ export const MainContentArea: React.FC = () => {
   }
 
   const renderStepContent = () => {
-    switch (currentStepId) {
-      case 'input':
-        return (
+    return (
+      <>
+        {/* Input Step */}
+        <Box sx={{ display: currentStepId === 'input' ? 'block' : 'none', height: '100%' }}>
           <ErrorBoundary
             fallbackTitle='Input File Step Error'
             fallbackMessage='An error occurred in the input file step. Please try refreshing or contact support.'
           >
             <InputFileStep />
           </ErrorBoundary>
-        );
-      case 'config':
-        return (
+        </Box>
+
+        {/* Config Step */}
+        <Box sx={{ display: currentStepId === 'config' ? 'block' : 'none', height: '100%' }}>
           <ErrorBoundary
             fallbackTitle='Configuration Step Error'
             fallbackMessage='An error occurred in the configuration step. Please check your settings and try again.'
           >
             <ConfigStep />
           </ErrorBoundary>
-        );
-      case 'processing':
-        return (
+        </Box>
+
+        {/* Processing Step */}
+        <Box sx={{ display: currentStepId === 'processing' ? 'block' : 'none', height: '100%' }}>
           <ErrorBoundary
             fallbackTitle='Processing Step Error'
             fallbackMessage='An error occurred during processing. Please check your files and try again.'
           >
             <ProcessingStep />
           </ErrorBoundary>
-        );
-      case 'review':
-        return (
+        </Box>
+
+        {/* Review Step */}
+        <Box sx={{ display: currentStepId === 'review' ? 'block' : 'none', height: '100%' }}>
           <ErrorBoundary
             fallbackTitle='Review Step Error'
             fallbackMessage='An error occurred in the review step. Your progress has been saved automatically.'
           >
             <ReviewStep />
           </ErrorBoundary>
-        );
-      case 'export':
-        return (
+        </Box>
+
+        {/* Export Step */}
+        <Box sx={{ display: currentStepId === 'export' ? 'block' : 'none', height: '100%' }}>
           <ErrorBoundary
             fallbackTitle='Export Step Error'
             fallbackMessage='An error occurred during export. Please try again or check your export settings.'
           >
             <ExportStep />
           </ErrorBoundary>
-        );
-      default:
-        return (
+        </Box>
+
+        {/* Fallback for unknown steps */}
+        {!['input', 'config', 'processing', 'review', 'export'].includes(currentStepId) && (
           <Box
             sx={{
               display: 'flex',
@@ -154,8 +160,9 @@ export const MainContentArea: React.FC = () => {
               The requested step &quot;{currentStepId}&quot; could not be loaded.
             </Typography>
           </Box>
-        );
-    }
+        )}
+      </>
+    );
   };
 
   return (

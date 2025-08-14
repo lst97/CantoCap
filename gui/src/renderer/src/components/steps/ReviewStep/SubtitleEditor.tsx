@@ -55,16 +55,17 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
     restoreFromOriginal
   } = useSubtitleActions();
   const { navigateToStep } = useWorkflowActions();
-  const { currentTime, isVideoPlaying } = useSubtitleEditStore(state => ({ 
-    currentTime: state.currentTime, 
-    isVideoPlaying: state.isVideoPlaying 
-  }));
+  
+  // Fixed: Use separate selectors to avoid creating new objects on each render
+  const currentTime = useSubtitleEditStore(state => state.currentTime);
+  const isVideoPlaying = useSubtitleEditStore(state => state.isVideoPlaying);
 
   const [editText, setEditText] = useState("");
   const [editTranslation, setEditTranslation] = useState("");
   const [editStartTime, setEditStartTime] = useState("");
   const [editEndTime, setEditEndTime] = useState("");
   const [hasChanges, setHasChanges] = useState(false);
+  const [showTranslationField, setShowTranslationField] = useState(false);
   
   // Export state management to prevent infinite rerenders
   const [isExporting, setIsExporting] = useState(false);
@@ -78,7 +79,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
     editingSubtitle && !editingSubtitle.text && !editingSubtitle.translation;
   
   // Check if subtitle has translation
-  const hasTranslation = editingSubtitle && editingSubtitle.translation && editingSubtitle.translation.trim() && editingSubtitle.translation !== editingSubtitle.text;
+  const hasTranslation = editingSubtitle && editingSubtitle.translation && editingSubtitle.translation.trim();
 
   // Update local state when selected subtitle changes
   useEffect(() => {
@@ -88,6 +89,8 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
       setEditStartTime(formatTime(editingSubtitle.startTime));
       setEditEndTime(formatTime(editingSubtitle.endTime));
       setHasChanges(false);
+      // Show translation field if translation exists
+      setShowTranslationField(!!(editingSubtitle.translation && editingSubtitle.translation.trim()));
     }
   }, [editingSubtitle]);
 
@@ -292,46 +295,52 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
         {/* Undo/Redo and Reset buttons */}
         <Box sx={{ display: "flex", gap: 1 }}>
           <Tooltip title="Reset Changes">
-            <IconButton
-              size="small"
-              onClick={handleReset}
-              disabled={!hasChanges}
-              sx={{ color: "#F59E0B" }}
-            >
-              <RestoreIcon />
-            </IconButton>
+            <span>
+              <IconButton
+                size="small"
+                onClick={handleReset}
+                disabled={!hasChanges}
+                sx={{ color: "#F59E0B" }}
+              >
+                <RestoreIcon />
+              </IconButton>
+            </span>
           </Tooltip>
           <Tooltip title="Undo">
-            <IconButton
-              size="small"
-              onClick={async () => {
-                try {
-                  undo();
-                  await saveToWorkspace();
-                } catch (error) {
-                  console.error('Failed to undo:', error);
-                }
-              }}
-              disabled={undoStack.length === 0 || isSaving}
-            >
-              <UndoIcon />
-            </IconButton>
+            <span>
+              <IconButton
+                size="small"
+                onClick={async () => {
+                  try {
+                    undo();
+                    await saveToWorkspace();
+                  } catch (error) {
+                    console.error('Failed to undo:', error);
+                  }
+                }}
+                disabled={undoStack.length === 0 || isSaving}
+              >
+                <UndoIcon />
+              </IconButton>
+            </span>
           </Tooltip>
           <Tooltip title="Redo">
-            <IconButton
-              size="small"
-              onClick={async () => {
-                try {
-                  redo();
-                  await saveToWorkspace();
-                } catch (error) {
-                  console.error('Failed to redo:', error);
-                }
-              }}
-              disabled={redoStack.length === 0 || isSaving}
-            >
-              <RedoIcon />
-            </IconButton>
+            <span>
+              <IconButton
+                size="small"
+                onClick={async () => {
+                  try {
+                    redo();
+                    await saveToWorkspace();
+                  } catch (error) {
+                    console.error('Failed to redo:', error);
+                  }
+                }}
+                disabled={redoStack.length === 0 || isSaving}
+              >
+                <RedoIcon />
+              </IconButton>
+            </span>
           </Tooltip>
         </Box>
       </Box>
@@ -381,24 +390,57 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = () => {
             }}
           />
 
-          {/* Translation Editor - Show if translation exists or if we're editing one */}
-          {(hasTranslation || editTranslation.trim()) && (
-            <TextField
-              label="Translation"
-              value={editTranslation}
-              onChange={(e) => handleTranslationChange(e.target.value)}
-              multiline
-              rows={2}
-              fullWidth
+          {/* Translation Editor Section */}
+          {(hasTranslation || editTranslation.trim() || showTranslationField) ? (
+            <Box>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                <Typography variant="subtitle2" color="text.secondary">
+                  Translation
+                </Typography>
+                {!hasTranslation && !editTranslation.trim() && (
+                  <Button
+                    size="small"
+                    onClick={() => setShowTranslationField(false)}
+                    sx={{ fontSize: '0.75rem' }}
+                  >
+                    Hide
+                  </Button>
+                )}
+              </Box>
+              <TextField
+                label="Translation"
+                value={editTranslation}
+                onChange={(e) => handleTranslationChange(e.target.value)}
+                multiline
+                rows={2}
+                fullWidth
+                variant="outlined"
+                placeholder="Add translation for this subtitle..."
+                sx={{
+                  "& .MuiOutlineInputBase-root": {
+                    backgroundColor: hasChanges
+                      ? "rgba(245, 158, 11, 0.05)"
+                      : "transparent",
+                  },
+                }}
+              />
+            </Box>
+          ) : (
+            <Button
               variant="outlined"
-              sx={{
-                "& .MuiOutlineInputBase-root": {
-                  backgroundColor: hasChanges
-                    ? "rgba(245, 158, 11, 0.05)"
-                    : "transparent",
-                },
+              size="small"
+              onClick={() => setShowTranslationField(true)}
+              sx={{ 
+                alignSelf: 'flex-start',
+                fontSize: '0.8rem',
+                py: 1,
+                borderStyle: 'dashed',
+                color: 'text.secondary',
+                borderColor: 'rgba(255, 255, 255, 0.3)'
               }}
-            />
+            >
+              + Add Translation
+            </Button>
           )}
 
           {/* Confidence and Info */}
