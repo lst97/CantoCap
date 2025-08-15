@@ -55,7 +55,9 @@
       "Bash(pnpm store prune:*)",
       "mcp__playwright__browser_navigate",
       "Bash(pnpm dev:*)",
-      "Bash(npm run dev:*)"
+      "Bash(npm run dev:*)",
+      "Bash(pnpm lint:*)",
+      "Bash(pnpm eslint:*)"
     ],
     "deny": []
   }

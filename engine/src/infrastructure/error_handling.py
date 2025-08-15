@@ -155,11 +155,10 @@ def handle_error(
     
     if ipc_mode:
         # Import here to avoid circular imports
-        from ..presentation.cli.ipc_handler import _output_json
+        from ..presentation.cli.ipc_handler import ipc_processing_error
         
         # Create structured error data for IPC - flatten structure for better access
         error_data = {
-            'error': message,
             'error_type': error_type,
             'context': context
         }
@@ -180,8 +179,8 @@ def handle_error(
             else:
                 error_data['traceback'] = traceback.format_exc()
         
-        # Output JSON error directly with flattened structure
-        _output_json("error", error_data)
+        # Send error using new ProcessingEvent format
+        ipc_processing_error(message, error_data)
     else:
         _print_error(message, error_type, details)
     
@@ -488,12 +487,11 @@ def setup_global_error_handler():
         if issubclass(exc_type, KeyboardInterrupt):
             # Handle Ctrl+C gracefully
             if _global_ipc_mode:
-                from ..presentation.cli.ipc_handler import _output_json
+                from ..presentation.cli.ipc_handler import ipc_processing_error
                 error_data = {
-                    "error": "Operation cancelled by user",
                     "reason": "keyboard_interrupt"
                 }
-                _output_json("error", error_data)
+                ipc_processing_error("Operation cancelled by user", error_data)
             elif _rich_available and _console:
                 _console.print("\n\n🛑 [yellow]Operation cancelled by user[/yellow]")
             else:

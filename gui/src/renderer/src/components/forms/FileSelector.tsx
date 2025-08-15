@@ -127,6 +127,66 @@ const createComprehensiveCleanup = (
         }
       }
 
+      // Phase 2.5: Reset processing, review, and export step content when clearing input file
+      if (options.clearInputFile) {
+        console.log('🔄 Resetting processing, review, and export step content');
+        try {
+          // Reset processing step - clear completed status and all data
+          await updateStepContent('processing', {
+            status: 'idle',
+            progress: 0,
+            currentPhase: undefined,
+            logs: [],
+            startTime: undefined,
+            endTime: undefined,
+            outputFile: undefined,
+            jsonSubtitleData: undefined,
+            convertedSubtitles: undefined,
+            statistics: undefined,
+            timeElapsed: undefined,
+            estimatedTimeRemaining: undefined,
+            hardwareInfo: undefined
+          });
+
+          // Reset review step - clear all subtitle data
+          await updateStepContent('review', {
+            subtitles: [],
+            jsonSubtitleData: undefined,
+            hasJsonData: false,
+            processingStatistics: undefined,
+            processingCompleted: false,
+            lastProcessedAt: undefined,
+            currentEdit: undefined,
+            playbackPosition: 0,
+            selectedSubtitleIndex: undefined,
+            searchQuery: undefined,
+            filteredSubtitles: [],
+            hasUnsavedChanges: false,
+            inputFile: undefined
+          });
+
+          // Reset export step - clear export history and state  
+          await updateStepContent('export', {
+            exportHistory: [],
+            lastExported: undefined,
+            actionsState: { 
+              isExporting: false, 
+              exportProgress: 0,
+              exportError: undefined 
+            },
+            previewState: {
+              isPreviewReady: false,
+              previewContent: '',
+              lastPreviewGenerated: undefined
+            }
+          });
+
+          console.log('✅ Processing, review, and export step content reset');
+        } catch (stepResetError) {
+          console.warn('⚠️ Failed to reset step content:', stepResetError);
+        }
+      }
+
       // Phase 3: Reset workflow state based on options
       if (options.resetWorkflow) {
         console.log('🔄 Resetting workflow state');

@@ -1,5 +1,5 @@
 """
-Tests for the enhanced IPC handler system.
+Tests for the ProcessingEvent IPC handler system.
 """
 
 import json
@@ -9,168 +9,132 @@ from io import StringIO
 import sys
 
 from src.presentation.cli.ipc_handler import (
-    IPCHandler, get_handler, ipc_log, ipc_progress, 
-    ipc_result, ipc_error, ipc_classify_output
+    IPCHandler, get_handler, ipc_log_message, ipc_progress, 
+    ipc_completion_with_json, ipc_processing_error, ipc_status_change
 )
-from src.presentation.cli.message_classifier import MessageLevel, MessageCategory
+from src.domain.value_objects.quality_metrics import QualityIssue, QualityMetrics
+from datetime import datetime
+from decimal import Decimal
+from enum import Enum
 
 
 class TestIPCHandler:
-    """Test the enhanced IPC handler functionality."""
+    """Test the ProcessingEvent IPC handler functionality."""
     
     def setup_method(self):
         """Set up test fixtures."""
         self.handler = IPCHandler()
         
     @patch('sys.stdout', new_callable=StringIO)
-    def test_send_basic_message(self, mock_stdout):
-        """Test basic message sending."""
-        self.handler._send(
-            MessageLevel.INFO, 
-            MessageCategory.PROCESS, 
-            "test_source", 
-            "Test message"
-        )
+    def test_send_log_message(self, mock_stdout):
+        """Test log message in ProcessingEvent format."""
+        self.handler.send_log_message("Test log message", "test_phase")
         
         output = mock_stdout.getvalue().strip()
-        message = json.loads(output)
+        parsed = json.loads(output)
         
-        assert message["level"] == "info"
-        assert message["category"] == "process"
-        assert message["source"] == "test_source"
-        assert message["content"] == "Test message"
-        assert "id" in message
-        assert "timestamp" in message
+        assert parsed["type"] == "log-message"
+        assert parsed["data"]["message"] == "Test log message"
+        assert parsed["data"]["phase"] == "test_phase"
     
     @patch('sys.stdout', new_callable=StringIO)
-    def test_send_message_with_data(self, mock_stdout):
-        """Test sending message with additional data."""
-        test_data = {"key": "value", "number": 42}
-        
-        self.handler._send(
-            MessageLevel.ERROR,
-            MessageCategory.SYSTEM,
-            "error_source",
-            "Error occurred",
-            test_data
-        )
+    def test_send_status_change(self, mock_stdout):
+        """Test status change in ProcessingEvent format."""
+        self.handler.send_status_change("running", "initialization", "Starting process")
         
         output = mock_stdout.getvalue().strip()
-        message = json.loads(output)
+        parsed = json.loads(output)
         
-        assert message["level"] == "error"
-        assert message["data"] == test_data
-    
-    @patch('sys.stdout', new_callable=StringIO)
-    def test_send_classified_message(self, mock_stdout):
-        """Test automatic message classification."""
-        # Test model output classification
-        self.handler.send_classified("Loading checkpoint shards: 100%", "stderr")
-        
-        output = mock_stdout.getvalue().strip()
-        message = json.loads(output)
-        
-        assert message["level"] == "info"  # Should be INFO, not ERROR
-        assert message["category"] == "model"
-        assert message["source"] == "model_loader"
+        assert parsed["type"] == "status-change"
+        assert parsed["data"]["status"] == "running"
+        assert parsed["data"]["phase"] == "initialization"
+        assert parsed["data"]["message"] == "Starting process"
     
     @patch('sys.stdout', new_callable=StringIO)
     def test_send_progress(self, mock_stdout):
-        """Test progress message sending."""
+        """Test progress message in ProcessingEvent format."""
         self.handler.send_progress("Loading Model", 75.5, "Model loading in progress")
         
         output = mock_stdout.getvalue().strip()
-        message = json.loads(output)
+        parsed = json.loads(output)
         
-        assert message["level"] == "info"
-        assert message["category"] == "process"
-        assert message["source"] == "progress"
-        assert message["data"]["stage"] == "Loading Model"
-        assert message["data"]["percent"] == 75.5
+        assert parsed["type"] == "progress-update"
+        assert parsed["data"]["progress"] == 75.5
+        assert parsed["data"]["phase"] == "Loading Model"
+        assert parsed["data"]["message"] == "Model loading in progress"
     
     @patch('sys.stdout', new_callable=StringIO)
-    def test_send_result_success(self, mock_stdout):
-        """Test successful result sending."""
-        self.handler.send_result("/path/to/output.srt", True, subtitle_count=25)
+    def test_send_processing_error(self, mock_stdout):
+        """Test error message in ProcessingEvent format."""
+        self.handler.send_processing_error("Test error message", {"details": "error details"})
         
         output = mock_stdout.getvalue().strip()
-        message = json.loads(output)
+        parsed = json.loads(output)
         
-        assert message["level"] == "info"
-        assert message["category"] == "process"
-        assert message["source"] == "result"
-        assert message["data"]["success"] is True
-        assert message["data"]["subtitle_count"] == 25
+        assert parsed["type"] == "error"
+        assert parsed["data"]["status"] == "error"
+        assert parsed["data"]["error"] == "Test error message"
+        assert parsed["data"]["message"] == "Test error message"
+        assert parsed["data"]["details"] == "error details"
     
     @patch('sys.stdout', new_callable=StringIO)
-    def test_send_result_failure(self, mock_stdout):
-        """Test failure result sending."""
-        self.handler.send_result("/path/to/output.srt", False)
+    def test_send_completion(self, mock_stdout):
+        """Test completion message in ProcessingEvent format."""
+        subtitle_data = {
+            "subtitles": [{"start": "00:00:00", "end": "00:00:02", "text": "Test"}],
+            "metadata": {"duration": 2.0}
+        }
+        
+        self.handler.send_completion_with_json_subtitles(
+            subtitle_data, "/path/to/output.srt", True
+        )
         
         output = mock_stdout.getvalue().strip()
-        message = json.loads(output)
+        parsed = json.loads(output)
         
-        assert message["level"] == "error"
-        assert message["data"]["success"] is False
+        assert parsed["type"] == "complete"
+        assert parsed["data"]["status"] == "completed"
+        assert parsed["data"]["subtitleData"] == subtitle_data
+        assert parsed["data"]["outputFile"] == "/path/to/output.srt"
+        assert "1 subtitles generated" in parsed["data"]["message"]
     
-    @patch('sys.stdout', new_callable=StringIO)
-    def test_send_error(self, mock_stdout):
-        """Test error message sending."""
-        error_details = {"code": 404, "path": "/missing/file"}
-        self.handler.send_error("File not found", error_details)
+    def test_json_sanitization(self):
+        """Test JSON sanitization for custom objects."""
+        # Test with a mock QualityIssue object
+        class MockQualityIssue:
+            def __init__(self):
+                self.category = "test_category"
+                self.issue_type = "test_type"
+                self.severity = 0.5
+                self.subtitle_index = 1
+                self.description = "test description"
+                self.suggested_fix = "test fix"
         
-        output = mock_stdout.getvalue().strip()
-        message = json.loads(output)
+        mock_issue = MockQualityIssue()
+        sanitized = self.handler._sanitize_for_json(mock_issue)
         
-        assert message["level"] == "error"
-        assert message["category"] == "system"
-        assert message["source"] == "error"
-        assert message["data"]["details"] == error_details
-    
-    @patch('sys.stdout', new_callable=StringIO)
-    def test_json_serialization_fallback(self, mock_stdout):
-        """Test fallback when JSON serialization fails."""
-        # Create a non-serializable object
-        non_serializable = object()
-        
-        with patch('json.dumps', side_effect=TypeError("Not serializable")):
-            self.handler._send(
-                MessageLevel.INFO,
-                MessageCategory.SYSTEM,
-                "test",
-                "Test message"
-            )
-        
-        output = mock_stdout.getvalue().strip()
-        message = json.loads(output)
-        
-        assert message["level"] == "error"
-        assert "JSON serialization failed" in message["content"]
-    
-    def test_message_id_generation(self):
-        """Test that message IDs are unique and sequential."""
-        id1 = self.handler._generate_id()
-        id2 = self.handler._generate_id()
-        
-        assert id1 != id2
-        assert "msg_000001" in id1
-        assert "msg_000002" in id2
+        assert sanitized["category"] == "test_category"
+        assert sanitized["issue_type"] == "test_type"
+        assert sanitized["severity"] == 0.5
+        assert sanitized["subtitle_index"] == 1
+        assert sanitized["description"] == "test description"
+        assert sanitized["suggested_fix"] == "test fix"
 
 
 class TestPublicAPIFunctions:
     """Test the public API functions."""
     
     @patch('sys.stdout', new_callable=StringIO)
-    def test_ipc_log_function(self, mock_stdout):
-        """Test the ipc_log public function."""
-        ipc_log("Test log message", "warning")
+    def test_ipc_log_message_function(self, mock_stdout):
+        """Test the ipc_log_message public function."""
+        ipc_log_message("Test message", "test_phase")
         
         output = mock_stdout.getvalue().strip()
-        message = json.loads(output)
+        parsed = json.loads(output)
         
-        assert message["level"] == "warning"
-        assert message["content"] == "Test log message"
-        assert message["source"] == "log"
+        assert parsed["type"] == "log-message"
+        assert parsed["data"]["message"] == "Test message"
+        assert parsed["data"]["phase"] == "test_phase"
     
     @patch('sys.stdout', new_callable=StringIO)
     def test_ipc_progress_function(self, mock_stdout):
@@ -178,121 +142,140 @@ class TestPublicAPIFunctions:
         ipc_progress("Processing", 50.0, "Halfway done")
         
         output = mock_stdout.getvalue().strip()
-        message = json.loads(output)
+        parsed = json.loads(output)
         
-        assert message["level"] == "info"
-        assert message["data"]["stage"] == "Processing"
-        assert message["data"]["percent"] == 50.0
-        assert "Halfway done" in message["content"]
+        assert parsed["type"] == "progress-update"
+        assert parsed["data"]["progress"] == 50.0
+        assert parsed["data"]["phase"] == "Processing"
+        assert "Halfway done" in parsed["data"]["message"]
     
     @patch('sys.stdout', new_callable=StringIO)
-    def test_ipc_result_function(self, mock_stdout):
-        """Test the ipc_result public function."""
-        ipc_result("/output.srt", True, duration=120.5)
+    def test_ipc_processing_error_function(self, mock_stdout):
+        """Test the ipc_processing_error public function."""
+        ipc_processing_error("Error occurred", {"code": "TEST_ERROR"})
         
         output = mock_stdout.getvalue().strip()
-        message = json.loads(output)
+        parsed = json.loads(output)
         
-        assert message["level"] == "info"
-        assert message["data"]["success"] is True
-        assert message["data"]["duration"] == 120.5
+        assert parsed["type"] == "error"
+        assert parsed["data"]["error"] == "Error occurred"
+        assert parsed["data"]["code"] == "TEST_ERROR"
     
     @patch('sys.stdout', new_callable=StringIO)
-    def test_ipc_error_function(self, mock_stdout):
-        """Test the ipc_error public function."""
-        error_details = {"error_code": "E001"}
-        ipc_error("Something went wrong", error_details)
+    def test_ipc_status_change_function(self, mock_stdout):
+        """Test the ipc_status_change public function."""
+        ipc_status_change("completed", "final", "Process finished")
         
         output = mock_stdout.getvalue().strip()
-        message = json.loads(output)
+        parsed = json.loads(output)
         
-        assert message["level"] == "error"
-        assert message["content"] == "Something went wrong"
-        assert message["data"]["details"] == error_details
+        assert parsed["type"] == "status-change"
+        assert parsed["data"]["status"] == "completed"
+        assert parsed["data"]["phase"] == "final"
+        assert parsed["data"]["message"] == "Process finished"
     
     @patch('sys.stdout', new_callable=StringIO)
-    def test_ipc_classify_output_function(self, mock_stdout):
-        """Test the ipc_classify_output public function."""
-        # Test model output classification
-        ipc_classify_output("transformers.models.whisper: Loading model", "stderr")
+    def test_ipc_completion_with_json_function(self, mock_stdout):
+        """Test the ipc_completion_with_json public function."""
+        subtitle_data = {"subtitles": [], "metadata": {}}
+        ipc_completion_with_json(subtitle_data, "/output.srt", True)
         
         output = mock_stdout.getvalue().strip()
-        message = json.loads(output)
+        parsed = json.loads(output)
         
-        assert message["level"] == "info"  # Should be INFO, not ERROR
-        assert message["category"] == "model"
+        assert parsed["type"] == "complete"
+        assert parsed["data"]["subtitleData"] == subtitle_data
+        assert parsed["data"]["outputFile"] == "/output.srt"
     
-    def test_global_handler_singleton(self):
+    @patch('sys.stdout', new_callable=StringIO)
+    def test_json_serialization_complex_objects(self, mock_stdout):
+        """Test JSON serialization of complex objects including QualityIssue."""
+        # Create a QualityIssue object
+        quality_issue = QualityIssue(
+            category="technical",
+            issue_type="timing",
+            severity=0.8,
+            subtitle_index=5,
+            description="Subtitle timing issue",
+            suggested_fix="Adjust timing by 0.5 seconds"
+        )
+        
+        # Create test data with various complex types
+        complex_data = {
+            "quality_issues": [quality_issue],
+            "timestamp": datetime.now(),
+            "precision_value": Decimal('3.14159'),
+            "nested_data": {
+                "list_of_issues": [quality_issue, quality_issue],
+                "metadata": {"version": 1.0, "created": datetime.now()}
+            }
+        }
+        
+        # Test completion with complex data
+        ipc_completion_with_json(complex_data, "/output.srt", True)
+        
+        output = mock_stdout.getvalue().strip()
+        parsed = json.loads(output)  # This should not raise an exception
+        
+        assert parsed["type"] == "complete"
+        assert "subtitleData" in parsed["data"]
+        
+        # Verify that QualityIssue was properly serialized
+        subtitle_data = parsed["data"]["subtitleData"]
+        assert "quality_issues" in subtitle_data
+        assert len(subtitle_data["quality_issues"]) == 1
+        
+        serialized_issue = subtitle_data["quality_issues"][0]
+        assert serialized_issue["category"] == "technical"
+        assert serialized_issue["issue_type"] == "timing"
+        assert serialized_issue["severity"] == 0.8
+    
+    @patch('sys.stdout', new_callable=StringIO)
+    def test_json_serialization_edge_cases(self, mock_stdout):
+        """Test JSON serialization with edge cases and problematic types."""
+        handler = IPCHandler()
+        
+        # Test enum
+        class TestEnum(Enum):
+            VALUE1 = "test_value"
+        
+        # Test data with edge cases
+        edge_case_data = {
+            "none_value": None,
+            "enum_value": TestEnum.VALUE1,
+            "empty_list": [],
+            "empty_dict": {},
+            "set_value": {"item1", "item2"},  # Sets should be converted to lists
+            "tuple_value": (1, 2, 3)
+        }
+        
+        # Test with handler directly
+        sanitized = handler._sanitize_for_json(edge_case_data)
+        
+        # Verify it can be JSON serialized
+        json_str = json.dumps(sanitized)
+        parsed_back = json.loads(json_str)
+        
+        assert parsed_back["none_value"] is None
+        assert parsed_back["enum_value"] == "test_value"
+        assert isinstance(parsed_back["set_value"], list)
+        assert isinstance(parsed_back["tuple_value"], list)
+
+
+class TestGlobalHandlerInstance:
+    """Test the global handler instance management."""
+    
+    def test_get_handler_singleton(self):
         """Test that get_handler returns the same instance."""
         handler1 = get_handler()
         handler2 = get_handler()
         
         assert handler1 is handler2
-
-
-class TestIntegration:
-    """Integration tests for the IPC system."""
     
-    @patch('sys.stdout', new_callable=StringIO)
-    def test_model_stderr_classification_integration(self, mock_stdout):
-        """Test end-to-end classification of model stderr output."""
-        model_outputs = [
-            "Loading checkpoint shards: 100%|██████████| 2/2 [00:01<00:00,  1.33it/s]",
-            "Some weights of Wav2Vec2ForCTC were not initialized from the model checkpoint",
-            "transformers.tokenization_utils_base: Model name 'openai/whisper-large-v3'",
-        ]
+    def test_handler_initialization(self):
+        """Test handler initialization."""
+        handler = get_handler()
         
-        for output in model_outputs:
-            ipc_classify_output(output, "stderr")
-        
-        lines = mock_stdout.getvalue().strip().split('\n')
-        assert len(lines) == len(model_outputs)
-        
-        for line in lines:
-            message = json.loads(line)
-            assert message["level"] == "info", f"Model output should be INFO: {message['content']}"
-            assert message["category"] == "model"
-    
-    @patch('sys.stdout', new_callable=StringIO)
-    def test_debug_message_classification_integration(self, mock_stdout):
-        """Test end-to-end classification of debug messages."""
-        debug_messages = [
-            "Debug: CLI command execution started",
-            "Debug: STDERR - Model loading output",
-            "Hardware check completed successfully"
-        ]
-        
-        for msg in debug_messages:
-            ipc_classify_output(msg, "stdout")
-        
-        lines = mock_stdout.getvalue().strip().split('\n')
-        
-        for line in lines:
-            message = json.loads(line)
-            assert message["level"] == "debug", f"Debug message should be DEBUG: {message['content']}"
-            assert message["category"] == "system"
-    
-    @patch('sys.stdout', new_callable=StringIO)
-    def test_mixed_message_types_integration(self, mock_stdout):
-        """Test classification of mixed message types."""
-        messages = [
-            ("Loading checkpoint shards", "stderr", "info", "model"),
-            ("Debug: Starting process", "stdout", "debug", "system"),
-            ("Warning: Deprecated feature", "stderr", "warning", "system"),
-            ("Error: File not found", "stdout", "error", "system"),
-            ("Critical: System failure", "stderr", "critical", "system")
-        ]
-        
-        for content, stream, expected_level, expected_category in messages:
-            ipc_classify_output(content, stream)
-        
-        lines = mock_stdout.getvalue().strip().split('\n')
-        assert len(lines) == len(messages)
-        
-        for i, line in enumerate(lines):
-            message = json.loads(line)
-            expected_level = messages[i][2]
-            expected_category = messages[i][3]
-            
-            assert message["level"] == expected_level, f"Message {i}: Expected {expected_level}, got {message['level']}"
-            assert message["category"] == expected_category, f"Message {i}: Expected {expected_category}, got {message['category']}"
+        assert hasattr(handler, 'progress_manager')
+        assert hasattr(handler, 'session_id')
+        assert hasattr(handler, '_original_stdout')

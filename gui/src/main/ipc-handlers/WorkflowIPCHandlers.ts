@@ -107,4 +107,17 @@ export class WorkflowIPCHandlers {
       }
     });
   }
+
+  // Cleanup method to remove all handlers
+  public cleanup(): void {
+    ipcMain.removeAllListeners('workflow:getState');
+    ipcMain.removeAllListeners('workflow:setCurrentStep');
+    ipcMain.removeAllListeners('workflow:setStepState');
+    ipcMain.removeAllListeners('workflow:resetState');
+    ipcMain.removeAllListeners('workflow:removeWorkspaceState');
+    ipcMain.removeAllListeners('workflow:getAllStates');
+    ipcMain.removeAllListeners('workflow:cleanup');
+    
+    console.log('✅ Workflow IPC handlers cleaned up');
+  }
 }

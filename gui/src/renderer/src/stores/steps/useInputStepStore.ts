@@ -31,7 +31,7 @@ const defaultInputStepData: InputStepData = {
   fileMetadata: undefined
 };
 
-export const useInputStepStore = create<InputStepState>((set, get) => ({
+export const useInputStepStore = create<InputStepState>((set, _get) => ({
   data: defaultInputStepData,
   
   actions: {
@@ -40,13 +40,34 @@ export const useInputStepStore = create<InputStepState>((set, get) => ({
         data: {
           ...state.data,
           ...content,
+          // Ensure selectedFiles is always an array
+          selectedFiles: Array.isArray(content.selectedFiles) ? content.selectedFiles : state.data.selectedFiles,
           lastModified: Date.now()
         }
       }));
     },
 
     resetInputStep: () => {
-      set({ data: { ...defaultInputStepData, lastModified: Date.now() } });
+      console.log('🔄 INPUT STORE: Resetting input step to defaults for workspace isolation');
+      set({ 
+        data: { 
+          ...defaultInputStepData,
+          lastModified: Date.now(),
+          // Ensure all array and object references are completely new
+          selectedFiles: [],
+          fileValidation: {},
+          selectedFile: null,
+          inputFile: null,
+          importedJsonFile: null,
+          selectedRange: null,
+          startTime: null,
+          endTime: null,
+          mediaMetadata: undefined,
+          currentFile: undefined,
+          fileMetadata: undefined
+        } 
+      });
+      console.log('✅ INPUT STORE: Reset completed');
     },
 
     setSelectedFile: (file: string | null) => {

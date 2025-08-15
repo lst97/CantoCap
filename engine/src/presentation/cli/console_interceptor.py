@@ -11,7 +11,6 @@ from contextlib import contextmanager
 
 try:
     from .ipc_handler import get_handler
-    from .message_classifier import MessageLevel, MessageCategory
 except ImportError:
     # Handle standalone testing
     pass
@@ -78,13 +77,9 @@ class StreamCapture:
         if not content.strip():
             return
             
-        # Send the raw console output via IPC with classification
+        # Send the console output as log message via IPC
         # IPC handler now uses original stdout directly to avoid infinite recursion
-        self.ipc_handler.send_console_output(
-            content=content,
-            stream=self.stream_name,
-            raw_output=content
-        )
+        self.ipc_handler.send_log_message(content)
 
 
 class ConsoleInterceptor:

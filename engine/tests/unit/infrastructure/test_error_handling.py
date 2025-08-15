@@ -490,22 +490,22 @@ class TestIpcModeErrorHandling(unittest.TestCase):
         """Clean up after tests."""
         set_global_ipc_mode(False)
 
-    @patch('src.infrastructure.error_handling._output_json')
-    def test_handle_error_ipc_mode(self, mock_output_json):
+    @patch('src.infrastructure.error_handling.ipc_processing_error')
+    def test_handle_error_ipc_mode(self, mock_ipc_error):
         """Test error handling in IPC mode."""
         error = CantoCapError("Test error", error_code="TEST_001", details={"key": "value"})
         
-        # Mock the import path
-        with patch('src.infrastructure.error_handling._output_json', mock_output_json):
-            handle_error(error, context="Test context", ipc_mode=True)
+        handle_error(error, context="Test context", ipc_mode=True)
         
-        mock_output_json.assert_called_once()
-        call_args = mock_output_json.call_args[0]
-        self.assertEqual(call_args[0], "error")
-        error_data = call_args[1]
-        self.assertIn("error", error_data)
+        mock_ipc_error.assert_called_once()
+        call_args = mock_ipc_error.call_args
+        message = call_args[0][0]  # First positional argument
+        error_data = call_args[0][1]  # Second positional argument
+        
+        self.assertEqual(message, "Test error")
         self.assertIn("error_type", error_data)
         self.assertIn("context", error_data)
+        self.assertEqual(error_data["context"], "Test context")
 
     @patch('src.infrastructure.error_handling.ipc_log')
     def test_handle_warning_ipc_mode(self, mock_ipc_log):

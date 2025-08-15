@@ -469,7 +469,7 @@ export const EnhancedPerformanceMonitor: React.FC<EnhancedPerformanceMonitorProp
 
         {/* Key Metrics */}
         <Grid container spacing={2} sx={{ mb: 2 }}>
-          <Grid item xs={6} sm={3}>
+          <Grid size={{ xs: 6, sm: 3 }}>
             <Box sx={{ textAlign: 'center' }}>
               <Typography variant="caption" color="text.secondary">
                 Avg Latency
@@ -484,7 +484,7 @@ export const EnhancedPerformanceMonitor: React.FC<EnhancedPerformanceMonitorProp
             </Box>
           </Grid>
 
-          <Grid item xs={6} sm={3}>
+          <Grid size={{ xs: 6, sm: 3 }}>
             <Box sx={{ textAlign: 'center' }}>
               <Typography variant="caption" color="text.secondary">
                 Error Rate
@@ -496,7 +496,7 @@ export const EnhancedPerformanceMonitor: React.FC<EnhancedPerformanceMonitorProp
           </Grid>
 
           {showMemory && (
-            <Grid item xs={6} sm={3}>
+            <Grid size={{ xs: 6, sm: 3 }}>
               <Box sx={{ textAlign: 'center' }}>
                 <Typography variant="caption" color="text.secondary">
                   Memory Usage
@@ -514,7 +514,7 @@ export const EnhancedPerformanceMonitor: React.FC<EnhancedPerformanceMonitorProp
             </Grid>
           )}
 
-          <Grid item xs={6} sm={3}>
+          <Grid size={{ xs: 6, sm: 3 }}>
             <Box sx={{ textAlign: 'center' }}>
               <Typography variant="caption" color="text.secondary">
                 Throughput
@@ -573,7 +573,7 @@ export const EnhancedPerformanceMonitor: React.FC<EnhancedPerformanceMonitorProp
                 Storage Performance
               </Typography>
               <Grid container spacing={2}>
-                <Grid item xs={6}>
+                <Grid size={{ xs: 6 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Cached fontSize="small" />
                     <Typography variant="body2">
@@ -581,7 +581,7 @@ export const EnhancedPerformanceMonitor: React.FC<EnhancedPerformanceMonitorProp
                     </Typography>
                   </Box>
                 </Grid>
-                <Grid item xs={6}>
+                <Grid size={{ xs: 6 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <DataUsage fontSize="small" />
                     <Typography variant="body2">

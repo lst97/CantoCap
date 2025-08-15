@@ -4,11 +4,10 @@ import { useActiveWorkspaceId } from '../../stores/useAppStore';
 import { useInputFile, useSubtitles, useInputStepContent, useStepActions } from '../../stores/useStepStore';
 import { 
   useSubtitleWorkspace,
-  useSubtitleActions,
-  useSubtitleEditStore
-} from '../../stores/useSubtitleEditStore';
+  useSubtitleActions} from '../../stores/useSubtitleEditStore';
 import { useStepState, useWorkflowActions } from '../../stores/useWorkflowStore';
-import { StepStatus } from '../../stores/types/StoreTypes';
+import { useProcessingJsonData, useProcessingStatus } from '../../stores/steps/useProcessingStepStore';
+import { StepStatus, Subtitle } from '../../stores/types/StoreTypes';
 import { VideoPreviewSection } from './ReviewStep/VideoPreviewSection';
 import { SubtitleEditor } from './ReviewStep/SubtitleEditor';
 import { SubtitleListPanel } from './ReviewStep/SubtitleListPanel';
@@ -25,6 +24,10 @@ const ReviewStepComponent: React.FC = () => {
   const stepSubtitles = useSubtitles();
   const inputStepContent = useInputStepContent();
   const reviewStepState = useStepState('review');
+  
+  // Processing data for automatic import
+  const processingJsonData = useProcessingJsonData();
+  const processingStatus = useProcessingStatus();
 
   // Validation state
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -33,6 +36,7 @@ const ReviewStepComponent: React.FC = () => {
   
   // Ref to track processed JSON imports to prevent infinite loops
   const processedJsonImportRef = useRef<string | null>(null);
+  const hasProcessedJsonData = useRef<boolean>(false);
 
   // Validation functions
   const validateMediaFile = useCallback(async (inputFile: string | null): Promise<{ valid: boolean; error?: string }> => {
@@ -66,16 +70,18 @@ const ReviewStepComponent: React.FC = () => {
   }, []);
 
   // Type guard for subtitle validation
-  const isValidSubtitle = (sub: unknown): sub is { startTime: number; endTime: number; text?: string; caption?: string } => {
+  const isValidSubtitle = useCallback((sub: unknown): sub is { startTime: number; endTime: number; text?: string; caption?: string } => {
+    if (sub === null || typeof sub !== 'object') {
+      return false;
+    }
+    const subtitle = sub as Record<string, unknown>;
     return (
-      sub !== null &&
-      typeof sub === 'object' &&
-      typeof (sub as any).startTime === 'number' && 
-      typeof (sub as any).endTime === 'number' && 
-      ((sub as any).text || (sub as any).caption) && 
-      (sub as any).startTime < (sub as any).endTime
+      typeof subtitle.startTime === 'number' && 
+      typeof subtitle.endTime === 'number' && 
+      (typeof subtitle.text === 'string' || typeof subtitle.caption === 'string') && 
+      subtitle.startTime < subtitle.endTime
     );
-  };
+  }, []);
 
   const validateJsonData = useCallback((importedJsonFile: string | null, stepSubtitles: unknown[]): { valid: boolean; error?: string } => {
     console.log('🔍 JSON Validation - ImportedFile:', importedJsonFile, 'StepSubtitles:', stepSubtitles);
@@ -114,8 +120,8 @@ const ReviewStepComponent: React.FC = () => {
         // Check if subtitles have basic structure even if they don't pass strict validation
         const hasBasicStructure = stepSubtitles.some(sub => 
           sub && typeof sub === 'object' && 
-          (typeof (sub as any).startTime === 'number' || typeof (sub as any).start === 'number') &&
-          (typeof (sub as any).endTime === 'number' || typeof (sub as any).end === 'number')
+          (typeof (sub as Record<string, unknown>).startTime === 'number' || typeof (sub as Record<string, unknown>).start === 'number') &&
+          (typeof (sub as Record<string, unknown>).endTime === 'number' || typeof (sub as Record<string, unknown>).end === 'number')
         );
         
         if (hasBasicStructure) {
@@ -146,6 +152,44 @@ const ReviewStepComponent: React.FC = () => {
     
     return { valid: true };
   }, [isValidSubtitle]);
+
+  // Effect to automatically import JSON data from processing step
+  useEffect(() => {
+    const importJsonFromProcessing = async () => {
+      // Only import if processing completed and we have JSON data and haven't processed it yet
+      if (processingStatus === 'completed' && 
+          processingJsonData && 
+          !hasProcessedJsonData.current &&
+          activeWorkspaceId) {
+        
+        console.log('📡 ReviewStep: Processing completed with JSON data, importing into review step');
+        console.log('📡 JSON data:', processingJsonData);
+        
+        try {
+          // Mark as processed to prevent duplicate imports
+          hasProcessedJsonData.current = true;
+          
+          // Import the JSON data into the subtitle editing store
+          // Extract subtitles array from the JSON data structure
+          const subtitlesArray = processingJsonData?.subtitles || [];
+          await importFromJson(activeWorkspaceId, '', subtitlesArray);
+          
+          console.log('✅ ReviewStep: Successfully imported JSON data from processing step');
+          
+          // Clear any previous validation errors since we have new data
+          setValidationError(null);
+          setHasValidationRun(false);
+          
+        } catch (error) {
+          console.error('❌ ReviewStep: Failed to import JSON data from processing step:', error);
+          hasProcessedJsonData.current = false; // Allow retry
+          setValidationError('Failed to import generated subtitles. Please try navigating to Step 4 again.');
+        }
+      }
+    };
+
+    importJsonFromProcessing();
+  }, [processingStatus, processingJsonData, activeWorkspaceId, importFromJson]);
 
   // Main validation effect
   useEffect(() => {
@@ -186,10 +230,10 @@ const ReviewStepComponent: React.FC = () => {
         if (inputStepContent?.importedJsonFile && (!stepSubtitles || stepSubtitles.length === 0)) {
           console.log('🔄 No subtitles in step store, attempting to load from sync store...');
           try {
-            const syncResult = await (window as any).cantocapAPI.subtitleSyncFromStep(activeWorkspaceId);
+            const syncResult = await (window as unknown as ElectronWindow).cantocapAPI.subtitleSyncFromStep(activeWorkspaceId!);
             if (syncResult && syncResult.subtitles && syncResult.subtitles.length > 0) {
               console.log(`✅ Found ${syncResult.subtitles.length} subtitles in sync store`);
-              subtitlesToValidate = syncResult.subtitles;
+              subtitlesToValidate = syncResult.subtitles as Subtitle[];
               
               // Update the step store with the found subtitles to fix the missing subtitles issue
               try {
@@ -234,6 +278,7 @@ const ReviewStepComponent: React.FC = () => {
 
     // Only run validation when data actually changes
     performValidation();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     inputFile, 
     stepSubtitles, 
@@ -323,14 +368,14 @@ const ReviewStepComponent: React.FC = () => {
           // CRITICAL FIX: For processed JSON imports, always try to load workspace data first
           // This ensures that saved user modifications are loaded instead of original data
           console.log('🔄 Loading workspace data for processed JSON import to get modified subtitles');
-          loadSubtitlesForWorkspace(workspaceId, videoPath, transformedSubtitles, false);
+          loadSubtitlesForWorkspace(workspaceId, videoPath, transformedSubtitles);
           return;
         }
         // CRITICAL FIX: For non-JSON imports, always try to load from workspace first
         // The loadSubtitlesForWorkspace function will check for existing data and preserve it
         // This ensures that saved user changes take priority over step store data
         console.log('🔄 Loading subtitles for workspace, checking for existing saved data first');
-        loadSubtitlesForWorkspace(workspaceId, videoPath, transformedSubtitles, false);
+        loadSubtitlesForWorkspace(workspaceId, videoPath, transformedSubtitles);
       }
     };
     

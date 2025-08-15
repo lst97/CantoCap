@@ -181,7 +181,7 @@ export const AdvancedSettings: React.FC = () => {
         description="Maximum duration for processing chunks. Smaller values use less memory but may increase processing time."
       >
         <Grid container spacing={3} alignItems="center">
-          <Grid item xs={12} md={8}>
+          <Grid size={{ xs: 12, md: 8 }}>
             <Box sx={{ px: 1, py: 2 }}>
               <Slider
                 value={config.maxChunkDuration}
@@ -226,7 +226,7 @@ export const AdvancedSettings: React.FC = () => {
               />
             </Box>
           </Grid>
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <TextField
               type="number"
               value={config.maxChunkDuration}
@@ -313,7 +313,7 @@ export const AdvancedSettings: React.FC = () => {
         description="Number of worker threads for parallel processing. Higher values can speed up processing on multi-core systems."
       >
         <Grid container spacing={3} alignItems="center">
-          <Grid item xs={12} md={8}>
+          <Grid size={{ xs: 12, md: 8 }}>
             <Box sx={{ px: 1, py: 2 }}>
               <Slider
                 value={config.advancedSettings?.numWorkers ?? 4}
@@ -362,7 +362,7 @@ export const AdvancedSettings: React.FC = () => {
               />
             </Box>
           </Grid>
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <TextField
               type="number"
               value={config.advancedSettings?.numWorkers ?? 4}
@@ -393,7 +393,7 @@ export const AdvancedSettings: React.FC = () => {
         description="Duration of audio chunks for processing. Shorter chunks use less memory but may reduce transcription quality at chunk boundaries."
       >
         <Grid container spacing={3} alignItems="center">
-          <Grid item xs={12} md={8}>
+          <Grid size={{ xs: 12, md: 8 }}>
             <Box sx={{ px: 1, py: 2 }}>
               <Slider
                 value={config.advancedSettings?.chunkDuration ?? 30}
@@ -443,7 +443,7 @@ export const AdvancedSettings: React.FC = () => {
               />
             </Box>
           </Grid>
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <TextField
               type="number"
               value={config.advancedSettings?.chunkDuration ?? 30}

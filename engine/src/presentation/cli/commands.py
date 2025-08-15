@@ -18,7 +18,7 @@ from ...infrastructure.error_handling import (
 )
 from ...infrastructure.validation import ArgumentValidator, ValidationSeverity
 from .progress_display import ProcessingStage, ProgressDisplayManager
-from .ipc_handler import ipc_log, ipc_progress, ipc_result, ipc_error, ipc_classify_output
+from .ipc_handler import ipc_log_message, ipc_progress, ipc_completion_with_json, ipc_processing_error, ipc_status_change
 
 console = Console()
 
@@ -457,7 +457,7 @@ class UnifiedProgressManager:
     def add_status_message(self, message: str):
         """Add status message with unified interface."""
         if self.ipc_mode:
-            ipc_log(message)
+            ipc_log_message(message)
         else:
             # Add to status display
             if self.status_display:
@@ -466,7 +466,7 @@ class UnifiedProgressManager:
     def add_technical_message(self, message: str):
         """Add technical message with unified interface."""
         if self.ipc_mode and self.verbose:
-            ipc_log(f"Technical: {message}", "debug")
+            ipc_log_message(f"Technical: {message}")
         elif not self.ipc_mode:
             # Add to status display (it will handle verbose mode internally)
             if self.status_display:
@@ -475,7 +475,7 @@ class UnifiedProgressManager:
     def add_debug_message(self, message: str):
         """Add debug message with unified interface."""
         if self.ipc_mode and self.verbose:
-            ipc_log(f"Debug: {message}", "debug")
+            ipc_log_message(f"Debug: {message}")
         elif not self.ipc_mode:
             # Add to status display (it will handle verbose mode internally)
             if self.status_display:
@@ -484,7 +484,7 @@ class UnifiedProgressManager:
     def add_performance_message(self, message: str):
         """Add performance message with unified interface."""
         if self.ipc_mode and self.verbose:
-            ipc_log(f"Performance: {message}", "debug")
+            ipc_log_message(f"Performance: {message}")
         elif not self.ipc_mode:
             # Add to status display (it will handle verbose mode internally)
             if self.status_display:
@@ -711,7 +711,7 @@ def _execute_processing_steps(command, use_case, verbose: bool, model: Optional[
         
     except Exception as e:
         if unified_manager.ipc_mode:
-            ipc_error(f"Error during processing: {str(e)}")
+            ipc_processing_error(f"Error during processing: {str(e)}")
         else:
             unified_manager.update_stage(
                 ProcessingStage.ERROR,
@@ -925,7 +925,9 @@ def _execute_use_case_with_tracking(use_case, command, unified_manager, verbose:
         
         # Track additional steps after successful execution
         if result.success:
-            track_post_transcription_steps()
+            # Skip post-transcription steps in IPC mode since the use case already handles all progress reporting
+            if not unified_manager.ipc_mode:
+                track_post_transcription_steps()
             unified_manager.add_status_message(f"Generated {result.subtitle_count} subtitle segments")
             if result.output_file_path:
                 output_path = Path(result.output_file_path)
@@ -1100,9 +1102,9 @@ def _display_file_info(input_file: Path, output_file: Optional[Path], ipc_mode: 
     
     if ipc_mode:
         # Output file info as JSON log messages
-        ipc_log(f"Input file: {str(input_file)}")
-        ipc_log(f"Output file: {output_path}")
-        ipc_log("CantoCap - Cantonese Cation Generator initialized")
+        ipc_log_message(f"Input file: {str(input_file)}")
+        ipc_log_message(f"Output file: {output_path}")
+        ipc_log_message("CantoCap - Cantonese Cation Generator initialized")
     else:
         # Use rich console output
         info_text = Text()
@@ -1129,12 +1131,9 @@ def _display_results(result, ipc_mode: bool = False) -> None:
                 'processing_time': result.processing_time_seconds
             }
             
-            # Add statistics if available
-            if result.statistics:
-                result_data['statistics'] = result.statistics
-            
-            ipc_result(result.output_file_path or "unknown", success=True, **result_data)
-            ipc_log("Processing completed successfully")
+            # Note: Completion with JSON subtitle data is already sent from the use case
+            # via _send_completion_with_json_data method, so no need to send it again here
+            ipc_log_message("Processing completed successfully")
         else:
             # Use rich console output
             success_text = Text()

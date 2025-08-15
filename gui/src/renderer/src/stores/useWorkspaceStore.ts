@@ -188,6 +188,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
               // Load step content for the new workspace
               await loadWorkspaceStepContent(newActiveWorkspaceId);
               
+              // Load workflow state for the new workspace to ensure complete workspace isolation
+              try {
+                const { useWorkflowStore } = await import('./useWorkflowStore');
+                await useWorkflowStore.getState().actions.loadWorkflowState(newActiveWorkspaceId);
+                console.log('✅ WorkspaceStore: Loaded workflow state for alternative workspace after deletion:', newActiveWorkspaceId);
+              } catch (workflowError) {
+                console.warn('⚠️ WorkspaceStore: Could not load workflow state for alternative workspace:', workflowError);
+                // Continue with workspace switching even if workflow state loading fails
+              }
+              
               // Sync with step store
               const { useStepStore } = await import('./useStepStore');
               useStepStore.setState({ currentWorkspaceId: newActiveWorkspaceId });
@@ -247,6 +257,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         
         // Load step content for this workspace
         await loadWorkspaceStepContent(id);
+        
+        // Load workflow state for this workspace to ensure complete workspace isolation
+        try {
+          const { useWorkflowStore } = await import('./useWorkflowStore');
+          await useWorkflowStore.getState().actions.loadWorkflowState(id);
+          console.log('✅ WorkspaceStore: Loaded workflow state for workspace:', id);
+        } catch (error) {
+          console.warn('⚠️ WorkspaceStore: Could not load workflow state during workspace switch:', error);
+          // Don't throw - allow workspace switching to continue even if workflow state loading fails
+        }
         
         // Also update the step store's current workspace ID for synchronization
         try {

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { ProcessingStepData } from '../types/StoreTypes';
+import { ProcessingStepData, ElectronWindow } from '../types/StoreTypes';
+import type { CantocapSubtitleData, SubtitleStatistics } from '../../../../types/SubtitleTypes';
 
 interface ProcessingStepState {
   data: ProcessingStepData;
@@ -11,11 +12,20 @@ interface ProcessingStepState {
     setCurrentPhase: (phase: string | undefined) => void;
     addLog: (log: string) => void;
     setLogs: (logs: string[]) => void;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setHardwareInfo: (info: any) => void;
     setStartTime: (time: string) => void;
     setEndTime: (time: string) => void;
     setEstimatedTimeRemaining: (time: number | undefined) => void;
     cancel: () => Promise<void>;
+    startProcessing: (initialData?: Partial<ProcessingStepData>) => void;
+    updateStatusFromEvent: (eventData: {
+      status?: 'idle' | 'running' | 'completed' | 'error';
+      progress?: number;
+      phase?: string;
+      message?: string;
+      error?: string;
+    }) => void;
   };
 }
 
@@ -30,7 +40,7 @@ const defaultProcessingStepData: ProcessingStepData = {
   estimatedTimeRemaining: undefined
 };
 
-export const useProcessingStepStore = create<ProcessingStepState>((set, get) => ({
+export const useProcessingStepStore = create<ProcessingStepState>((set, _get) => ({
   data: defaultProcessingStepData,
   
   actions: {
@@ -40,8 +50,91 @@ export const useProcessingStepStore = create<ProcessingStepState>((set, get) => 
       }));
     },
 
+    // Start processing and update status
+    startProcessing: (initialData?: Partial<ProcessingStepData>) => {
+      console.log('🚀 PROCESSING STORE: Starting processing and updating status to running');
+      set(state => ({
+        data: {
+          ...state.data,
+          status: 'running',
+          progress: 0,
+          startTime: new Date().toISOString(),
+          endTime: undefined,
+          estimatedTimeRemaining: undefined,
+          currentPhase: 'initializing',
+          logs: [...state.data.logs, 'Processing started...'],
+          ...initialData
+        }
+      }));
+    },
+
+    // Update status from IPC events - only persist critical state changes
+    updateStatusFromEvent: (eventData: {
+      status?: 'idle' | 'running' | 'completed' | 'error';
+      progress?: number;
+      phase?: string;
+      message?: string;
+      error?: string;
+      jsonSubtitleData?: CantocapSubtitleData;
+      statistics?: SubtitleStatistics;
+      outputFile?: string;
+      inputFile?: string;
+    }) => {
+      console.log('📡 PROCESSING STORE: Received IPC event update:', eventData);
+      set(state => {
+        const newLogs = [...state.data.logs];
+        
+        // Add logs for progress updates and critical events
+        if (eventData.error) {
+          newLogs.push(`Error: ${eventData.error}`);
+        } else if (eventData.status === 'completed' && eventData.message) {
+          newLogs.push(eventData.message);
+        } else if (eventData.status === 'error' && eventData.message) {
+          newLogs.push(eventData.message);
+        } else if (eventData.message && eventData.phase) {
+          // Add progress messages to recent activity
+          newLogs.push(eventData.message);
+        }
+
+        return {
+          data: {
+            ...state.data,
+            ...(eventData.status && { status: eventData.status }),
+            ...(eventData.progress !== undefined && { progress: eventData.progress }),
+            ...(eventData.phase && { currentPhase: eventData.phase }),
+            logs: newLogs,
+            ...(eventData.jsonSubtitleData && { jsonSubtitleData: eventData.jsonSubtitleData }),
+            ...(eventData.statistics && { statistics: eventData.statistics }),
+            ...(eventData.outputFile && { outputFile: eventData.outputFile }),
+            ...(eventData.status === 'completed' && { 
+              endTime: new Date().toISOString(),
+              progress: 100 
+            }),
+            ...(eventData.status === 'error' && { 
+              endTime: new Date().toISOString() 
+            })
+          }
+        };
+      });
+    },
+
     resetProcessingStep: () => {
-      set({ data: defaultProcessingStepData });
+      console.log('🔄 PROCESSING STORE: Resetting processing step to defaults for workspace isolation');
+      set({ 
+        data: { 
+          ...defaultProcessingStepData,
+          // Ensure all array references are completely new
+          logs: [],
+          status: 'idle',
+          progress: 0,
+          currentPhase: undefined,
+          hardwareInfo: undefined,
+          startTime: undefined,
+          endTime: undefined,
+          estimatedTimeRemaining: undefined
+        } 
+      });
+      console.log('✅ PROCESSING STORE: Reset completed');
     },
 
     setStatus: (status: ProcessingStepData['status']) => {
@@ -77,6 +170,7 @@ export const useProcessingStepStore = create<ProcessingStepState>((set, get) => 
       }));
     },
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setHardwareInfo: (info: any) => {
       set(state => ({
         data: { ...state.data, hardwareInfo: info }
@@ -103,7 +197,7 @@ export const useProcessingStepStore = create<ProcessingStepState>((set, get) => 
 
     cancel: async () => {
       try {
-        await (window as any).electron.ipcRenderer.invoke('processing:cancel');
+        await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('processing:cancel');
         
         // Reset processing state
         set(state => ({
@@ -147,3 +241,6 @@ export const useProcessingTimeInfo = () => useProcessingStepStore(state => ({
   endTime: state.data.endTime,
   estimatedTimeRemaining: state.data.estimatedTimeRemaining
 }));
+export const useProcessingJsonData = () => useProcessingStepStore(state => state.data.jsonSubtitleData);
+export const useProcessingStatistics = () => useProcessingStepStore(state => state.data.statistics);
+export const useProcessingOutputFile = () => useProcessingStepStore(state => state.data.outputFile);

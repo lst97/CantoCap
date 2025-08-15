@@ -123,7 +123,28 @@ export const useConfigStepStore = create<ConfigStepState>((set, get) => ({
     },
 
     resetConfigStep: () => {
-      set({ data: defaultConfigStepData });
+      console.log('🔄 CONFIG STORE: Resetting config step to defaults for workspace isolation');
+      set({ 
+        data: { 
+          ...defaultConfigStepData,
+          lastModified: Date.now(),
+          // Ensure all object references are completely new
+          modelSettings: {
+            whisperModel: 'openai/whisper-medium',
+            enableGemini: false,
+            temperature: 0.1
+          },
+          apiKeys: {},
+          advancedSettings: {
+            chunkDuration: 30,
+            numWorkers: 4,
+            enableSpeakerDiarization: false,
+            enableMusicDetection: false
+          },
+          validationErrors: []
+        } 
+      });
+      console.log('✅ CONFIG STORE: Reset completed');
     },
 
     setModel: async (model: string) => {

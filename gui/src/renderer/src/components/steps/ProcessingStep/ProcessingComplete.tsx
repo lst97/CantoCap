@@ -22,7 +22,8 @@ import {
 } from "@mui/icons-material";
 import { 
   useProcessingStepContent,
-  useConfigStepContent 
+  useConfigStepContent,
+  useInputStepContent 
 } from "../../../stores/useStepStore";
 import { SuccessCard, InfoSection, CelebrationHeader } from "./styles";
 import { formatTime } from "./utils";
@@ -30,6 +31,7 @@ import { formatTime } from "./utils";
 export const ProcessingComplete: React.FC = () => {
   const processing = useProcessingStepContent();
   const config = useConfigStepContent();
+  const input = useInputStepContent();
 
   // Extract quality metrics from processing statistics
   const statistics = processing.statistics;
@@ -103,11 +105,11 @@ export const ProcessingComplete: React.FC = () => {
                   variant="body1"
                   sx={{ fontWeight: 500, wordBreak: "break-all" }}
                 >
-                  {config.inputFile || "Unknown file"}
+                  {input.selectedFiles?.[0] || config.inputFile || "Unknown file"}
                 </Typography>
               </Box>
             </Box>
-            {config.outputFile && (
+            {(processing.outputFile || config.outputFile) && (
               <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
                 <Box
                   sx={{
@@ -128,7 +130,7 @@ export const ProcessingComplete: React.FC = () => {
                     variant="body1"
                     sx={{ fontWeight: 500, wordBreak: "break-all" }}
                   >
-                    {config.outputFile}
+                    {processing.outputFile || config.outputFile}
                   </Typography>
                 </Box>
               </Box>

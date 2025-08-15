@@ -32,6 +32,17 @@ class QualityIssue:
     subtitle_index: Optional[int] = None
     description: Optional[str] = None
     suggested_fix: Optional[str] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "category": self.category,
+            "issue_type": self.issue_type,
+            "severity": self.severity,
+            "subtitle_index": self.subtitle_index,
+            "description": self.description,
+            "suggested_fix": self.suggested_fix
+        }
 
 
 @dataclass
@@ -224,5 +235,11 @@ class EnhancedStatistics:
         
         result["processing_confidence"] = self.processing_confidence
         result["algorithm_version"] = self.algorithm_version
+        
+        # Add quality issues if available
+        if self.quality_metrics.all_issues:
+            result["quality_issues"] = [
+                issue.to_dict() for issue in self.quality_metrics.all_issues
+            ]
         
         return result

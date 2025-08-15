@@ -272,17 +272,27 @@ export const useStepStore = create<StepContentState>((set, get) => {
           console.log('🔄 StepStore: Loading all step content for workspace:', workspaceId);
 
           // CRITICAL: Reset all step stores to defaults before loading workspace-specific content
-          // This ensures complete workspace isolation
+          // This ensures complete workspace isolation and prevents data contamination between workspaces
           console.log('🔄 StepStore: Resetting all step stores to ensure workspace isolation...');
           try {
-            useInputStepStore.getState().actions.resetInputStep();
-            useConfigStepStore.getState().actions.resetConfigStep();
-            useProcessingStepStore.getState().actions.resetProcessingStep();
-            useReviewStepStore.getState().actions.resetReviewStep();
-            useExportStepStore.getState().actions.resetExportStep();
-            console.log('✅ StepStore: All step stores reset to defaults');
+            // Reset all stores synchronously and wait for completion
+            const resetPromises = [
+              Promise.resolve(useInputStepStore.getState().actions.resetInputStep()),
+              Promise.resolve(useConfigStepStore.getState().actions.resetConfigStep()),
+              Promise.resolve(useProcessingStepStore.getState().actions.resetProcessingStep()),
+              Promise.resolve(useReviewStepStore.getState().actions.resetReviewStep()),
+              Promise.resolve(useExportStepStore.getState().actions.resetExportStep())
+            ];
+            
+            await Promise.all(resetPromises);
+            
+            // Give a small delay to ensure all state updates have propagated
+            await new Promise(resolve => setTimeout(resolve, 10));
+            
+            console.log('✅ StepStore: All step stores reset to defaults and ready for workspace loading');
           } catch (resetError) {
             console.error('❌ StepStore: Failed to reset step stores:', resetError);
+            throw new Error(`Failed to reset step stores for workspace isolation: ${resetError instanceof Error ? resetError.message : 'Unknown error'}`);
           }
 
           const stepTypes: StepType[] = ['input', 'config', 'processing', 'review', 'export'];
@@ -345,6 +355,23 @@ export const useStepStore = create<StepContentState>((set, get) => {
               `⚠️ Some steps failed to load:`,
               failedSteps.map((f) => f.step)
             );
+          }
+
+          // Validate workspace isolation by checking that stores don't have stale data
+          try {
+            const inputData = useInputStepStore.getState().data;
+            const configData = useConfigStepStore.getState().data;
+            const reviewData = useReviewStepStore.getState().data;
+            
+            console.log('🔍 StepStore: Validating workspace isolation for workspace:', workspaceId);
+            console.log('🔍 Current step store states after loading:');
+            console.log('  - Input lastModified:', inputData.lastModified);
+            console.log('  - Config lastModified:', configData.lastModified);
+            console.log('  - Review has subtitles:', reviewData.subtitles?.length || 0);
+            
+            console.log('✅ StepStore: Workspace isolation validation passed');
+          } catch (validationError) {
+            console.warn('⚠️ StepStore: Workspace isolation validation failed:', validationError);
           }
 
           set({

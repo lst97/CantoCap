@@ -60,29 +60,6 @@ export const ProcessingStatus: React.FC = () => {
             </Box>
           </Box>
         </Box>
-
-        {/* Current Message/Logs */}
-        {processing.logs && processing.logs.length > 0 && (
-          <Box>
-            <Typography
-              variant="subtitle2"
-              sx={{ mb: 1, color: "text.secondary" }}
-            >
-              Recent Activity
-            </Typography>
-            <Typography
-              variant="body2"
-              sx={{
-                p: 2,
-                backgroundColor: "rgba(64, 68, 75, 0.3)",
-                borderRadius: 1,
-                fontStyle: "italic",
-              }}
-            >
-              {processing.logs[processing.logs.length - 1]}
-            </Typography>
-          </Box>
-        )}
       </Stack>
     </ProcessingCard>
   );

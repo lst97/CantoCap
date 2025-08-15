@@ -21,6 +21,10 @@ from ..commands import GenerateSubtitlesCommand
 from ..services import MediaFileValidator
 from ..services.subtitle_validation_service import SubtitleValidationService
 
+# Import progress reporting functions and stages
+from ...presentation.cli.ipc_handler import ipc_progress, ipc_status_change
+from ...presentation.cli.progress_display import ProcessingStage
+
 
 @dataclass
 class SubtitleGenerationResult:
@@ -86,7 +90,8 @@ class GenerateSubtitlesUseCase:
  
         speaker_diarization_service=None,
         music_detection_service=None,
-        charset_conversion_service=None
+        charset_conversion_service=None,
+        json_subtitle_service=None
     ):
         """Initialize use case with dependencies."""
         self.audio_repository = audio_repository
@@ -110,6 +115,9 @@ class GenerateSubtitlesUseCase:
         self.speaker_diarization_service = speaker_diarization_service
         self.music_detection_service = music_detection_service
         self.charset_conversion_service = charset_conversion_service
+        
+        # JSON subtitle service
+        self.json_subtitle_service = json_subtitle_service
     
     def execute(self, command: GenerateSubtitlesCommand) -> SubtitleGenerationResult:
         """
@@ -127,30 +135,37 @@ class GenerateSubtitlesUseCase:
         
         try:
             # Step 1: Validate input
+            ipc_progress(ProcessingStage.VALIDATING.value, 2.0, "Validating input parameters")
             self._validate_command(command)
             
             # Step 2: Load and validate media file
+            ipc_progress(ProcessingStage.LOADING_MEDIA_FILE.value, 6.0, "Loading and validating media file")
             media_file = self._load_media_file(command)
             
             # Step 3: Gemini Flash Phase 1 - Speaker Identification (if enabled)
             detected_speaker_count = None
             if command.enable_speakers and self.speaker_count_service:
+                ipc_progress(ProcessingStage.GEMINI_SPEAKER_IDENTIFICATION.value, 10.0, "Analyzing speakers with AI")
                 compressed_video, detected_speaker_count = self._speaker_identification(
                     media_file, command
                 )
             
             # Step 4: Extract audio 
+            ipc_progress(ProcessingStage.EXTRACTING_AUDIO.value, 15.0, "Extracting audio from media file")
             temp_audio = self._extract_audio(media_file)
             
             # Step 5: Load transcription model 
+            ipc_progress(ProcessingStage.LOADING_MODEL.value, 30.0, "Loading transcription model")
             self._load_transcription_model(command.model_name, command.language)
             
             # Step 6: Transcribe audio 
+            ipc_progress(ProcessingStage.TRANSCRIBING.value, 45.0, "Transcribing audio content")
             transcription = self._transcribe_audio(temp_audio, command.language)
             
             # Step 7: Speaker diarization with auto-detected count
             speaker_diarization = None
             if command.enable_speakers and self.speaker_diarization_service:
+                ipc_progress(ProcessingStage.SPEAKER_DIARIZATION.value, 65.0, "Identifying individual speakers")
                 speaker_diarization = self._perform_enhanced_speaker_diarization(
                     temp_audio, detected_speaker_count, command.hf_token
                 )
@@ -158,9 +173,11 @@ class GenerateSubtitlesUseCase:
             # Step 8: Music detection 
             music_detection = None
             if command.enable_music_detection and self.music_detection_service:
+                ipc_progress(ProcessingStage.MUSIC_DETECTION.value, 68.0, "Detecting music segments")
                 music_detection = self._perform_music_detection(transcription, temp_audio)
             
             # Step 9: Generate initial subtitle document
+            ipc_progress(ProcessingStage.GENERATING_SUBTITLE_DOCUMENT.value, 72.0, "Generating subtitle document")
             subtitle_document = self._generate_subtitle_document(
                 transcription,
                 command.input_file_path,
@@ -171,28 +188,47 @@ class GenerateSubtitlesUseCase:
             # Step 10: Subtitle Validation and Tagging
             if command.enable_gemini_refinement and self.transcription_refinement_service:
                 # Apply validation tags before Gemini refinement
+                ipc_progress(ProcessingStage.SUBTITLE_VALIDATION.value, 76.0, "Applying validation tags")
                 validated_srt = self._apply_subtitle_validation(subtitle_document)
                 
                 # Step 10.1: Gemini Flash - Transcription Refinement
+                ipc_progress(ProcessingStage.GEMINI_TRANSCRIPTION_REFINEMENT.value, 80.0, "Refining transcription with AI")
                 subtitle_document = self._transcription_refinement_with_validation(
                     subtitle_document, validated_srt, media_file, command
                 )
             
             # Step 11: Apply subtitle translation (if enabled)
             if command.requires_translation() and self.subtitle_translation_service:
+                ipc_progress(ProcessingStage.SUBTITLE_TRANSLATION.value, 87.0, "Translating subtitles")
                 subtitle_document = self._translate_subtitles(subtitle_document, command)
             
             # Step 12: Apply charset conversion 
+            ipc_progress(ProcessingStage.CHARSET_CONVERSION.value, 90.0, "Converting character encoding")
             subtitle_document = self._apply_charset_conversion(subtitle_document, command)
             
             # Step 13: Save subtitle file 
+            ipc_progress(ProcessingStage.SAVING_FILE.value, 95.0, "Saving subtitle file")
             output_path = self._save_subtitle_file(subtitle_document, command)
             
             # Step 14: Generate statistics (pass translation result if available)
+            ipc_progress(ProcessingStage.GENERATING_STATISTICS.value, 98.0, "Generating statistics")
             translation_result = getattr(self, '_last_translation_result', None)
             statistics = self._generate_statistics(subtitle_document, translation_result)
             
             processing_time = time.time() - start_time
+            
+            # Mark as completed with 100% progress
+            ipc_progress(ProcessingStage.COMPLETED.value, 100.0, "Subtitle generation completed successfully")
+            ipc_status_change("completed", "completed", f"Generated {subtitle_document.get_subtitle_count()} subtitles")
+            
+            # Send JSON subtitle data via IPC
+            self._send_completion_with_json_data(
+                subtitle_document=subtitle_document,
+                command=command,
+                statistics=statistics,
+                output_file_path=output_path.path,
+                processing_time=processing_time
+            )
             
             return SubtitleGenerationResult.success_result(
                 output_file_path=output_path.path,
@@ -203,6 +239,10 @@ class GenerateSubtitlesUseCase:
             
         except Exception as e:
             processing_time = time.time() - start_time
+            
+            # Report error progress and status
+            ipc_progress(ProcessingStage.ERROR.value, 0.0, f"Error occurred: {str(e)}")
+            ipc_status_change("error", "error", f"Subtitle generation failed: {str(e)}")
             
             # Preserve the original exception with full traceback for debugging
             import traceback
@@ -255,8 +295,13 @@ class GenerateSubtitlesUseCase:
     
     def _extract_audio(self, media_file: MediaFile) -> AudioStream:
         """Extract audio from media file."""
+        # Report progress substages during audio extraction
+        ipc_progress(ProcessingStage.EXTRACTING_AUDIO.value, 16.0, "Analyzing input media file", substage="media_analysis")
+        
         # Use Whisper-compatible format for Phase 1
         target_format = AudioFormat.WHISPER_FORMAT
+        
+        ipc_progress(ProcessingStage.EXTRACTING_AUDIO.value, 18.0, "Extracting audio stream", substage="audio_extraction")
         
         audio_stream = self.audio_repository.extract_audio_from_media(
             media_file=media_file,
@@ -264,25 +309,70 @@ class GenerateSubtitlesUseCase:
         )
         
         # Validate extracted audio
+        ipc_progress(ProcessingStage.EXTRACTING_AUDIO.value, 22.0, "Validating extracted audio", substage="audio_validation")
+        
         if not self.audio_repository.validate_audio_format(audio_stream):
             raise ValueError("Extracted audio format validation failed")
         
         # Get and set duration
+        ipc_progress(ProcessingStage.EXTRACTING_AUDIO.value, 24.0, "Processing audio metadata", substage="metadata_processing")
+        
         duration = self.audio_repository.get_audio_duration(audio_stream)
         audio_stream.set_duration_seconds(duration)
+        
+        ipc_progress(ProcessingStage.EXTRACTING_AUDIO.value, 25.0, "Audio extraction completed", substage="complete")
         
         return audio_stream
     
     def _load_transcription_model(self, model_name: Optional[str], language: str = "zh") -> None:
         """Load the transcription model with language parameter for WhisperX."""
         if not self.transcription_repository.is_model_loaded():
+            ipc_progress(ProcessingStage.LOADING_MODEL.value, 32.0, "Preparing model configuration", substage="config_setup")
+            
+            model_desc = model_name if model_name else "auto-selected model"
+            ipc_progress(ProcessingStage.LOADING_MODEL.value, 35.0, f"Loading {model_desc}", substage="model_loading")
+            
             success = self.transcription_repository.load_model(model_name, language)
+            
             if not success:
-                model_desc = model_name if model_name else "auto-selected model"
                 raise RuntimeError(f"Failed to load transcription model: {model_desc}")
+            
+            ipc_progress(ProcessingStage.LOADING_MODEL.value, 43.0, "Model ready for transcription", substage="model_ready")
+        else:
+            ipc_progress(ProcessingStage.LOADING_MODEL.value, 43.0, "Using already loaded model", substage="model_cached")
     
     def _transcribe_audio(self, audio_stream: AudioStream, language: str):
         """Transcribe audio to text with timestamps."""
+        # Set up progress callback for sub-progress within transcription
+        def transcription_progress_callback(current_chunk: int, total_chunks: int, status: str):
+            # Map chunk progress to overall progress within transcription stage (45-65%)
+            base_progress = 45.0
+            stage_range = 20.0  # 65% - 45% = 20%
+            
+            if total_chunks > 0:
+                chunk_progress = (current_chunk / total_chunks)
+                overall_progress = base_progress + (chunk_progress * stage_range)
+            else:
+                overall_progress = base_progress
+                
+            ipc_progress(
+                ProcessingStage.TRANSCRIBING.value, 
+                overall_progress, 
+                f"Transcribing audio: {status} (chunk {current_chunk}/{total_chunks})",
+                substage=f"chunk_{current_chunk}"
+            )
+        
+        # Configure the transcription service with progress callback if supported
+        try:
+            # Check if the repository/service supports progress callbacks
+            if hasattr(self.transcription_repository, 'set_progress_callback'):
+                self.transcription_repository.set_progress_callback(transcription_progress_callback)
+            elif hasattr(self.transcription_repository, '_service') and hasattr(self.transcription_repository._service, 'set_progress_callback'):
+                self.transcription_repository._service.set_progress_callback(transcription_progress_callback)
+        except Exception as e:
+            # Progress callback setup failed, continue without it
+            pass
+        
         transcription = self.transcription_repository.transcribe_audio(
             audio_stream=audio_stream,
             language=language,
@@ -1203,4 +1293,52 @@ class GenerateSubtitlesUseCase:
         
         total_seconds = hours * 3600 + minutes * 60 + seconds + milliseconds / 1000
         return Timestamp.from_seconds(total_seconds)
+    
+    def _send_completion_with_json_data(
+        self,
+        subtitle_document: SubtitleDocument,
+        command: GenerateSubtitlesCommand,
+        statistics: Dict[str, Any],
+        output_file_path: str,
+        processing_time: float
+    ) -> None:
+        """Send completion event with JSON subtitle data via IPC."""
+        try:
+            # Import JSON subtitle service and IPC function
+            from ...infrastructure.services.json_subtitle_service import JsonSubtitleService
+            from ...presentation.cli.ipc_handler import ipc_completion_with_json
+            
+            # Use existing service or create one if not available
+            service = self.json_subtitle_service or JsonSubtitleService()
+            
+            # Add processing time to statistics
+            enhanced_stats = dict(statistics)
+            enhanced_stats["processing_time"] = processing_time
+            
+            # Create JSON response
+            json_response = service.create_json_response(
+                subtitle_document=subtitle_document,
+                command=command,
+                statistics=enhanced_stats,
+                output_file_path=output_file_path
+            )
+            
+            # Send via IPC
+            ipc_completion_with_json(
+                subtitle_data=json_response["subtitle_data"],
+                output_file_path=output_file_path,
+                success=json_response["processing_info"]["success"],
+                processing_time=processing_time,
+                subtitle_count=subtitle_document.get_subtitle_count(),
+                language=subtitle_document.get_language()
+            )
+            
+        except Exception as e:
+            # Log error but don't fail the entire process
+            print(f"Warning: Failed to send JSON subtitle data via IPC: {e}")
+            # Fallback to regular result notification
+            from ...presentation.cli.ipc_handler import ipc_result
+            ipc_result(output_file_path, success=True, 
+                      subtitle_count=subtitle_document.get_subtitle_count(),
+                      processing_time=processing_time)
     

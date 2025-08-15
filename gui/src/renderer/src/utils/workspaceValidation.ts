@@ -114,7 +114,9 @@ export function validateStepContent(stepName: string, content: any): ValidationR
   switch (stepName) {
     case 'input':
       if (!Array.isArray(content.selectedFiles)) {
-        result.warnings.push('Input step selectedFiles should be an array');
+        result.warnings.push('Input step selectedFiles should be an array - auto-correcting to empty array');
+        // Auto-correct the issue
+        content.selectedFiles = [];
       }
       break;
     

@@ -89,7 +89,42 @@ export const useExportStepStore = create<ExportStepState>((set, get) => ({
     },
 
     resetExportStep: () => {
-      set({ data: { ...defaultExportStepData, lastModified: Date.now() } });
+      console.log('🔄 EXPORT STORE: Resetting export step to defaults for workspace isolation');
+      set({ 
+        data: { 
+          ...defaultExportStepData,
+          lastModified: Date.now(),
+          // Ensure all array and object references are completely new
+          exportSettings: {
+            includeTimecodes: true,
+            charset: 'utf-8',
+            translation: false,
+            lineBreaks: 'auto',
+            maxLineLength: undefined
+          },
+          exportHistory: [],
+          previewState: {
+            fullscreenOpen: false,
+            copySnackbar: false,
+            showLineNumbers: true
+          },
+          actionsState: {
+            showMultiFormatDialog: false,
+            selectedFormats: [],
+            snackbarOpen: false
+          },
+          highlightConfig: {
+            language: 'srt',
+            showLineNumbers: true
+          },
+          validationIssues: {},
+          historyGrouping: {},
+          selectedLanguages: ['original'],
+          previewContent: undefined,
+          lastGenerated: undefined
+        } 
+      });
+      console.log('✅ EXPORT STORE: Reset completed');
     },
 
     updateExportFormat: (format: string) => {

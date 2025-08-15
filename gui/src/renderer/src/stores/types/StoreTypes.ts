@@ -10,7 +10,8 @@ export interface ElectronWindow extends Window {
   electron: {
     ipcRenderer: {
       invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
-      on: <T = unknown>(channel: string, callback: (event: T) => void) => void;
+      on: (channel: string, callback: (event: unknown, ...args: unknown[]) => void) => void;
+      removeListener: (channel: string, callback: (event: unknown, ...args: unknown[]) => void) => void;
     };
   };
 }
@@ -393,6 +394,10 @@ export interface ProcessingStepData {
   estimatedTimeRemaining?: number;
   statistics?: ProcessingStatistics;
   timeElapsed?: number; // Calculated field for display
+  outputFile?: string; // Generated output file path (SRT backup)
+  // Enhanced JSON subtitle data support
+  jsonSubtitleData?: import('../../../../types/SubtitleTypes').CantocapSubtitleData;
+  convertedSubtitles?: Subtitle[];
 }
 
 // ============================================================================
@@ -547,6 +552,13 @@ export interface ReviewStepData {
   searchQuery?: string;
   filteredSubtitles: Subtitle[];
   hasUnsavedChanges: boolean;
+  // Enhanced JSON subtitle data support
+  jsonSubtitleData?: import('../../../../types/SubtitleTypes').CantocapSubtitleData;
+  hasJsonData?: boolean;
+  inputFile?: string; // Backup SRT file path
+  processingStatistics?: ProcessingStatistics;
+  processingCompleted?: boolean;
+  lastProcessedAt?: string;
 }
 
 // Export Step Types

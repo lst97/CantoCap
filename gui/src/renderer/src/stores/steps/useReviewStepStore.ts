@@ -1,5 +1,9 @@
-import { create } from 'zustand';
-import { ReviewStepData, Subtitle, EditState } from '../types/StoreTypes';
+import { create, StoreApi, UseBoundStore } from 'zustand';
+import { ReviewStepData, Subtitle, EditState, ProcessingStatistics } from '../types/StoreTypes';
+import { 
+  CantocapSubtitleData, 
+  convertSubtitleDataToGuiSubtitles 
+} from '../../../../types/SubtitleTypes';
 
 interface ReviewStepState {
   data: ReviewStepData;
@@ -18,6 +22,12 @@ interface ReviewStepState {
     removeSubtitle: (index: number) => void;
     searchSubtitles: (query: string) => void;
     clearSearch: () => void;
+    // Enhanced JSON subtitle data actions
+    setJsonSubtitleData: (data: import('../../../../types/SubtitleTypes').CantocapSubtitleData | undefined) => void;
+    loadSubtitlesFromJson: () => void;
+    hasJsonSubtitleData: () => boolean;
+    getJsonMetadata: () => import('../../../../types/SubtitleTypes').SubtitleMetadata | undefined;
+    getProcessingStatistics: () => ProcessingStatistics | undefined;
   };
 }
 
@@ -28,10 +38,17 @@ const defaultReviewStepData: ReviewStepData = {
   selectedSubtitleIndex: undefined,
   searchQuery: undefined,
   filteredSubtitles: [],
-  hasUnsavedChanges: false
+  hasUnsavedChanges: false,
+  // Enhanced JSON subtitle data support
+  jsonSubtitleData: undefined,
+  hasJsonData: false,
+  inputFile: undefined,
+  processingStatistics: undefined,
+  processingCompleted: false,
+  lastProcessedAt: undefined
 };
 
-export const useReviewStepStore = create<ReviewStepState>((set, _get) => ({
+export const useReviewStepStore: UseBoundStore<StoreApi<ReviewStepState>> = create<ReviewStepState>((set, _get) => ({
   data: defaultReviewStepData,
   
   actions: {
@@ -42,7 +59,27 @@ export const useReviewStepStore = create<ReviewStepState>((set, _get) => ({
     },
 
     resetReviewStep: () => {
-      set({ data: defaultReviewStepData });
+      console.log('🔄 REVIEW STORE: Resetting review step to defaults for workspace isolation');
+      set({ 
+        data: { 
+          ...defaultReviewStepData,
+          // Ensure all array and object references are completely new
+          subtitles: [],
+          currentEdit: undefined,
+          playbackPosition: 0,
+          selectedSubtitleIndex: undefined,
+          searchQuery: undefined,
+          filteredSubtitles: [],
+          hasUnsavedChanges: false,
+          jsonSubtitleData: undefined,
+          hasJsonData: false,
+          inputFile: undefined,
+          processingStatistics: undefined,
+          processingCompleted: false,
+          lastProcessedAt: undefined
+        } 
+      });
+      console.log('✅ REVIEW STORE: Reset completed');
     },
 
     setSubtitles: (subtitles: Subtitle[]) => {
@@ -216,19 +253,86 @@ export const useReviewStepStore = create<ReviewStepState>((set, _get) => ({
           filteredSubtitles: []
         }
       }));
+    },
+
+    // Enhanced JSON subtitle data actions
+    setJsonSubtitleData: (data: CantocapSubtitleData | undefined) => {
+      set(state => ({
+        data: {
+          ...state.data,
+          jsonSubtitleData: data,
+          hasJsonData: !!data
+        }
+      }));
+    },
+
+    loadSubtitlesFromJson: () => {
+      set(state => {
+        if (!state.data.jsonSubtitleData) {
+          console.warn('No JSON subtitle data available to load');
+          return state;
+        }
+
+        try {
+          const convertedSubtitles = convertSubtitleDataToGuiSubtitles(
+            state.data.jsonSubtitleData.subtitles
+          );
+          
+          console.log(`Loaded ${convertedSubtitles.length} subtitles from JSON data`);
+          
+          return {
+            data: {
+              ...state.data,
+              subtitles: convertedSubtitles,
+              filteredSubtitles: state.data.searchQuery
+                ? convertedSubtitles.filter((sub: Subtitle) =>
+                    sub.text.toLowerCase().includes(state.data.searchQuery!.toLowerCase())
+                  )
+                : []
+            }
+          };
+        } catch (error) {
+          console.error('Failed to load subtitles from JSON data:', error);
+          return state;
+        }
+      });
+    },
+
+    hasJsonSubtitleData: () => {
+      const state = useReviewStepStore.getState();
+      return !!(state.data.jsonSubtitleData && state.data.hasJsonData);
+    },
+
+    getJsonMetadata: () => {
+      const state = useReviewStepStore.getState();
+      return state.data.jsonSubtitleData?.metadata;
+    },
+
+    getProcessingStatistics: () => {
+      const state = useReviewStepStore.getState();
+      return state.data.processingStatistics;
     }
   }
 }));
 
 // Selectors
-export const useReviewStepData = () => useReviewStepStore(state => state.data);
-export const useReviewStepActions = () => useReviewStepStore(state => state.actions);
-export const useSubtitles = () => useReviewStepStore(state => state.data.subtitles);
-export const useCurrentEdit = () => useReviewStepStore(state => state.data.currentEdit);
-export const usePlaybackPosition = () => useReviewStepStore(state => state.data.playbackPosition);
-export const useSelectedSubtitleIndex = () => useReviewStepStore(state => state.data.selectedSubtitleIndex);
-export const useSubtitleSearch = () => useReviewStepStore(state => ({
+export const useReviewStepData = () => useReviewStepStore((state: ReviewStepState) => state.data);
+export const useReviewStepActions = () => useReviewStepStore((state: ReviewStepState) => state.actions);
+export const useSubtitles = () => useReviewStepStore((state: ReviewStepState) => state.data.subtitles);
+export const useCurrentEdit = () => useReviewStepStore((state: ReviewStepState) => state.data.currentEdit);
+export const usePlaybackPosition = () => useReviewStepStore((state: ReviewStepState) => state.data.playbackPosition);
+export const useSelectedSubtitleIndex = () => useReviewStepStore((state: ReviewStepState) => state.data.selectedSubtitleIndex);
+export const useSubtitleSearch = () => useReviewStepStore((state: ReviewStepState) => ({
   searchQuery: state.data.searchQuery,
   filteredSubtitles: state.data.filteredSubtitles
 }));
-export const useReviewUnsavedChanges = () => useReviewStepStore(state => state.data.hasUnsavedChanges);
+export const useReviewUnsavedChanges = () => useReviewStepStore((state: ReviewStepState) => state.data.hasUnsavedChanges);
+
+// Enhanced selectors for JSON subtitle data
+export const useJsonSubtitleData = () => useReviewStepStore((state: ReviewStepState) => state.data.jsonSubtitleData);
+export const useHasJsonData = () => useReviewStepStore((state: ReviewStepState) => state.data.hasJsonData);
+export const useJsonMetadata = () => useReviewStepStore((state: ReviewStepState) => state.data.jsonSubtitleData?.metadata);
+export const useProcessingStatistics = () => useReviewStepStore((state: ReviewStepState) => state.data.processingStatistics);
+export const useProcessingCompleted = () => useReviewStepStore((state: ReviewStepState) => state.data.processingCompleted);
+export const useLastProcessedAt = () => useReviewStepStore((state: ReviewStepState) => state.data.lastProcessedAt);
+export const useInputFile = () => useReviewStepStore((state: ReviewStepState) => state.data.inputFile);
