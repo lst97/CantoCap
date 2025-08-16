@@ -103,6 +103,7 @@ export const ActionPanel = () => {
         configStep: config,
       })) as ProcessingConvertConfigResponse;
 
+
       if (!conversionResult.success || !conversionResult.config) {
         throw new Error(conversionResult.error || 'Failed to convert configuration');
       }

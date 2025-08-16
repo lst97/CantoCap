@@ -3,7 +3,6 @@ import { create } from 'zustand';
 import {
   StepContentState,
   StepType,
-  StepContentUpdatedEvent,
   ExportStepData,
   ExportRecord,
   ElectronWindow,
@@ -141,12 +140,37 @@ export const useStepStore = create<StepContentState>((set, get) => {
         try {
           set({ hasUnsavedChanges: true, currentWorkspaceId });
 
-          // Persist to main process
+          // CRITICAL FIX: Get the complete updated state from the individual store
+          // instead of using the partial content. This prevents data loss during persistence.
+          let completeStepData;
+          switch (step) {
+            case 'input':
+              completeStepData = useInputStepStore.getState().data;
+              break;
+            case 'config':
+              completeStepData = useConfigStepStore.getState().data;
+              break;
+            case 'processing':
+              completeStepData = useProcessingStepStore.getState().data;
+              break;
+            case 'review':
+              completeStepData = useReviewStepStore.getState().data;
+              break;
+            case 'export':
+              completeStepData = useExportStepStore.getState().data;
+              break;
+            default:
+              completeStepData = content;
+          }
+
+          console.log(`🔄 StepStore: Persisting complete ${step} step data:`, completeStepData);
+
+          // Persist complete step data to main process to prevent field loss
           await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke(
             'step:updateContent',
             currentWorkspaceId,
             step,
-            content
+            completeStepData
           );
           console.log(
             `✅ StepStore: ${step} step content updated for workspace:`,
@@ -281,18 +305,22 @@ export const useStepStore = create<StepContentState>((set, get) => {
               Promise.resolve(useConfigStepStore.getState().actions.resetConfigStep()),
               Promise.resolve(useProcessingStepStore.getState().actions.resetProcessingStep()),
               Promise.resolve(useReviewStepStore.getState().actions.resetReviewStep()),
-              Promise.resolve(useExportStepStore.getState().actions.resetExportStep())
+              Promise.resolve(useExportStepStore.getState().actions.resetExportStep()),
             ];
-            
+
             await Promise.all(resetPromises);
-            
+
             // Give a small delay to ensure all state updates have propagated
-            await new Promise(resolve => setTimeout(resolve, 10));
-            
-            console.log('✅ StepStore: All step stores reset to defaults and ready for workspace loading');
+            await new Promise((resolve) => setTimeout(resolve, 10));
+
+            console.log(
+              '✅ StepStore: All step stores reset to defaults and ready for workspace loading'
+            );
           } catch (resetError) {
             console.error('❌ StepStore: Failed to reset step stores:', resetError);
-            throw new Error(`Failed to reset step stores for workspace isolation: ${resetError instanceof Error ? resetError.message : 'Unknown error'}`);
+            throw new Error(
+              `Failed to reset step stores for workspace isolation: ${resetError instanceof Error ? resetError.message : 'Unknown error'}`
+            );
           }
 
           const stepTypes: StepType[] = ['input', 'config', 'processing', 'review', 'export'];
@@ -362,13 +390,13 @@ export const useStepStore = create<StepContentState>((set, get) => {
             const inputData = useInputStepStore.getState().data;
             const configData = useConfigStepStore.getState().data;
             const reviewData = useReviewStepStore.getState().data;
-            
+
             console.log('🔍 StepStore: Validating workspace isolation for workspace:', workspaceId);
             console.log('🔍 Current step store states after loading:');
             console.log('  - Input lastModified:', inputData.lastModified);
             console.log('  - Config lastModified:', configData.lastModified);
             console.log('  - Review has subtitles:', reviewData.subtitles?.length || 0);
-            
+
             console.log('✅ StepStore: Workspace isolation validation passed');
           } catch (validationError) {
             console.warn('⚠️ StepStore: Workspace isolation validation failed:', validationError);
@@ -586,9 +614,9 @@ export const useStepStore = create<StepContentState>((set, get) => {
 // Initialize IPC listeners with enhanced defensive checks
 if (typeof window !== 'undefined' && (window as unknown as ElectronWindow).electron?.ipcRenderer) {
   // Step content updated event - delegate to individual stores
-  (window as unknown as ElectronWindow).electron.ipcRenderer.on<StepContentUpdatedEvent>(
+  (window as unknown as ElectronWindow).electron.ipcRenderer.on(
     'step:contentUpdated',
-    async ({ workspaceId, stepName, content }) => {
+    async (_event, { workspaceId, stepName, content }) => {
       const currentWorkspaceId = useStepStore.getState().currentWorkspaceId;
 
       // Only update if this is for the current workspace

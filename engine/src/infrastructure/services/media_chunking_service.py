@@ -30,14 +30,50 @@ class ChunkingStrategy:
     max_tokens_per_chunk: int = 25000  # Conservative token limit
 
 
-class MediaChunkingService:
-    """Service for chunking large media files for Gemini Flash processing."""
+@dataclass
+class AdaptiveChunkingStrategy:
+    """Unified chunking strategies optimized for AI services working together."""
     
-    def __init__(self, strategy: Optional[ChunkingStrategy] = None):
+    # Whisper-optimized settings (based on 30-second receptive field)
+    whisper_chunk_duration: float = 30.0  # Optimal for Whisper's native receptive field
+    whisper_overlap: float = 5.0  # Minimal overlap for audio continuity
+    whisper_max_size_mb: float = 500  # Conservative for local processing
+    
+    # Gemini Flash-optimized settings (based on 1M token context window)
+    gemini_chunk_duration: float = 900.0  # 15 minutes, optimal for video processing
+    gemini_overlap: float = 30.0  # Overlap for context continuity
+    gemini_max_size_mb: float = 1800  # Under 2GB API limit
+    
+    
+    def get_whisper_strategy(self) -> ChunkingStrategy:
+        """Get chunking strategy optimized for OpenAI Whisper transcription."""
+        return ChunkingStrategy(
+            max_chunk_duration_seconds=self.whisper_chunk_duration,
+            max_chunk_size_mb=self.whisper_max_size_mb,
+            overlap_seconds=self.whisper_overlap,
+            max_tokens_per_chunk=1000  # Lower for local processing
+        )
+    
+    def get_gemini_strategy(self) -> ChunkingStrategy:
+        """Get chunking strategy optimized for Google Gemini refinement."""
+        return ChunkingStrategy(
+            max_chunk_duration_seconds=self.gemini_chunk_duration,
+            max_chunk_size_mb=self.gemini_max_size_mb,
+            overlap_seconds=self.gemini_overlap,
+            max_tokens_per_chunk=25000  # Higher for cloud processing
+        )
+
+
+class MediaChunkingService:
+    """Service for chunking large media files for AI processing with adaptive strategies."""
+    
+    def __init__(self, strategy: Optional[ChunkingStrategy] = None, adaptive_strategy: Optional[AdaptiveChunkingStrategy] = None):
         """Initialize with chunking strategy."""
         self.strategy = strategy or ChunkingStrategy()
+        self.adaptive_strategy = adaptive_strategy or AdaptiveChunkingStrategy()
         self.temp_dir = Path.cwd() / "temp" / "chunks"
         self.temp_dir.mkdir(parents=True, exist_ok=True)
+    
     
     def should_chunk_file(self, file_path: FilePath) -> bool:
         """
@@ -61,6 +97,40 @@ class MediaChunkingService:
         except Exception:
             # If we can't determine size/duration, err on the side of caution
             return True
+    
+    def create_whisper_chunks(self, file_path: FilePath) -> List[ChunkInfo]:
+        """
+        Create chunks optimized for OpenAI Whisper transcription.
+        
+        Args:
+            file_path: Path to original media file
+            
+        Returns:
+            List of chunk information optimized for Whisper
+        """
+        # Use Whisper-optimized strategy
+        original_strategy = self.strategy
+        self.strategy = self.adaptive_strategy.get_whisper_strategy()
+        chunks = self.create_chunks(file_path)
+        self.strategy = original_strategy  # Restore original strategy
+        return chunks
+    
+    def create_gemini_chunks(self, file_path: FilePath) -> List[ChunkInfo]:
+        """
+        Create chunks optimized for Google Gemini refinement.
+        
+        Args:
+            file_path: Path to original media file
+            
+        Returns:
+            List of chunk information optimized for Gemini
+        """
+        # Use Gemini-optimized strategy
+        original_strategy = self.strategy
+        self.strategy = self.adaptive_strategy.get_gemini_strategy()
+        chunks = self.create_chunks(file_path)
+        self.strategy = original_strategy  # Restore original strategy
+        return chunks
     
     def create_chunks(self, file_path: FilePath) -> List[ChunkInfo]:
         """
@@ -215,6 +285,53 @@ class MediaChunkingService:
         # Conservative estimation: ~50 tokens per minute for video analysis
         return int(duration_seconds / 60 * 50)
     
+    def split_srt_by_chunks(self, srt_content: str, chunks: List[ChunkInfo]) -> List[str]:
+        """
+        Split SRT content by time chunks with proper timestamp alignment.
+        
+        Args:
+            srt_content: Original SRT content
+            chunks: List of chunk information with timestamps
+            
+        Returns:
+            List of SRT content strings aligned with chunks
+        """
+        # Parse original SRT into structured data
+        subtitles = self._parse_srt_content(srt_content)
+        chunk_srt_contents = []
+        
+        for chunk_info in chunks:
+            chunk_start = chunk_info.start_time.seconds
+            chunk_end = chunk_info.end_time.seconds
+            chunk_subtitles = []
+            subtitle_index = 1
+            
+            for subtitle in subtitles:
+                sub_start = subtitle['start']
+                sub_end = subtitle['end']
+                
+                # Check if subtitle overlaps with chunk
+                if sub_end > chunk_start and sub_start < chunk_end:
+                    # Adjust subtitle timing relative to chunk start
+                    adjusted_start = max(0, sub_start - chunk_start)
+                    adjusted_end = min(chunk_end - chunk_start, sub_end - chunk_start)
+                    
+                    # Only include if there's meaningful overlap
+                    if adjusted_end > adjusted_start and adjusted_end > 0:
+                        chunk_subtitles.append({
+                            'index': subtitle_index,
+                            'start': adjusted_start,
+                            'end': adjusted_end,
+                            'text': subtitle['text']
+                        })
+                        subtitle_index += 1
+            
+            # Convert chunk subtitles back to SRT format
+            chunk_srt = self._format_as_srt(chunk_subtitles)
+            chunk_srt_contents.append(chunk_srt)
+        
+        return chunk_srt_contents
+    
     def merge_chunk_results(
         self, 
         chunk_results: List[Tuple[ChunkInfo, str]], 
@@ -257,8 +374,8 @@ class MediaChunkingService:
                 })
                 subtitle_index += 1
         
-        # Remove duplicates from overlapping chunks
-        merged_subtitles = self._remove_duplicate_subtitles(merged_subtitles)
+        # Remove duplicates from overlapping chunks with improved algorithm
+        merged_subtitles = self._remove_duplicate_subtitles_enhanced(merged_subtitles)
         
         # Convert back to SRT format
         return self._format_as_srt(merged_subtitles)
@@ -309,6 +426,75 @@ class MediaChunkingService:
         milliseconds = int(ms_part)
         
         return hours * 3600 + minutes * 60 + seconds + milliseconds / 1000
+    
+    def _remove_duplicate_subtitles_enhanced(self, subtitles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Remove duplicate subtitles with enhanced overlap handling."""
+        if not subtitles:
+            return []
+        
+        # Sort by start time
+        sorted_subtitles = sorted(subtitles, key=lambda x: x['start'])
+        unique_subtitles = []
+        
+        for current in sorted_subtitles:
+            should_add = True
+            
+            # Check against existing subtitles for overlaps
+            for existing in unique_subtitles:
+                # Calculate overlap percentage
+                overlap_start = max(current['start'], existing['start'])
+                overlap_end = min(current['end'], existing['end'])
+                
+                if overlap_start < overlap_end:  # There is overlap
+                    overlap_duration = overlap_end - overlap_start
+                    current_duration = current['end'] - current['start']
+                    existing_duration = existing['end'] - existing['start']
+                    
+                    # Calculate overlap percentage for both subtitles
+                    current_overlap_pct = overlap_duration / max(current_duration, 0.1)
+                    existing_overlap_pct = overlap_duration / max(existing_duration, 0.1)
+                    
+                    # If high overlap (>70%) and similar text, consider duplicate
+                    if (current_overlap_pct > 0.7 or existing_overlap_pct > 0.7):
+                        text_similarity = self._calculate_text_similarity(
+                            current['text'], existing['text']
+                        )
+                        if text_similarity > 0.8:  # 80% text similarity
+                            should_add = False
+                            break
+            
+            if should_add:
+                unique_subtitles.append(current)
+        
+        # Renumber indices
+        for i, subtitle in enumerate(unique_subtitles):
+            subtitle['index'] = i + 1
+        
+        return unique_subtitles
+    
+    def _calculate_text_similarity(self, text1: str, text2: str) -> float:
+        """Calculate text similarity using simple character-based comparison."""
+        if not text1 or not text2:
+            return 0.0
+        
+        # Simple character-based similarity
+        text1_clean = ''.join(text1.split()).lower()
+        text2_clean = ''.join(text2.split()).lower()
+        
+        if text1_clean == text2_clean:
+            return 1.0
+        
+        # Calculate Jaccard similarity of character sets
+        set1 = set(text1_clean)
+        set2 = set(text2_clean)
+        
+        if not set1 and not set2:
+            return 1.0
+        
+        intersection = len(set1.intersection(set2))
+        union = len(set1.union(set2))
+        
+        return intersection / union if union > 0 else 0.0
     
     def _remove_duplicate_subtitles(self, subtitles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Remove duplicate subtitles from overlapping chunks."""

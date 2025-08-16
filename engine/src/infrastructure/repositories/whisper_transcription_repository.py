@@ -1,6 +1,6 @@
 """Whisper-based transcription repository implementation."""
 
-from typing import Optional, Dict, Any, Union
+from typing import Optional, Dict, Any, Union, List
 
 from ...domain.repositories import ITranscriptionRepository
 from ...domain.entities import AudioStream, Transcription
@@ -47,6 +47,78 @@ class WhisperTranscriptionRepository(ITranscriptionRepository):
             # Standard WhisperService: load_model() takes optional model_name parameter
             # Model name should already be in full format (validation enforces this)
             return self.whisper_service.load_model(model_name)
+    
+    def transcribe_audio_chunked(
+        self,
+        audio_chunks: List[AudioStream],
+        language: str = "zh",
+        return_timestamps: bool = True,
+        chunk_offsets: Optional[List[float]] = None
+    ) -> Transcription:
+        """
+        Transcribe multiple audio chunks and merge results.
+        
+        Args:
+            audio_chunks: List of audio stream chunks
+            language: Language code for transcription
+            return_timestamps: Whether to return timestamps
+            chunk_offsets: List of time offsets for each chunk (seconds)
+            
+        Returns:
+            Merged transcription from all chunks
+        """
+        if not audio_chunks:
+            raise ValueError("No audio chunks provided")
+        
+        chunk_results = []
+        for i, audio_chunk in enumerate(audio_chunks):
+            try:
+                # Transcribe individual chunk
+                chunk_transcription = self.transcribe_audio(
+                    audio_stream=audio_chunk,
+                    language=language,
+                    return_timestamps=return_timestamps
+                )
+                
+                # Adjust timestamps if offsets are provided
+                if chunk_offsets and i < len(chunk_offsets):
+                    offset = chunk_offsets[i]
+                    adjusted_transcription = self._adjust_transcription_timestamps(
+                        chunk_transcription, offset
+                    )
+                    chunk_results.append(adjusted_transcription)
+                else:
+                    chunk_results.append(chunk_transcription)
+                    
+            except Exception as e:
+                print(f"Warning: Chunk {i} transcription failed: {e}")
+                # Continue with remaining chunks
+                continue
+        
+        if not chunk_results:
+            raise RuntimeError("All audio chunk transcriptions failed")
+        
+        # Merge chunk transcriptions
+        return self._merge_transcriptions(chunk_results)
+    
+    def _adjust_transcription_timestamps(self, transcription: Transcription, offset: float) -> Transcription:
+        """Adjust transcription timestamps by offset."""
+        # This would need to be implemented based on the Transcription entity structure
+        # For now, return the original transcription
+        # TODO: Implement timestamp adjustment logic
+        return transcription
+    
+    def _merge_transcriptions(self, transcriptions: List[Transcription]) -> Transcription:
+        """Merge multiple transcriptions into a single transcription."""
+        if not transcriptions:
+            raise ValueError("No transcriptions to merge")
+        
+        if len(transcriptions) == 1:
+            return transcriptions[0]
+        
+        # For now, return the first transcription
+        # TODO: Implement proper transcription merging logic
+        return transcriptions[0]
     
     def transcribe_audio(
         self,

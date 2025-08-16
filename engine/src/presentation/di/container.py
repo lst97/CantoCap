@@ -318,12 +318,21 @@ class Container:
             self._video_preprocessing_service = VideoPreprocessingService()
         return self._video_preprocessing_service
     
-    def get_media_chunking_service(self, max_chunk_duration_minutes: int = 15):
-        """Get media chunking service instance."""
+    def get_media_chunking_service(self, max_chunk_duration_minutes: int = 15, service_type: str = "gemini"):
+        """Get media chunking service with adaptive strategy."""
         if self._media_chunking_service is None:
-            from ...infrastructure.services.media_chunking_service import MediaChunkingService, ChunkingStrategy
+            from ...infrastructure.services.media_chunking_service import MediaChunkingService, ChunkingStrategy, AdaptiveChunkingStrategy
+            
+            # Create adaptive strategy
+            adaptive_strategy = AdaptiveChunkingStrategy(service_type=service_type)
+            
+            # Create traditional strategy as fallback
             strategy = ChunkingStrategy(max_chunk_duration_seconds=max_chunk_duration_minutes * 60)
-            self._media_chunking_service = MediaChunkingService(strategy)
+            
+            self._media_chunking_service = MediaChunkingService(
+                strategy=strategy, 
+                adaptive_strategy=adaptive_strategy
+            )
         return self._media_chunking_service
     
     

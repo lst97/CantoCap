@@ -36,11 +36,16 @@ const defaultConfigStepData: ConfigStepData = {
   // Additional CLI args fields
   priority: 'balanced',
   noGeminiRefinement: false,
-  maxChunkDuration: 15,
+  maxChunkDuration: 15, // Legacy large file chunking (minutes)
   videoQuality: '360p',
   terminologyConfig: undefined,
   ffmpegPath: undefined,
   verbose: false,
+  
+  // New adaptive chunking fields
+  enableAdaptiveChunking: true, // Enable by default
+  whisperChunkDuration: 30, // seconds
+  geminiChunkDuration: 900, // seconds (15 minutes)
   
   // Structured settings
   modelSettings: {
@@ -50,10 +55,17 @@ const defaultConfigStepData: ConfigStepData = {
   },
   apiKeys: {},
   advancedSettings: {
-    chunkDuration: 30,
+    chunkDuration: 30, // Legacy field for backward compatibility
     numWorkers: 4,
     enableSpeakerDiarization: false,
-    enableMusicDetection: false
+    enableMusicDetection: false,
+    // New adaptive chunking strategy
+    chunkingStrategy: {
+      whisperChunkDuration: 30,
+      whisperOverlap: 5,
+      geminiChunkDuration: 900,
+      geminiOverlap: 30
+    }
   },
   isValid: false,
   validationErrors: []
@@ -90,7 +102,7 @@ export const useConfigStepStore = create<ConfigStepState>((set, get) => ({
         console.log(`✅ CONFIG STORE MIGRATION: Migrated to modelSettings.whisperModel:`, migratedContent.modelSettings.whisperModel);
       }
 
-      // Update the store first
+      // Update the store only - persistence is handled by useStepStore
       set(state => ({
         data: { 
           ...state.data, 
@@ -99,27 +111,8 @@ export const useConfigStepStore = create<ConfigStepState>((set, get) => ({
         }
       }));
 
-      // CRITICAL FIX: Call persistence directly to avoid circular dependency
-      // Do NOT call useStepStore.updateStepContent() as it will call us back!
-      try {
-        const { useAppStore } = await import('../useAppStore');
-        const workspaceId = useAppStore.getState().activeWorkspaceId;
-        
-        if (!workspaceId) {
-          console.warn('CONFIG STORE: No active workspace - cannot persist config changes');
-          return;
-        }
-
-        const updatedData = get().data;
-        console.log(`💾 UPDATE CONFIG: Persisting directly to Electron with data:`, updatedData);
-        
-        // Call IPC directly to avoid circular dependency
-        await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('step:updateContent', workspaceId, 'config', updatedData);
-        console.log(`✅ UPDATE CONFIG: Successfully persisted config changes to Electron store`);
-      } catch (error) {
-        console.error(`❌ UPDATE CONFIG: Failed to persist config changes:`, error);
-        throw error; // Re-throw to let calling code handle the error
-      }
+      // NOTE: Persistence is handled by useStepStore.updateStepContent()
+      // No need to persist here to avoid double persistence and infinite loops
     },
 
     resetConfigStep: () => {
@@ -147,96 +140,32 @@ export const useConfigStepStore = create<ConfigStepState>((set, get) => ({
       console.log('✅ CONFIG STORE: Reset completed');
     },
 
-    setModel: async (model: string) => {
-      console.log(`🔄 SET MODEL: Setting model to:`, model);
-      
-      // Update the store first
-      set(state => {
-        const newData = {
+    setModel: (model: string) => {
+      // Update the store only - persistence is handled by useStepStore
+      set(state => ({
+        data: {
           ...state.data,
           modelSettings: {
             ...state.data.modelSettings,
             whisperModel: model as WhisperModel
           },
           lastModified: Date.now()
-        };
-        console.log(`✅ SET MODEL: Updated store data:`, newData);
-        return { data: newData };
-      });
-
-      // Call persistence directly to avoid circular dependency
-      try {
-        const { useAppStore } = await import('../useAppStore');
-        const workspaceId = useAppStore.getState().activeWorkspaceId;
-        
-        if (!workspaceId) {
-          console.warn('SET MODEL: No active workspace - cannot persist model change');
-          return;
         }
-
-        const updatedData = get().data;
-        console.log(`💾 SET MODEL: Persisting directly to Electron with data:`, updatedData);
-        
-        // Call IPC directly to avoid circular dependency
-        await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('step:updateContent', workspaceId, 'config', updatedData);
-        console.log(`✅ SET MODEL: Successfully persisted model change to Electron store`);
-      } catch (error) {
-        console.error(`❌ SET MODEL: Failed to persist model change:`, error);
-      }
+      }));
     },
 
-    setLanguage: async (language: string) => {
-      // Update the store first
+    setLanguage: (language: string) => {
+      // Update the store only - persistence is handled by useStepStore
       set(state => ({
         data: { ...state.data, language: language as ProcessingLanguage, lastModified: Date.now() }
       }));
-
-      // Call persistence directly to avoid circular dependency
-      try {
-        const { useAppStore } = await import('../useAppStore');
-        const workspaceId = useAppStore.getState().activeWorkspaceId;
-        
-        if (!workspaceId) {
-          console.warn('SET LANGUAGE: No active workspace - cannot persist language change');
-          return;
-        }
-
-        const updatedData = get().data;
-        console.log(`💾 SET LANGUAGE: Persisting directly to Electron with data:`, updatedData);
-        
-        // Call IPC directly to avoid circular dependency
-        await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('step:updateContent', workspaceId, 'config', updatedData);
-        console.log(`✅ SET LANGUAGE: Successfully persisted language change to Electron store`);
-      } catch (error) {
-        console.error(`❌ SET LANGUAGE: Failed to persist language change:`, error);
-      }
     },
 
-    setCharset: async (charset: string) => {
-      // Update the store first
+    setCharset: (charset: string) => {
+      // Update the store only - persistence is handled by useStepStore
       set(state => ({
         data: { ...state.data, charset: charset as "traditional" | "simplified", lastModified: Date.now() }
       }));
-
-      // Call persistence directly to avoid circular dependency
-      try {
-        const { useAppStore } = await import('../useAppStore');
-        const workspaceId = useAppStore.getState().activeWorkspaceId;
-        
-        if (!workspaceId) {
-          console.warn('SET CHARSET: No active workspace - cannot persist charset change');
-          return;
-        }
-
-        const updatedData = get().data;
-        console.log(`💾 SET CHARSET: Persisting directly to Electron with data:`, updatedData);
-        
-        // Call IPC directly to avoid circular dependency
-        await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('step:updateContent', workspaceId, 'config', updatedData);
-        console.log(`✅ SET CHARSET: Successfully persisted charset change to Electron store`);
-      } catch (error) {
-        console.error(`❌ SET CHARSET: Failed to persist charset change:`, error);
-      }
     },
 
     setGeminiKey: (key: string | undefined) => {
@@ -389,6 +318,34 @@ export const useConfigStepStore = create<ConfigStepState>((set, get) => ({
       // Verbose
       if (config.verbose) {
         args.push('--verbose');
+      }
+
+      // Adaptive chunking parameters
+      if (config.enableAdaptiveChunking) {
+        args.push('--enable-adaptive-chunking');
+      }
+      
+      
+      if (config.whisperChunkDuration && config.whisperChunkDuration !== 30) {
+        args.push('--whisper-chunk-duration', String(config.whisperChunkDuration));
+      }
+      
+      if (config.geminiChunkDuration && config.geminiChunkDuration !== 900) {
+        args.push('--gemini-chunk-duration', String(Math.round(config.geminiChunkDuration / 60))); // Convert to minutes
+      }
+      
+      // Advanced chunking strategy (send as JSON if configured)
+      if (config.advancedSettings?.chunkingStrategy) {
+        const strategy = config.advancedSettings.chunkingStrategy;
+        // Only send if it differs from defaults
+        const isDefault = strategy.whisperChunkDuration === 30 && 
+                         strategy.whisperOverlap === 5 && 
+                         strategy.geminiChunkDuration === 900 && 
+                         strategy.geminiOverlap === 30;
+        
+        if (!isDefault) {
+          args.push('--chunking-strategy', JSON.stringify(strategy));
+        }
       }
 
       return args;

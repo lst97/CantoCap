@@ -247,15 +247,43 @@ export class ProcessManager {
         }
       );
 
+      // Convert mediaDuration to numeric if it's a string (safety fix)
+      let numericDuration: number | undefined;
+      if (config.mediaDuration !== undefined) {
+        const mediaDuration = config.mediaDuration as number | string; // Type assertion for runtime safety
+        if (typeof mediaDuration === 'string') {
+          // Parse "18:00" format to seconds
+          const parts = mediaDuration.split(':');
+          if (parts.length === 2) {
+            const minutes = parseInt(parts[0]);
+            const seconds = parseInt(parts[1]);
+            numericDuration = minutes * 60 + seconds;
+            console.log(`✅ ProcessManager: Converted string duration "${mediaDuration}" to ${numericDuration}s`);
+          } else {
+            console.error('❌ ProcessManager: Invalid duration string format:', mediaDuration);
+          }
+        } else if (typeof mediaDuration === 'number') {
+          numericDuration = mediaDuration;
+        }
+      }
+
       // Calculate dynamic timeout based on media duration and complexity
-      const dynamicTimeoutMs = this.calculateProcessingTimeout(config, config.mediaDuration);
+      const dynamicTimeoutMs = this.calculateProcessingTimeout(config, numericDuration);
       const timeoutDisplay = this.formatTimeoutDuration(dynamicTimeoutMs);
+
+      // DEBUG: Log timeout calculation details
+      console.log('🕒 [DEBUG] Timeout Calculation Details:');
+      console.log(`🕒 [DEBUG] - config.mediaDuration (raw): ${config.mediaDuration} (${typeof config.mediaDuration})`);
+      console.log(`🕒 [DEBUG] - numericDuration (converted): ${numericDuration}`);
+      console.log(`🕒 [DEBUG] - dynamicTimeoutMs: ${dynamicTimeoutMs}`);
+      console.log(`🕒 [DEBUG] - timeoutDisplay: ${timeoutDisplay}`);
+      console.log(`🕒 [DEBUG] - BASE_TIMEOUT_MS: ${this.BASE_TIMEOUT_MS}`);
 
       callback({
         type: 'log-message',
         data: {
-          message: config.mediaDuration
-            ? `Estimated processing timeout: ${timeoutDisplay} (based on ${Math.floor(config.mediaDuration / 60)}m${Math.floor(config.mediaDuration % 60)}s media)`
+          message: numericDuration
+            ? `Estimated processing timeout: ${timeoutDisplay} (based on ${Math.floor(numericDuration / 60)}m${Math.floor(numericDuration % 60)}s media)`
             : `Processing timeout: ${timeoutDisplay} (using fallback calculation)`,
         },
       });
@@ -666,17 +694,26 @@ export class ProcessManager {
     const timeoutMs = this.calculateProcessingTimeout(config, config.mediaDuration);
     const timeoutDisplay = this.formatTimeoutDuration(timeoutMs);
 
-    // Calculate just the estimated processing time (without safety buffer)
+    // Calculate estimated processing time based on model complexity
     let estimatedProcessingMs = this.BASE_TIMEOUT_MS * 0.3; // Default fallback
     let basedOnDuration = false;
 
     if (config.mediaDuration && config.mediaDuration > 0) {
-      let processingFactor = 0.3;
+      // Base processing estimate based on Whisper model size (more conservative than timeout)
+      let processingFactor = 0.5; // Default for medium models
+      
+      if (config.modelSettings.whisperModel.includes('small')) {
+        processingFactor = 0.3; // Small models are faster
+      } else if (config.modelSettings.whisperModel.includes('large')) {
+        processingFactor = 1.0; // Large models take longer
+      } else {
+        processingFactor = 0.5; // Medium models
+      }
 
-      if (config.features.speakers) processingFactor += 0.1;
-      if (config.features.music) processingFactor += 0.05;
-      if (config.apiKeys.gemini && config.modelSettings.enableGemini) processingFactor += 0.15;
-      if (config.modelSettings.whisperModel.includes('large')) processingFactor += 0.1;
+      // Additional complexity factors
+      if (config.features.speakers) processingFactor += 0.2;
+      if (config.features.music) processingFactor += 0.1;
+      if (config.apiKeys.gemini && config.modelSettings.enableGemini) processingFactor += 0.3;
 
       estimatedProcessingMs = config.mediaDuration * 1000 * processingFactor;
       basedOnDuration = true;
@@ -810,43 +847,53 @@ export class ProcessManager {
 
     // If media duration is available, use it as the primary factor
     if (mediaDurationSeconds && mediaDurationSeconds > 0) {
-      // Base calculation: media duration * processing factor
-      // Processing is typically 0.1x to 0.5x of real-time depending on complexity
-      let processingFactor = 0.3; // Default: 30% of media duration
+      // Base timeout multiplier based on Whisper model size
+      let modelMultiplier = 8; // Default for medium models
+      
+      if (config.modelSettings.whisperModel.includes('small')) {
+        modelMultiplier = 4; // Small models: 4x media duration
+      } else if (config.modelSettings.whisperModel.includes('large')) {
+        modelMultiplier = 16; // Large models: 16x media duration
+      } else {
+        modelMultiplier = 8; // Medium models: 8x media duration
+      }
 
-      // Adjust processing factor based on configuration complexity
+      // Calculate base timeout: media duration * model multiplier
+      timeoutMs = mediaDurationSeconds * 1000 * modelMultiplier;
+
+      // Additional complexity factors (add extra time, not multipliers)
+      let additionalTimeMs = 0;
+      
       if (config.features.speakers) {
-        processingFactor += 0.1; // Speaker diarization adds complexity
+        additionalTimeMs += mediaDurationSeconds * 1000 * 0.5; // +0.5x for speaker diarization
       }
 
       if (config.features.music) {
-        processingFactor += 0.05; // Music detection adds some complexity
+        additionalTimeMs += mediaDurationSeconds * 1000 * 0.3; // +0.3x for music detection
       }
 
       if (config.apiKeys.gemini && config.modelSettings.enableGemini) {
-        processingFactor += 0.15; // AI enhancement takes longer
+        additionalTimeMs += mediaDurationSeconds * 1000 * 1.0; // +1x for AI enhancement
       }
 
-      // Advanced model complexity
-      if (config.modelSettings.whisperModel.includes('large')) {
-        processingFactor += 0.1; // Large models are slower
-      }
-
-      // Calculate timeout: processing time + buffer (2x for safety margin)
-      const estimatedProcessingMs = mediaDurationSeconds * 1000 * processingFactor;
-      const bufferMs = estimatedProcessingMs * 2; // 2x safety margin
-      timeoutMs = estimatedProcessingMs + bufferMs;
+      timeoutMs += additionalTimeMs;
 
       // Add base overhead for setup, I/O, etc.
       timeoutMs += this.BASE_TIMEOUT_MS;
     } else {
-      // Fallback: adjust base timeout based on features when no duration available
-      let multiplier = 1.0;
+      // Fallback: adjust base timeout based on model and features when no duration available
+      let multiplier = 4.0; // Base multiplier for medium models
+      
+      if (config.modelSettings.whisperModel.includes('small')) {
+        multiplier = 2.0; // Small models are faster
+      } else if (config.modelSettings.whisperModel.includes('large')) {
+        multiplier = 8.0; // Large models are much slower
+      }
 
+      // Additional complexity factors
       if (config.features.speakers) multiplier += 0.5;
       if (config.features.music) multiplier += 0.3;
-      if (config.apiKeys.gemini && config.modelSettings.enableGemini) multiplier += 0.8;
-      if (config.modelSettings.whisperModel.includes('large')) multiplier += 0.5;
+      if (config.apiKeys.gemini && config.modelSettings.enableGemini) multiplier += 1.0;
 
       timeoutMs = this.BASE_TIMEOUT_MS * multiplier;
     }

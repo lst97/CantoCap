@@ -46,7 +46,8 @@ def show_translation_help():
 def _validate_command_arguments(
     input_file, output_file, language, model, priority, video_quality, charset,
     ffmpeg_path, terminology_config, max_chunk_duration, gemini_api_key, hf_token,
-    subtitle, speakers, written, music, disable_gemini_refinement, verbose, ipc_mode
+    subtitle, speakers, written, music, disable_gemini_refinement, verbose, ipc_mode,
+    enable_adaptive_chunking, service_type, whisper_chunk_duration, gemini_chunk_duration, chunking_strategy
 ):
     """Validate all command arguments and return sanitized values."""
     # Comprehensive argument validation
@@ -181,7 +182,38 @@ def generate_command(
     max_chunk_duration: int = typer.Option(
         15,
         "--max-chunk-duration",
-        help="Maximum chunk duration in minutes for large files"
+        help="Maximum chunk duration in minutes for large files (legacy option)"
+    ),
+    
+    # New adaptive chunking options
+    enable_adaptive_chunking: bool = typer.Option(
+        True,
+        "--enable-adaptive-chunking/--disable-adaptive-chunking",
+        help="Enable intelligent chunking with service-specific optimizations"
+    ),
+    
+    service_type: str = typer.Option(
+        "auto",
+        "--service-type",
+        help="Processing strategy: 'auto' (recommended), 'whisper', or 'gemini'"
+    ),
+    
+    whisper_chunk_duration: int = typer.Option(
+        30,
+        "--whisper-chunk-duration",
+        help="Chunk duration in seconds for OpenAI Whisper transcription (optimal: 30s)"
+    ),
+    
+    gemini_chunk_duration: int = typer.Option(
+        15,
+        "--gemini-chunk-duration",
+        help="Chunk duration in minutes for Google Gemini refinement (optimal: 15min)"
+    ),
+    
+    chunking_strategy: Optional[str] = typer.Option(
+        None,
+        "--chunking-strategy",
+        help="JSON string with complete chunking strategy configuration"
     ),
     
     video_quality: str = typer.Option(
@@ -250,7 +282,8 @@ def generate_command(
         sanitized_args = _validate_command_arguments(
             input_file, output_file, language, model, priority, video_quality, charset,
             ffmpeg_path, terminology_config, max_chunk_duration, gemini_api_key, hf_token,
-            subtitle, speakers, written, music, disable_gemini_refinement, verbose, ipc_mode
+            subtitle, speakers, written, music, disable_gemini_refinement, verbose, ipc_mode,
+            enable_adaptive_chunking, service_type, whisper_chunk_duration, gemini_chunk_duration, chunking_strategy
         )
         
         # Use sanitized arguments

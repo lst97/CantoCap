@@ -1078,8 +1078,8 @@ class GenerateSubtitlesUseCase:
     ) -> SubtitleDocument:
         """Handle chunked transcription refinement with validation for large files."""
         try:
-            # Create chunks
-            chunks = self.media_chunking_service.create_chunks(media_file.get_file_path())
+            # Create chunks optimized for Gemini
+            chunks = self.media_chunking_service.create_chunks_for_service(media_file.get_file_path(), "gemini")
             
             # Split validated SRT content by chunks
             chunk_srt_contents = self._split_srt_by_chunks(validated_srt, chunks)
@@ -1145,8 +1145,8 @@ class GenerateSubtitlesUseCase:
     ) -> SubtitleDocument:
         """Handle chunked transcription refinement for large files."""
         try:
-            # Create chunks
-            chunks = self.media_chunking_service.create_chunks(media_file.get_file_path())
+            # Create chunks optimized for Gemini
+            chunks = self.media_chunking_service.create_chunks_for_service(media_file.get_file_path(), "gemini")
             
             # Convert subtitle document to SRT
             original_srt = self._convert_subtitle_document_to_srt(subtitle_document)
@@ -1186,20 +1186,9 @@ class GenerateSubtitlesUseCase:
             return subtitle_document
     
     def _split_srt_by_chunks(self, srt_content: str, chunks) -> list:
-        """Split SRT content by time chunks (simplified implementation)."""
-        # For now, return equal splits - this could be enhanced with proper timing
-        lines = srt_content.split('\n')
-        chunk_count = len(chunks)
-        lines_per_chunk = len(lines) // chunk_count
-        
-        chunk_contents = []
-        for i in range(chunk_count):
-            start_idx = i * lines_per_chunk
-            end_idx = (i + 1) * lines_per_chunk if i < chunk_count - 1 else len(lines)
-            chunk_content = '\n'.join(lines[start_idx:end_idx])
-            chunk_contents.append(chunk_content)
-        
-        return chunk_contents
+        """Split SRT content by time chunks with proper timestamp alignment."""
+        # Use the improved time-based splitting from MediaChunkingService
+        return self.media_chunking_service.split_srt_by_chunks(srt_content, chunks)
     
     def _convert_subtitle_document_to_srt(self, subtitle_document: SubtitleDocument) -> str:
         """Convert subtitle document to SRT format string."""

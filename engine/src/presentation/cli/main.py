@@ -95,7 +95,33 @@ def main(
     max_chunk_duration: int = typer.Option(
         15,
         "--max-chunk-duration",
-        help="Maximum chunk duration in minutes for large files"
+        help="Maximum chunk duration in minutes for large files (legacy option)"
+    ),
+    
+    # New adaptive chunking options
+    enable_adaptive_chunking: bool = typer.Option(
+        True,
+        "--enable-adaptive-chunking/--disable-adaptive-chunking",
+        help="Enable intelligent chunking with service-specific optimizations"
+    ),
+    
+    
+    whisper_chunk_duration: int = typer.Option(
+        30,
+        "--whisper-chunk-duration",
+        help="Chunk duration in seconds for OpenAI Whisper transcription (optimal: 30s)"
+    ),
+    
+    gemini_chunk_duration: int = typer.Option(
+        15,
+        "--gemini-chunk-duration",
+        help="Chunk duration in minutes for Google Gemini refinement (optimal: 15min)"
+    ),
+    
+    chunking_strategy: Optional[str] = typer.Option(
+        None,
+        "--chunking-strategy",
+        help="JSON string with complete chunking strategy configuration"
     ),
     
     video_quality: str = typer.Option(
@@ -192,6 +218,12 @@ def main(
         
         # Custom terminology configuration
         cantocap video.mp4 --terminology-config my_terms.json --written --ffmpeg-path /usr/bin/ffmpeg
+        
+        # Adaptive chunking with optimal settings for both AI services
+        cantocap video.mp4 --whisper-chunk-duration 30 --gemini-chunk-duration 15 --ffmpeg-path /usr/bin/ffmpeg
+        
+        # Custom chunking durations (both services work together)
+        cantocap video.mp4 --whisper-chunk-duration 45 --gemini-chunk-duration 20 --written --speakers --ffmpeg-path /usr/bin/ffmpeg
     """
     # Set global IPC mode for error handling
     from ...infrastructure.error_handling import set_global_ipc_mode
@@ -289,7 +321,12 @@ License: Free and open-source. Use your own API key. Paid services may be availa
         verbose=verbose,
         ipc_mode=ipc_mode,
         subtitle=subtitle,
-        translation_help=translation_help
+        translation_help=translation_help,
+        # New adaptive chunking parameters
+        enable_adaptive_chunking=enable_adaptive_chunking,
+        whisper_chunk_duration=whisper_chunk_duration,
+        gemini_chunk_duration=gemini_chunk_duration,
+        chunking_strategy=chunking_strategy
     )
 
 

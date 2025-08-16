@@ -26,9 +26,11 @@ import {
   Clear as ClearIcon,
   Warning as WarningIcon,
   Memory as WorkersIcon,
-  Schedule as ChunkIcon
+  AutoAwesome as AdaptiveIcon,
+  SmartToy as AIIcon
 } from '@mui/icons-material'
 import { useConfigStepContent, useStepActions } from '../../stores/useStepStore'
+import type { ChunkingStrategy } from '../../stores/types/StoreTypes'
 
 interface OptionType {
   value: string
@@ -40,22 +42,37 @@ export const AdvancedSettings: React.FC = () => {
   const config = useConfigStepContent()
   const { updateStepContent } = useStepActions()
   
-  const updateConfig = (key: string, value: any) => {
+  const updateConfig = useCallback((key: string, value: unknown) => {
     updateStepContent('config', { [key]: value })
-  }
+  }, [updateStepContent])
   
-  const updateAdvancedSetting = (key: string, value: any) => {
+  const updateAdvancedSetting = useCallback((key: string, value: unknown) => {
     updateStepContent('config', { 
       advancedSettings: { 
         ...config.advancedSettings, 
         [key]: value 
       } 
     })
-  }
+  }, [updateStepContent, config.advancedSettings])
   
-  const showNotification = (message: string, type: string = 'info') => {
+  const updateChunkingStrategy = useCallback((updates: Partial<ChunkingStrategy>) => {
+    const currentStrategy = config.advancedSettings?.chunkingStrategy || {
+      whisperChunkDuration: 30,
+      whisperOverlap: 5,
+      geminiChunkDuration: 900, // 15 minutes
+      geminiOverlap: 30
+    }
+    
+    updateAdvancedSetting('chunkingStrategy', {
+      ...currentStrategy,
+      ...updates
+    })
+  }, [updateAdvancedSetting, config.advancedSettings?.chunkingStrategy])
+  
+  const showNotification = useCallback((message: string, type: string = 'info') => {
     console.log(`Notification [${type}]:`, message)
-  }
+  }, [])
+  
   const [showFFmpegPath, setShowFFmpegPath] = useState(false)
 
   const handleNumericChange = useCallback((key: string, value: string) => {
@@ -82,8 +99,9 @@ export const AdvancedSettings: React.FC = () => {
         updateConfig('terminologyConfig', result.filePaths[0])
         showNotification('Configuration file selected', 'success')
       }
-    } catch (error: any) {
-      showNotification(`Failed to select config file: ${error.message}`, 'error')
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      showNotification(`Failed to select config file: ${errorMessage}`, 'error')
     }
   }, [updateConfig, showNotification])
 
@@ -100,8 +118,9 @@ export const AdvancedSettings: React.FC = () => {
         updateConfig('ffmpegPath', result.filePaths[0])
         showNotification('FFmpeg path selected', 'success')
       }
-    } catch (error: any) {
-      showNotification(`Failed to select FFmpeg path: ${error.message}`, 'error')
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      showNotification(`Failed to select FFmpeg path: ${errorMessage}`, 'error')
     }
   }, [updateConfig, showNotification])
 
@@ -118,6 +137,14 @@ export const AdvancedSettings: React.FC = () => {
     { value: '480p', label: '480p (Balanced)', description: 'Medium quality and speed' },
     { value: '720p', label: '720p (High)', description: 'High quality, slower processing' }
   ]
+  
+  
+  const chunkingStrategy = config.advancedSettings?.chunkingStrategy || {
+    whisperChunkDuration: 30,
+    whisperOverlap: 5,
+    geminiChunkDuration: 900,
+    geminiOverlap: 30
+  }
 
   const getChunkDurationMarks = () => [
     { value: 5, label: '5m' },
@@ -252,6 +279,193 @@ export const AdvancedSettings: React.FC = () => {
       </SettingGroup>
 
       <SettingGroup
+        icon={<AdaptiveIcon color="primary" fontSize="small" />}
+        title="AI Service Chunking Strategy"
+        description="Optimized chunking for both AI services working together. OpenAI Whisper uses 30-second chunks for transcription, while Google Gemini uses 15-minute chunks for refinement and translation with better context understanding."
+      >
+        <Stack spacing={3}>
+
+          {/* Whisper Chunk Settings */}
+          <Box>
+            <Typography variant="subtitle2" sx={{ mb: 2, color: '#DCDDDE' }}>
+              OpenAI Whisper (Transcription)
+            </Typography>
+            <Grid container spacing={3} alignItems="center">
+              <Grid size={{ xs: 12, md: 8 }}>
+                <Box sx={{ px: 1, py: 2 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                    Chunk Duration: {chunkingStrategy.whisperChunkDuration}s
+                  </Typography>
+                  <Slider
+                    value={chunkingStrategy.whisperChunkDuration}
+                    onChange={(_, value) => updateChunkingStrategy({ whisperChunkDuration: value as number })}
+                    min={10}
+                    max={60}
+                    step={5}
+                    marks={[
+                      { value: 10, label: '10s' },
+                      { value: 30, label: '30s (Optimal)' },
+                      { value: 45, label: '45s' },
+                      { value: 60, label: '60s' }
+                    ]}
+                    valueLabelDisplay="auto"
+                    valueLabelFormat={(value) => `${value}s`}
+                    sx={{
+                      color: '#F59E0B',
+                      height: 6,
+                      '& .MuiSlider-thumb': {
+                        backgroundColor: '#F59E0B',
+                        border: '2px solid #2F3136',
+                        width: 18,
+                        height: 18,
+                      },
+                      '& .MuiSlider-track': {
+                        backgroundColor: '#F59E0B',
+                        height: 4,
+                      },
+                      '& .MuiSlider-rail': {
+                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                        height: 4,
+                      },
+                      '& .MuiSlider-markLabel': {
+                        color: '#96989D',
+                        fontSize: '0.65rem',
+                      },
+                    }}
+                  />
+                </Box>
+              </Grid>
+              <Grid size={{ xs: 12, md: 4 }}>
+                <TextField
+                  type="number"
+                  label="Overlap"
+                  value={chunkingStrategy.whisperOverlap}
+                  onChange={(e) => updateChunkingStrategy({ whisperOverlap: parseInt(e.target.value) })}
+                  inputProps={{ min: 0, max: 15, step: 1 }}
+                  size="small"
+                  fullWidth
+                  InputProps={{
+                    endAdornment: <InputAdornment position="end">sec</InputAdornment>
+                  }}
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      backgroundColor: '#2F3136',
+                      '& fieldset': { borderColor: '#40444B' },
+                      '&:hover fieldset': { borderColor: '#F59E0B' },
+                      '&.Mui-focused fieldset': { borderColor: '#F59E0B' },
+                      // Hide number input arrows to match dark theme
+                      '& input[type=number]': {
+                        MozAppearance: 'textfield',
+                        '&::-webkit-outer-spin-button': {
+                          WebkitAppearance: 'none',
+                          margin: 0,
+                        },
+                        '&::-webkit-inner-spin-button': {
+                          WebkitAppearance: 'none',
+                          margin: 0,
+                        },
+                      },
+                    },
+                    '& .MuiInputBase-input': { color: '#DCDDDE' },
+                    '& .MuiInputLabel-root': { color: '#96989D' },
+                  }}
+                />
+              </Grid>
+            </Grid>
+          </Box>
+
+          {/* Gemini Chunk Settings */}
+          <Box>
+            <Typography variant="subtitle2" sx={{ mb: 2, color: '#DCDDDE' }}>
+              Google Gemini (Refinement & Translation)
+            </Typography>
+            <Grid container spacing={3} alignItems="center">
+              <Grid size={{ xs: 12, md: 8 }}>
+                <Box sx={{ px: 1, py: 2 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                    Chunk Duration: {Math.round(chunkingStrategy.geminiChunkDuration / 60)}min
+                  </Typography>
+                  <Slider
+                    value={chunkingStrategy.geminiChunkDuration / 60}
+                    onChange={(_, value) => updateChunkingStrategy({ geminiChunkDuration: (value as number) * 60 })}
+                    min={5}
+                    max={30}
+                    step={5}
+                    marks={[
+                      { value: 5, label: '5min' },
+                      { value: 15, label: '15min (Optimal)' },
+                      { value: 20, label: '20min' },
+                      { value: 30, label: '30min' }
+                    ]}
+                    valueLabelDisplay="auto"
+                    valueLabelFormat={(value) => `${value}min`}
+                    sx={{
+                      color: '#F59E0B',
+                      height: 6,
+                      '& .MuiSlider-thumb': {
+                        backgroundColor: '#F59E0B',
+                        border: '2px solid #2F3136',
+                        width: 18,
+                        height: 18,
+                      },
+                      '& .MuiSlider-track': {
+                        backgroundColor: '#F59E0B',
+                        height: 4,
+                      },
+                      '& .MuiSlider-rail': {
+                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                        height: 4,
+                      },
+                      '& .MuiSlider-markLabel': {
+                        color: '#96989D',
+                        fontSize: '0.65rem',
+                      },
+                    }}
+                  />
+                </Box>
+              </Grid>
+              <Grid size={{ xs: 12, md: 4 }}>
+                <TextField
+                  type="number"
+                  label="Overlap"
+                  value={chunkingStrategy.geminiOverlap}
+                  onChange={(e) => updateChunkingStrategy({ geminiOverlap: parseInt(e.target.value) })}
+                  inputProps={{ min: 0, max: 120, step: 15 }}
+                  size="small"
+                  fullWidth
+                  InputProps={{
+                    endAdornment: <InputAdornment position="end">sec</InputAdornment>
+                  }}
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      backgroundColor: '#2F3136',
+                      '& fieldset': { borderColor: '#40444B' },
+                      '&:hover fieldset': { borderColor: '#F59E0B' },
+                      '&.Mui-focused fieldset': { borderColor: '#F59E0B' },
+                      // Hide number input arrows to match dark theme
+                      '& input[type=number]': {
+                        MozAppearance: 'textfield',
+                        '&::-webkit-outer-spin-button': {
+                          WebkitAppearance: 'none',
+                          margin: 0,
+                        },
+                        '&::-webkit-inner-spin-button': {
+                          WebkitAppearance: 'none',
+                          margin: 0,
+                        },
+                      },
+                    },
+                    '& .MuiInputBase-input': { color: '#DCDDDE' },
+                    '& .MuiInputLabel-root': { color: '#96989D' },
+                  }}
+                />
+              </Grid>
+            </Grid>
+          </Box>
+        </Stack>
+      </SettingGroup>
+
+      <SettingGroup
         icon={<VideoIcon color="primary" fontSize="small" />}
         title="Video Quality for Analysis"
         description="Quality setting for video analysis. Lower quality processes faster but may affect accuracy for visual cues."
@@ -372,87 +586,6 @@ export const AdvancedSettings: React.FC = () => {
               fullWidth
               InputProps={{
                 endAdornment: <InputAdornment position="end">threads</InputAdornment>
-              }}
-              sx={{
-                '& .MuiOutlinedInput-root': {
-                  backgroundColor: '#2F3136',
-                  '& fieldset': { borderColor: '#40444B' },
-                  '&:hover fieldset': { borderColor: '#5865F2' },
-                  '&.Mui-focused fieldset': { borderColor: '#5865F2' },
-                },
-                '& .MuiInputBase-input': { color: '#DCDDDE' },
-              }}
-            />
-          </Grid>
-        </Grid>
-      </SettingGroup>
-
-      <SettingGroup
-        icon={<ChunkIcon color="primary" fontSize="small" />}
-        title="Processing Chunk Duration"
-        description="Duration of audio chunks for processing. Shorter chunks use less memory but may reduce transcription quality at chunk boundaries."
-      >
-        <Grid container spacing={3} alignItems="center">
-          <Grid size={{ xs: 12, md: 8 }}>
-            <Box sx={{ px: 1, py: 2 }}>
-              <Slider
-                value={config.advancedSettings?.chunkDuration ?? 30}
-                onChange={(_, value) => updateAdvancedSetting('chunkDuration', value)}
-                min={10}
-                max={60}
-                step={5}
-                marks={[
-                  { value: 10, label: '10s' },
-                  { value: 30, label: '30s' },
-                  { value: 45, label: '45s' },
-                  { value: 60, label: '60s' }
-                ]}
-                valueLabelDisplay="auto"
-                valueLabelFormat={(value) => `${value}s`}
-                sx={{
-                  color: '#F59E0B',
-                  height: 8,
-                  '& .MuiSlider-thumb': {
-                    backgroundColor: '#F59E0B',
-                    border: '2px solid #2F3136',
-                    width: 20,
-                    height: 20,
-                    '&:hover, &.Mui-focusVisible': {
-                      boxShadow: '0 0 0 8px rgba(245, 158, 11, 0.16)',
-                    },
-                  },
-                  '& .MuiSlider-track': {
-                    backgroundColor: '#F59E0B',
-                    height: 6,
-                  },
-                  '& .MuiSlider-rail': {
-                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                    height: 6,
-                  },
-                  '& .MuiSlider-mark': {
-                    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-                    width: 3,
-                    height: 3,
-                  },
-                  '& .MuiSlider-markLabel': {
-                    color: '#96989D',
-                    fontSize: '0.7rem',
-                    top: 28,
-                  },
-                }}
-              />
-            </Box>
-          </Grid>
-          <Grid size={{ xs: 12, md: 4 }}>
-            <TextField
-              type="number"
-              value={config.advancedSettings?.chunkDuration ?? 30}
-              onChange={(e) => updateAdvancedSetting('chunkDuration', parseInt(e.target.value))}
-              inputProps={{ min: 10, max: 60, step: 5 }}
-              size="small"
-              fullWidth
-              InputProps={{
-                endAdornment: <InputAdornment position="end">seconds</InputAdornment>
               }}
               sx={{
                 '& .MuiOutlinedInput-root': {
@@ -603,12 +736,22 @@ export const AdvancedSettings: React.FC = () => {
         }}
       >
         <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
-          Advanced Settings Note
+          AI Service Chunking Benefits
         </Typography>
         <Typography variant="body2">
-          These are advanced settings for experienced users. Default values work well for most use cases. 
-          Modifying these settings may affect performance and accuracy.
+          The unified chunking system optimizes processing for both AI services working together:
         </Typography>
+        <Box component="ul" sx={{ mt: 1, mb: 0, pl: 2 }}>
+          <Typography component="li" variant="body2" sx={{ fontSize: '0.85rem' }}>
+            <strong>OpenAI Whisper (30s chunks):</strong> Optimal for speech-to-text transcription with balanced accuracy
+          </Typography>
+          <Typography component="li" variant="body2" sx={{ fontSize: '0.85rem' }}>
+            <strong>Google Gemini (15min chunks):</strong> Leverages large context for transcription refinement and translation
+          </Typography>
+          <Typography component="li" variant="body2" sx={{ fontSize: '0.85rem' }}>
+            <strong>Unified processing:</strong> Both services automatically use their optimal chunk sizes for best results
+          </Typography>
+        </Box>
       </Alert>
     </Stack>
   )

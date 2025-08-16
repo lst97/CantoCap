@@ -324,11 +324,33 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
           return Math.round((bytes / Math.pow(1024, i)) * 100) / 100 + ' ' + sizes[i];
         };
 
-        setVideoMetadata({
+        const formattedMetadata = {
           duration: formatDuration(result.metadata.duration),
           resolution: `${result.metadata.width}×${result.metadata.height}`,
           size: formatFileSize(result.metadata.size),
-        });
+        };
+        setVideoMetadata(formattedMetadata);
+        
+        // Also update the step store with metadata, including raw numeric duration for timeout calculation
+        try {
+          console.log('🔧 [DEBUG] FileSelector - Storing videoDurationSeconds:', {
+            'result.metadata.duration': result.metadata.duration,
+            'typeof duration': typeof result.metadata.duration,
+            'isNumber': typeof result.metadata.duration === 'number',
+            'isNaN': isNaN(result.metadata.duration),
+            'value': result.metadata.duration
+          });
+
+          await updateStepContent('input', {
+            mediaMetadata: formattedMetadata,
+            videoDurationSeconds: result.metadata.duration, // Store raw duration in seconds for processing timeout
+            lastModified: Date.now()
+          });
+
+          console.log('✅ FileSelector - Successfully stored video metadata including videoDurationSeconds');
+        } catch (error) {
+          console.error('Failed to save video metadata to step store:', error);
+        }
 
         console.log('✅ Video metadata processed successfully:', {
           duration: result.metadata.duration,

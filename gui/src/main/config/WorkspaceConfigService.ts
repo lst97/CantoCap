@@ -110,8 +110,8 @@ export interface WorkspaceSchema {
       hardwareInfo?: any; // TODO: Add hardware info type
     };
     review: {
-      subtitles: any[];
-      currentEdit?: any;
+      subtitles: unknown[];
+      currentEdit?: unknown;
       playbackPosition: number;
       selectedSubtitleIndex?: number;
     };
@@ -123,7 +123,7 @@ export interface WorkspaceSchema {
         charset: string;
         translation: boolean;
       };
-      exportHistory: any[];
+      exportHistory: unknown[];
     };
   };
 }
@@ -139,7 +139,11 @@ export class WorkspaceConfigService {
     });
   }
 
-  createWorkspace(name: string, backgroundColor?: string, emoji?: string): { id: string; workspace: WorkspaceSchema } {
+  createWorkspace(
+    name: string,
+    backgroundColor?: string,
+    emoji?: string
+  ): { id: string; workspace: WorkspaceSchema } {
     const id = uuidv4();
     const now = new Date().toISOString();
 
@@ -191,7 +195,7 @@ export class WorkspaceConfigService {
 
           // Structured settings
           modelSettings: {
-            whisperModel: 'auto',
+            whisperModel: 'openai/whisper-medium',
             enableGemini: false,
             temperature: 0.1,
           },
@@ -254,36 +258,32 @@ export class WorkspaceConfigService {
     const store = this.getOrCreateStore(id);
     if (store) {
       Object.entries(updates).forEach(([key, value]) => {
-        store.set(key as any, value);
+        store.set(key, value);
       });
       store.set('lastAccessed', new Date().toISOString());
     }
   }
 
-  updateStepContent(id: string, stepName: string, content: any): void {
+  updateStepContent(id: string, stepName: string, content: unknown): void {
     const store = this.getOrCreateStore(id);
     if (store) {
-      // CRITICAL FIX: Replace the step content entirely instead of merging
-      // This ensures deleted fields (like legacy 'model') are actually removed
-      console.log(`💾 WorkspaceConfigService: Replacing ${stepName} step content with:`, content);
-      
-      const currentStepData = store.get(`steps.${stepName}` as any, {});
+      const currentStepData = store.get(`steps.${stepName}`, {});
       console.log(`🔍 WorkspaceConfigService: Current ${stepName} step data:`, currentStepData);
-      
+
       // Use complete replacement instead of merge to ensure field deletions work
-      store.set(`steps.${stepName}` as any, content);
-      
-      const savedData = store.get(`steps.${stepName}` as any, {});
+      store.set(`steps.${stepName}`, content);
+
+      const savedData = store.get(`steps.${stepName}`, {});
       console.log(`✅ WorkspaceConfigService: ${stepName} step data after save:`, savedData);
-      
+
       store.set('lastAccessed', new Date().toISOString());
     }
   }
 
-  getStepContent(id: string, stepName: string): any {
+  getStepContent(id: string, stepName: string): unknown {
     const store = this.getOrCreateStore(id);
     if (store) {
-      return store.get(`steps.${stepName}` as any, null);
+      return store.get(`steps.${stepName}`, null);
     }
     return null;
   }
@@ -310,7 +310,15 @@ export class WorkspaceConfigService {
     }
   }
 
-  listWorkspaces(): Array<{ id: string; name: string; lastAccessed: string; createdAt: string; groupId?: string | null; backgroundColor?: string; emoji?: string }> {
+  listWorkspaces(): Array<{
+    id: string;
+    name: string;
+    lastAccessed: string;
+    createdAt: string;
+    groupId?: string | null;
+    backgroundColor?: string;
+    emoji?: string;
+  }> {
     const workspaceIds = this.workspaceList.get('workspaces', []);
     return workspaceIds
       .map((id) => {
@@ -381,9 +389,17 @@ export class WorkspaceConfigService {
     return false;
   }
 
-  getWorkspacesByGroup(groupId: string): Array<{ id: string; name: string; lastAccessed: string; createdAt: string; groupId?: string | null; backgroundColor?: string; emoji?: string }> {
+  getWorkspacesByGroup(groupId: string): Array<{
+    id: string;
+    name: string;
+    lastAccessed: string;
+    createdAt: string;
+    groupId?: string | null;
+    backgroundColor?: string;
+    emoji?: string;
+  }> {
     const allWorkspaces = this.listWorkspaces();
-    return allWorkspaces.filter(ws => ws.groupId === groupId);
+    return allWorkspaces.filter((ws) => ws.groupId === groupId);
   }
 
   // Utility methods

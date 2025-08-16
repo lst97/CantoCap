@@ -124,25 +124,44 @@ export class ProcessingIPCHandlers {
         
         console.log('🔧 [DEBUG] ProcessingIPCHandlers - convertConfig called');
         
-        // Get media duration for timeout calculation
+        // Get media duration for timeout calculation - CRITICAL SECTION
         let mediaDuration: number | undefined;
+        
         try {
-          if (inputStep.mediaMetadata?.duration) {
-            mediaDuration = inputStep.mediaMetadata.duration;
-          } else if (inputStep.inputFile || inputStep.selectedFile) {
-            // Note: We'll need to get duration from the input step or make this async with proper video metadata lookup
-            // For now, we'll rely on inputStep.mediaMetadata being populated by the UI
-            console.log('Media duration not available in inputStep.mediaMetadata, using fallback timeout calculation');
+          // Extract video duration for timeout calculation
+          if (inputStep && typeof inputStep === 'object') {
+            // First try direct videoDurationSeconds (preferred)
+            const videoSeconds = inputStep.videoDurationSeconds;
+            if (typeof videoSeconds === 'number' && !isNaN(videoSeconds) && videoSeconds > 0) {
+              mediaDuration = videoSeconds;
+              console.log(`✅ Using videoDurationSeconds: ${mediaDuration}s`);
+            } else {
+              // Fallback to metadata duration (string format)
+              const metadata = inputStep.mediaMetadata;
+              if (metadata && metadata.duration) {
+                const metaDuration = metadata.duration;
+                if (typeof metaDuration === 'string') {
+                  // Parse "18:00" format to seconds
+                  const parts = metaDuration.split(':');
+                  if (parts.length === 2) {
+                    const minutes = parseInt(parts[0]);
+                    const seconds = parseInt(parts[1]);
+                    mediaDuration = minutes * 60 + seconds;
+                    console.log(`⚠️ Parsed metadata duration "${metaDuration}" to ${mediaDuration}s`);
+                  }
+                } else if (typeof metaDuration === 'number') {
+                  mediaDuration = metaDuration;
+                }
+              }
+            }
           }
-        } catch (error) {
-          console.warn('Failed to get media duration for timeout calculation:', error);
-          // Continue without duration - will use fallback timeout
+        } catch (criticalError) {
+          console.error('❌ Error extracting mediaDuration:', criticalError);
+          mediaDuration = undefined;
         }
         
         // Pre-resolve FFmpeg path using ProcessManager
-        console.log('🔧 [DEBUG] Pre-resolving FFmpeg path...');
         const resolvedFFmpegPath = await this.processManager.findFFmpegExecutable();
-        console.log(`🔧 [DEBUG] Resolved FFmpeg path: "${resolvedFFmpegPath}"`);
         
         // Validate FFmpeg path resolution
         if (resolvedFFmpegPath === 'ffmpeg') {
@@ -210,17 +229,13 @@ export class ProcessingIPCHandlers {
           verbose: configStep.verbose
         };
 
-        console.log('🔧 [DEBUG] ProcessingIPCHandlers - Created ProcessingConfig:');
-        console.log(`🔧 [DEBUG] - configStep.ffmpegPath input: "${configStep.ffmpegPath}"`);
-        console.log(`🔧 [DEBUG] - resolved FFmpeg path: "${resolvedFFmpegPath}"`);
-        console.log(`🔧 [DEBUG] - processingConfig.ffmpegPath output: "${processingConfig.ffmpegPath}"`);
-
         console.log('✅ Converted step config to ProcessingConfig:', {
           inputFile: processingConfig.inputFile,
           model: processingConfig.modelSettings.whisperModel,
           hasGeminiKey: !!processingConfig.apiKeys.gemini,
           hasHuggingFaceKey: !!processingConfig.apiKeys.huggingface,
-          ffmpegPath: processingConfig.ffmpegPath
+          ffmpegPath: processingConfig.ffmpegPath,
+          mediaDuration: processingConfig.mediaDuration
         });
 
         return { 

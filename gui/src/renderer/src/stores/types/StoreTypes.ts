@@ -269,6 +269,7 @@ export interface InputStepData {
   duration?: number;
   // Metadata and timestamps
   mediaMetadata?: VideoMetadata;
+  videoDurationSeconds?: number; // Raw duration in seconds for timeout calculation
   lastModified?: number;
   // Current file being processed
   currentFile?: string;
@@ -314,11 +315,20 @@ export interface ApiKeys {
   huggingface?: string;
 }
 
+export interface ChunkingStrategy {
+  whisperChunkDuration: number;
+  whisperOverlap: number;
+  geminiChunkDuration: number;
+  geminiOverlap: number;
+}
+
 export interface AdvancedSettings {
-  chunkDuration: number;
+  chunkDuration: number; // Legacy field for backward compatibility
   numWorkers: number;
   enableSpeakerDiarization: boolean;
   enableMusicDetection: boolean;
+  // New adaptive chunking settings
+  chunkingStrategy?: ChunkingStrategy;
 }
 
 export interface ConfigStepData {
@@ -336,11 +346,17 @@ export interface ConfigStepData {
   // Additional CLI args fields
   priority?: 'balanced' | 'speed' | 'quality';
   noGeminiRefinement?: boolean;
-  maxChunkDuration?: number;
+  maxChunkDuration?: number; // Legacy large file chunking (minutes)
   videoQuality?: '360p' | '720p' | '1080p';
   terminologyConfig?: string;
   ffmpegPath?: string;
   verbose?: boolean;
+
+  // New adaptive chunking fields
+  enableAdaptiveChunking?: boolean;
+  serviceType?: 'whisper' | 'gemini' | 'auto';
+  whisperChunkDuration?: number; // Whisper-specific chunk duration (seconds)
+  geminiChunkDuration?: number; // Gemini-specific chunk duration (minutes)
 
   // Structured settings (for more advanced configuration)
   modelSettings: ModelSettings;
