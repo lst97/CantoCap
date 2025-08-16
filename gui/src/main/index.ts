@@ -1,6 +1,7 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, globalShortcut } from 'electron';
+import { app, shell, BrowserWindow, ipcMain, dialog, globalShortcut, protocol, net } from 'electron';
 import { join } from 'path';
 import { writeFile, readFile } from 'fs/promises';
+import { existsSync, statSync } from 'fs';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { DependencyChecker } from './dependency-checker';
 import { ProcessManager } from './process-manager';
@@ -10,7 +11,7 @@ import { WorkspaceConfigService } from './config/WorkspaceConfigService';
 import { GroupConfigService } from './config/GroupConfigService';
 import { WorkflowStateService } from './config/WorkflowStateService';
 import { IPCConfigHandlers } from './ipc-handlers/IPCConfigHandlers';
-import { VideoIPCHandlers } from './ipc-handlers/VideoIPCHandlers';
+import { MediaIPCHandlers } from './ipc-handlers/MediaIPCHandlers';
 import { SubtitleIPCHandlers } from './ipc-handlers/SubtitleIPCHandlers';
 import { WorkflowIPCHandlers } from './ipc-handlers/WorkflowIPCHandlers';
 import { ProcessingIPCHandlers } from './ipc-handlers/ProcessingIPCHandlers';
@@ -21,6 +22,16 @@ import type {
   FileDialogOptions,
   InitializationResult,
 } from '../types';
+
+// Enhanced media registry entry with metadata and security features
+interface MediaRegistryEntry {
+  filePath: string;
+  registeredAt: number;
+  lastAccessed: number;
+  accessCount: number;
+  fileSize: number;
+  isValid: boolean;
+}
 
 // Safe logging function to prevent EPIPE errors
 const safeLog = (message: string, ...args: unknown[]) => {
@@ -34,7 +45,22 @@ const safeLog = (message: string, ...args: unknown[]) => {
   }
 };
 
+// Register custom protocol for local media access
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'localmedia',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      bypassCSP: true,
+      stream: true, // Critical for video/audio streaming and seeking
+    },
+  },
+]);
+
 class CantoCap {
+  private static instance: CantoCap | null = null;
   private dependencyChecker: DependencyChecker;
   private processManager: ProcessManager;
   private initializationService: InitializationService;
@@ -43,13 +69,15 @@ class CantoCap {
   private groupConfigService: GroupConfigService;
   private workflowStateService: WorkflowStateService;
   private ipcConfigHandlers: IPCConfigHandlers | null = null;
-  private videoIPCHandlers: VideoIPCHandlers | null = null;
+  private mediaIPCHandlers: MediaIPCHandlers | null = null;
   private subtitleIPCHandlers: SubtitleIPCHandlers | null = null;
   private workflowIPCHandlers: WorkflowIPCHandlers | null = null;
   private processingIPCHandlers: ProcessingIPCHandlers | null = null;
   private mainWindow: BrowserWindow | null = null;
+  private mediaRegistry: Map<string, MediaRegistryEntry> = new Map(); // Media ID to file path mapping
 
   constructor() {
+    CantoCap.instance = this;
     this.dependencyChecker = new DependencyChecker();
     this.processManager = new ProcessManager();
     this.initializationService = new InitializationService();
@@ -57,6 +85,10 @@ class CantoCap {
     this.workspaceConfigService = new WorkspaceConfigService();
     this.groupConfigService = new GroupConfigService();
     this.workflowStateService = new WorkflowStateService();
+  }
+
+  public static getInstance(): CantoCap | null {
+    return CantoCap.instance;
   }
 
   private createWindow(): void {
@@ -219,8 +251,8 @@ class CantoCap {
       this.mainWindow.webContents
     );
 
-    // Initialize video processing handlers
-    this.videoIPCHandlers = new VideoIPCHandlers();
+    // Initialize media processing handlers
+    this.mediaIPCHandlers = new MediaIPCHandlers();
 
     // Initialize subtitle processing handlers
     this.subtitleIPCHandlers = new SubtitleIPCHandlers();
@@ -451,9 +483,9 @@ class CantoCap {
       this.ipcConfigHandlers.cleanup();
     }
 
-    // Cleanup video handlers
-    if (this.videoIPCHandlers) {
-      this.videoIPCHandlers.cleanup();
+    // Cleanup media handlers
+    if (this.mediaIPCHandlers) {
+      this.mediaIPCHandlers.cleanup();
     }
 
     // Cleanup subtitle handlers
@@ -469,6 +501,222 @@ class CantoCap {
     // Cleanup processing handlers
     if (this.processingIPCHandlers) {
       this.processingIPCHandlers.cleanup();
+    }
+
+    // Cleanup media registry
+    this.clearMediaRegistry();
+  }
+
+  private setupMediaProtocol(): void {
+    // Setup local media protocol handler with enhanced security and range request support
+    protocol.handle('localmedia', (request) => {
+      try {
+        const mediaId = request.url.replace('localmedia://', '').replace(/\/$/, ''); // Remove trailing slash
+        const registryEntry = this.mediaRegistry.get(mediaId);
+
+        if (!registryEntry) {
+          console.error('🎬 Media ID not found in registry:', mediaId);
+          throw new Error(`Media ID not found: ${mediaId}`);
+        }
+
+        // Validate file still exists and hasn't been tampered with
+        if (!registryEntry.isValid || !existsSync(registryEntry.filePath)) {
+          console.error('🎬 Media file no longer valid:', registryEntry.filePath);
+          this.mediaRegistry.delete(mediaId);
+          throw new Error(`Media file no longer valid: ${registryEntry.filePath}`);
+        }
+
+        // Verify file size hasn't changed (basic integrity check)
+        try {
+          const currentStats = statSync(registryEntry.filePath);
+          if (currentStats.size !== registryEntry.fileSize) {
+            console.error(
+              '🎬 Media file size mismatch, possible tampering:',
+              registryEntry.filePath
+            );
+            this.mediaRegistry.delete(mediaId);
+            throw new Error(`Media file integrity check failed: ${registryEntry.filePath}`);
+          }
+        } catch (statError) {
+          console.error('🎬 Error checking file stats:', statError);
+          this.mediaRegistry.delete(mediaId);
+          throw new Error(`Media file access error: ${registryEntry.filePath}`);
+        }
+
+        // Update access tracking
+        registryEntry.lastAccessed = Date.now();
+        registryEntry.accessCount++;
+
+        // Use Electron's native file streaming with createReadStream for better range request support
+
+        try {
+          // Get file stats for Content-Length header
+          const stats = statSync(registryEntry.filePath);
+
+          // Determine MIME type
+          const mimeType = this.getMimeType(registryEntry.filePath);
+
+          // Create proper file URL for Electron's net.fetch
+          const fileUrl = new URL(`file://${registryEntry.filePath}`).href;
+
+          // Check if this is a range request
+          const rangeHeader = request.headers.get('Range');
+
+          if (rangeHeader) {
+            // Handle range requests for video seeking using net.fetch with range headers
+            return net.fetch(fileUrl, {
+              headers: {
+                'Range': rangeHeader
+              }
+            }).then(response => {
+              // Pass through the range response from file system with correct headers
+              const range = rangeHeader.replace(/bytes=/, '').split('-');
+              const start = parseInt(range[0], 10);
+              const end = range[1] ? parseInt(range[1], 10) : stats.size - 1;
+              const chunksize = end - start + 1;
+
+              return new Response(response.body, {
+                status: 206,
+                headers: {
+                  'Content-Type': mimeType,
+                  'Content-Range': `bytes ${start}-${end}/${stats.size}`,
+                  'Accept-Ranges': 'bytes',
+                  'Content-Length': chunksize.toString(),
+                  'Cache-Control': 'no-cache',
+                },
+              });
+            });
+          } else {
+            // Serve full file using net.fetch
+            return net.fetch(fileUrl).then(response => {
+              return new Response(response.body, {
+                status: 200,
+                headers: {
+                  'Content-Type': mimeType,
+                  'Content-Length': stats.size.toString(),
+                  'Accept-Ranges': 'bytes',
+                  'Cache-Control': 'no-cache',
+                },
+              });
+            });
+          }
+        } catch (fileError) {
+          console.error('🎬 Error creating file stream:', fileError);
+          throw new Error(`Failed to stream file: ${registryEntry.filePath}`);
+        }
+      } catch (error) {
+        console.error('🎬 Error serving media file:', error);
+        throw error;
+      }
+    });
+
+    console.log('✅ Local media protocol handler registered with enhanced security');
+  }
+
+  public registerMediaFile(filePath: string): string {
+    try {
+      // Validate file exists and get metadata
+      if (!existsSync(filePath)) {
+        throw new Error(`File does not exist: ${filePath}`);
+      }
+
+      const fileStats = statSync(filePath);
+      if (!fileStats.isFile()) {
+        throw new Error(`Path is not a file: ${filePath}`);
+      }
+
+      // Generate unique media ID for the file path
+      const mediaId = `media-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+      // Create enhanced registry entry
+      const registryEntry: MediaRegistryEntry = {
+        filePath,
+        registeredAt: Date.now(),
+        lastAccessed: 0,
+        accessCount: 0,
+        fileSize: fileStats.size,
+        isValid: true,
+      };
+
+      this.mediaRegistry.set(mediaId, registryEntry);
+
+      // Cleanup old entries to prevent memory leaks
+      this.cleanupOldRegistryEntries();
+
+      return mediaId;
+    } catch (error) {
+      console.error('🎬 Failed to register media file:', error);
+      throw error;
+    }
+  }
+
+  public unregisterMediaFile(mediaId: string): void {
+    const registryEntry = this.mediaRegistry.get(mediaId);
+    if (registryEntry && this.mediaRegistry.delete(mediaId)) {
+      // Media file unregistered successfully
+    }
+  }
+
+  public clearMediaRegistry(): void {
+    this.mediaRegistry.clear();
+  }
+
+  private getMimeType(filePath: string): string {
+    const ext = filePath.split('.').pop()?.toLowerCase();
+    const mimeTypes: Record<string, string> = {
+      // Video formats
+      mp4: 'video/mp4',
+      webm: 'video/webm',
+      ogg: 'video/ogg',
+      avi: 'video/x-msvideo',
+      mov: 'video/quicktime',
+      mkv: 'video/x-matroska',
+      flv: 'video/x-flv',
+      m4v: 'video/x-m4v',
+      '3gp': 'video/3gpp',
+      // Audio formats
+      mp3: 'audio/mpeg',
+      wav: 'audio/wav',
+      aac: 'audio/aac',
+      flac: 'audio/flac',
+      m4a: 'audio/mp4',
+      wma: 'audio/x-ms-wma',
+    };
+    return mimeTypes[ext || ''] || 'application/octet-stream';
+  }
+
+  private cleanupOldRegistryEntries(): void {
+    const now = Date.now();
+    const maxAge = 1000 * 60 * 60; // 1 hour
+    const maxEntries = 100; // Maximum number of entries to keep
+
+    // Remove entries older than maxAge or if we have too many entries
+    const entries = Array.from(this.mediaRegistry.entries());
+    const entriesToRemove: string[] = [];
+
+    // Sort by registration time, oldest first
+    entries.sort((a, b) => a[1].registeredAt - b[1].registeredAt);
+
+    entries.forEach(([mediaId, entry], index) => {
+      const age = now - entry.registeredAt;
+      const shouldRemoveByAge = age > maxAge;
+      const shouldRemoveByCount =
+        entries.length > maxEntries && index < entries.length - maxEntries;
+
+      if (shouldRemoveByAge || shouldRemoveByCount) {
+        entriesToRemove.push(mediaId);
+      }
+    });
+
+    entriesToRemove.forEach((mediaId) => {
+      this.mediaRegistry.delete(mediaId);
+    });
+
+    if (entriesToRemove.length > 0) {
+      console.log('🎬 Cleaned up old registry entries:', {
+        removedCount: entriesToRemove.length,
+        remainingCount: this.mediaRegistry.size,
+      });
     }
   }
 
@@ -497,6 +745,9 @@ class CantoCap {
   public async initialize(): Promise<void> {
     // This method will be called when Electron has finished initialization
     await app.whenReady();
+
+    // Register local media protocol handler
+    this.setupMediaProtocol();
 
     // Set app user model id for windows
     electronApp.setAppUserModelId('com.cantocap.gui');
@@ -535,3 +786,6 @@ app.on('before-quit', () => {
 
 // Initialize the application
 cantocap.initialize().catch(console.error);
+
+// Export for other modules
+export { CantoCap };

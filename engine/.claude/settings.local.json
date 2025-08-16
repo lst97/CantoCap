@@ -6,7 +6,8 @@
       "mcp__sequential-thinking__sequentialthinking",
       "Bash(find:*)",
       "WebFetch(domain:github.com)",
-      "Bash(source:*)"
+      "Bash(source:*)",
+      "WebSearch"
     ],
     "deny": []
   }

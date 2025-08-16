@@ -15,6 +15,12 @@ interface BasicVideoPlayerProps {
   currentTime?: number;
   onTimeUpdate?: (time: number) => void;
   onLoadedMetadata?: (duration: number) => void;
+  onError?: (error: {
+    errorCode: number;
+    errorMessage: string;
+    src: string;
+    originalSrc?: string;
+  }) => void;
   showVolumeControl?: boolean;
   showFullscreenButton?: boolean;
   showSkipButtons?: boolean;
@@ -38,6 +44,7 @@ export const BasicVideoPlayer: React.FC<BasicVideoPlayerProps> = React.memo(
     currentTime = 0,
     onTimeUpdate,
     onLoadedMetadata,
+    onError,
     showVolumeControl = true,
     showFullscreenButton = true,
     showSkipButtons = true,
@@ -164,15 +171,6 @@ export const BasicVideoPlayer: React.FC<BasicVideoPlayerProps> = React.memo(
       onTimeUpdate?.(newTime);
     }, [duration, onTimeUpdate]);
 
-    // Debug logging for src changes
-    useEffect(() => {
-      console.log('🎬 BasicVideoPlayer src changed:', {
-        src,
-        isEmpty: !src,
-        isFileUrl: src?.startsWith('file://'),
-        length: src?.length,
-      });
-    }, [src]);
 
     // Debounced sync external currentTime with video to prevent oscillation
     useEffect(() => {
@@ -335,7 +333,7 @@ export const BasicVideoPlayer: React.FC<BasicVideoPlayerProps> = React.memo(
             color: 'white',
           }}
         >
-          No video source provided
+          No media source provided
         </Box>
       );
     }
@@ -376,25 +374,38 @@ export const BasicVideoPlayer: React.FC<BasicVideoPlayerProps> = React.memo(
             onTimeUpdate={handleTimeUpdateInternal}
             onLoadedMetadata={handleLoadedMetadataInternal}
             onError={(e) => {
-              const videoElement = e.target as HTMLVideoElement;
-              console.error('🎬 Video onError event:', {
-                src: videoElement.src,
-                errorCode: videoElement.error?.code,
-                errorMessage: videoElement.error?.message,
-                readyState: videoElement.readyState,
-                networkState: videoElement.networkState,
-                currentSrc: videoElement.currentSrc,
+              const mediaElement = e.target as HTMLVideoElement;
+              const errorDetails = {
+                src: mediaElement.src,
+                originalSrc: src,
+                errorCode: mediaElement.error?.code || 0,
+                errorMessage: mediaElement.error?.message || 'Unknown media error',
+                readyState: mediaElement.readyState,
+                networkState: mediaElement.networkState,
+                currentSrc: mediaElement.currentSrc,
+                isMediaUrl: mediaElement.src?.startsWith('localmedia://'),
+                isFileUrl: mediaElement.src?.startsWith('file://'),
                 mediaError: {
                   MEDIA_ERR_ABORTED: 1,
                   MEDIA_ERR_NETWORK: 2,
                   MEDIA_ERR_DECODE: 3,
                   MEDIA_ERR_SRC_NOT_SUPPORTED: 4,
                 },
-                errorCodeMeaning: videoElement.error?.code === 1 ? 'MEDIA_ERR_ABORTED' :
-                                 videoElement.error?.code === 2 ? 'MEDIA_ERR_NETWORK' :
-                                 videoElement.error?.code === 3 ? 'MEDIA_ERR_DECODE' :
-                                 videoElement.error?.code === 4 ? 'MEDIA_ERR_SRC_NOT_SUPPORTED' :
+                errorCodeMeaning: mediaElement.error?.code === 1 ? 'MEDIA_ERR_ABORTED' :
+                                 mediaElement.error?.code === 2 ? 'MEDIA_ERR_NETWORK' :
+                                 mediaElement.error?.code === 3 ? 'MEDIA_ERR_DECODE' :
+                                 mediaElement.error?.code === 4 ? 'MEDIA_ERR_SRC_NOT_SUPPORTED' :
                                  'UNKNOWN'
+              };
+              
+              console.error('🎬 Media onError event:', errorDetails);
+              
+              // Propagate error to parent component
+              onError?.({
+                errorCode: errorDetails.errorCode,
+                errorMessage: errorDetails.errorMessage,
+                src: errorDetails.src,
+                originalSrc: errorDetails.originalSrc
               });
             }}
             autoPlay={autoPlay}

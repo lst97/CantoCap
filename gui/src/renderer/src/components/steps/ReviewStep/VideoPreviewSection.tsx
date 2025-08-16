@@ -23,26 +23,33 @@ import { ActionButton } from "./styles";
 import { formatTime } from "./utils";
 import { ElectronWindow } from "../../../../../types";
 
-// Supported video formats in typical browsers/Electron
-const SUPPORTED_VIDEO_FORMATS = [
+// Supported media formats in typical browsers/Electron
+const SUPPORTED_MEDIA_FORMATS = [
+  // Video formats
   { ext: 'mp4', mimeType: 'video/mp4', codecs: ['avc1', 'mp4v', 'h264'] },
   { ext: 'webm', mimeType: 'video/webm', codecs: ['vp8', 'vp9'] },
   { ext: 'ogg', mimeType: 'video/ogg', codecs: ['theora'] },
   { ext: 'avi', mimeType: 'video/x-msvideo', codecs: [] },
   { ext: 'mov', mimeType: 'video/quicktime', codecs: [] },
-  { ext: 'mkv', mimeType: 'video/x-matroska', codecs: [] }
+  { ext: 'mkv', mimeType: 'video/x-matroska', codecs: [] },
+  // Audio formats
+  { ext: 'mp3', mimeType: 'audio/mpeg', codecs: [] },
+  { ext: 'wav', mimeType: 'audio/wav', codecs: [] },
+  { ext: 'aac', mimeType: 'audio/aac', codecs: [] },
+  { ext: 'flac', mimeType: 'audio/flac', codecs: [] },
+  { ext: 'm4a', mimeType: 'audio/mp4', codecs: [] }
 ];
 
-const validateVideoFile = (filePath: string) => {
+const validateMediaFile = (filePath: string) => {
   if (!filePath) return { isValid: false, reason: 'No file path provided' };
   
   const ext = filePath.split('.').pop()?.toLowerCase();
-  const supportedFormat = SUPPORTED_VIDEO_FORMATS.find(f => f.ext === ext);
+  const supportedFormat = SUPPORTED_MEDIA_FORMATS.find(f => f.ext === ext);
   
   if (!supportedFormat) {
     return { 
       isValid: false, 
-      reason: `Unsupported format: .${ext}. Supported: ${SUPPORTED_VIDEO_FORMATS.map(f => f.ext).join(', ')}` 
+      reason: `Unsupported format: .${ext}. Supported: ${SUPPORTED_MEDIA_FORMATS.map(f => f.ext).join(', ')}` 
     };
   }
   
@@ -59,66 +66,66 @@ export const VideoPreviewSection: React.FC = () => {
   const lastUpdateRef = useRef<number>(0);
   const [isJumpTriggered, setIsJumpTriggered] = useState(false);
 
-  // Video path resolution - prioritize inputFile from Step 1, fallback to videoPath from subtitle store
-  const rawVideoPath = inputFile || videoPath || '';
-  const [videoDataUrl, setVideoDataUrl] = React.useState<string | null>(null);
-  const [isLoadingVideo, setIsLoadingVideo] = React.useState(false);
+  // Media path resolution - prioritize inputFile from Step 1, fallback to videoPath from subtitle store
+  const rawMediaPath = inputFile || videoPath || '';
+  const [mediaUrl, setMediaUrl] = React.useState<string | null>(null);
+  const [isLoadingMedia, setIsLoadingMedia] = React.useState(false);
   
-  // Convert local file path to data URL for secure playback (same as Step 1)
+  // Convert local file path to media URL for secure playback
   React.useEffect(() => {
-    const convertVideoSource = async () => {
-      if (!rawVideoPath) {
-        setVideoDataUrl(null);
-        setIsLoadingVideo(false);
+    const convertMediaSource = async () => {
+      if (!rawMediaPath) {
+        setMediaUrl(null);
+        setIsLoadingMedia(false);
         return;
       }
 
-      // Check if it's already a data URL or web URL
-      if (rawVideoPath.startsWith('data:') || rawVideoPath.startsWith('http://') || rawVideoPath.startsWith('https://')) {
-        setVideoDataUrl(rawVideoPath);
-        setIsLoadingVideo(false);
+      // Check if it's already a localmedia://, file://, data:// or web URL
+      if (rawMediaPath.startsWith('localmedia://') || rawMediaPath.startsWith('file://') || rawMediaPath.startsWith('data:') || rawMediaPath.startsWith('http://') || rawMediaPath.startsWith('https://')) {
+        setMediaUrl(rawMediaPath);
+        setIsLoadingMedia(false);
         return;
       }
 
-      // Convert local file path to data URL
-      setIsLoadingVideo(true);
+      // Convert local file path to media URL
+      setIsLoadingMedia(true);
       try {
-        const dataUrl = await (window as unknown as ElectronWindow).cantocapAPI.getVideoDataUrl(rawVideoPath);
-        setVideoDataUrl(dataUrl);
-        console.log('🎬 VideoPreviewSection: Successfully converted to data URL');
+        const mediaUrl = await (window as unknown as ElectronWindow).cantocapAPI.getMediaUrl(rawMediaPath);
+        setMediaUrl(mediaUrl);
+        console.log('🎬 VideoPreviewSection: Successfully converted to media URL:', { rawMediaPath, mediaUrl });
       } catch (error) {
-        console.error('🎬 VideoPreviewSection: Failed to convert video to data URL:', error);
-        setVideoDataUrl(null);
+        console.error('🎬 VideoPreviewSection: Failed to convert media to URL:', error);
+        setMediaUrl(null);
       } finally {
-        setIsLoadingVideo(false);
+        setIsLoadingMedia(false);
       }
     };
 
-    convertVideoSource();
-  }, [rawVideoPath]);
+    convertMediaSource();
+  }, [rawMediaPath]);
   
-  // Enhanced debug logging for video source resolution
+  // Enhanced debug logging for media source resolution
   React.useEffect(() => {
-    const validation = validateVideoFile(rawVideoPath);
+    const validation = validateMediaFile(rawMediaPath);
     
-    console.log('🎬 VideoPreviewSection video source:', {
+    console.log('🎬 VideoPreviewSection media source:', {
       inputFile,
       videoPath,
-      rawVideoPath,
-      videoDataUrl: videoDataUrl ? 'data URL created' : 'no data URL',
-      isLoadingVideo,
+      rawMediaPath,
+      mediaUrl: mediaUrl ? 'media URL created' : 'no media URL',
+      isLoadingMedia,
       usingInputFile: !!inputFile,
-      isEmpty: !rawVideoPath,
+      isEmpty: !rawMediaPath,
       validation
     });
     
-    if (!validation.isValid && rawVideoPath) {
-      console.warn('🎬 Video format issue:', validation.reason);
+    if (!validation.isValid && rawMediaPath) {
+      console.warn('🎬 Media format issue:', validation.reason);
     }
-  }, [inputFile, videoPath, rawVideoPath, videoDataUrl, isLoadingVideo]);
+  }, [inputFile, videoPath, rawMediaPath, mediaUrl, isLoadingMedia]);
 
-  // Use data URL for video source
-  const resolvedVideoPath = videoDataUrl;
+  // Use media URL for video source
+  const resolvedVideoPath = mediaUrl;
   
   const isPlaying = isVideoPlaying;
 
@@ -192,11 +199,11 @@ export const VideoPreviewSection: React.FC = () => {
         }}
       >
         <VolumeIcon color="primary" />
-        Video Preview
+        Media Preview
       </Typography>
 
       {/* Video player - fixed height to prevent subtitle expansion from affecting it */}
-      {isLoadingVideo ? (
+      {isLoadingMedia ? (
         <Box
           sx={{
             height: "calc(100% - 190px)", // Same height as video player
@@ -213,13 +220,13 @@ export const VideoPreviewSection: React.FC = () => {
           }}
         >
           <Typography variant="h6" color="text.secondary">
-            Loading video...
+            Loading media...
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-            Converting video for secure playback
+            Preparing media for playback
           </Typography>
         </Box>
-      ) : resolvedVideoPath ? (
+      ) : mediaUrl ? (
         <Box
           sx={{
             height: "calc(100% - 190px)", // Adjusted height: total minus header(40px), controls(40px), and subtitle preview(110px)
@@ -241,7 +248,7 @@ export const VideoPreviewSection: React.FC = () => {
             }}
           >
             <BasicVideoPlayer
-              src={resolvedVideoPath}
+              src={mediaUrl}
               currentTime={currentTime}
               onTimeUpdate={handleTimeUpdate}
               onLoadedMetadata={handleLoadedMetadata}
@@ -273,7 +280,7 @@ export const VideoPreviewSection: React.FC = () => {
           }}
         >
           <Typography variant="h6" color="text.secondary">
-            No video loaded
+            No media loaded
           </Typography>
         </Box>
       )}
@@ -284,7 +291,7 @@ export const VideoPreviewSection: React.FC = () => {
           color="primary"
           size="small"
           onClick={() => setVideoPlaying(!isPlaying)}
-          disabled={!resolvedVideoPath}
+          disabled={!mediaUrl}
         >
           {isPlaying ? <PauseIcon /> : <PlayIcon />}
         </IconButton>

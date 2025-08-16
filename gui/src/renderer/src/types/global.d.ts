@@ -45,7 +45,7 @@ declare global {
       writeExportFile: (filePath: string, content: string) => Promise<{ success: boolean }>;
       readJsonFile: (filePath: string) => Promise<any>;
       
-      // Video Processing
+      // Media Processing  
       getVideoMetadata: (filePath: string) => Promise<{
         metadata: {
           duration: number;
@@ -59,7 +59,12 @@ declare global {
         error?: string;
       }>;
       clearVideoCache: () => Promise<void>;
-      getVideoDataUrl: (filePath: string) => Promise<string | null>;
+      getMediaUrl: (filePath: string) => Promise<string | null>;
+      validateMediaFile: (filePath: string) => Promise<{
+        isValid: boolean;
+        exists: boolean;
+        error?: string;
+      }>;
       
       // Process Management
       startTranscription: (config: AppConfig) => void;

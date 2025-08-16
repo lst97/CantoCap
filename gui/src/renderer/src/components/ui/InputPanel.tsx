@@ -1,10 +1,11 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import { Typography, Box, Stack, Divider, Chip, Alert, AlertTitle } from '@mui/material';
+import { Typography, Box, Stack, Divider, Chip, Alert, AlertTitle, Snackbar } from '@mui/material';
 import {
   FolderOpen as FolderIcon,
   VolumeUp as VolumeIcon,
   AccessTime as TimeIcon,
   CheckCircle as CheckIcon,
+  Error as ErrorIcon,
 } from '@mui/icons-material';
 import { FileSelector } from '../forms/FileSelector';
 import { VideoPlayer } from './VideoPlayer';
@@ -97,6 +98,8 @@ export const InputPanel: React.FC<InputPanelProps> = React.memo(
       width: window.innerWidth,
       height: window.innerHeight,
     });
+    const [mediaError, setMediaError] = useState<string | null>(null);
+    const [showErrorSnackbar, setShowErrorSnackbar] = useState(false);
 
     const handleTimeRangeChange = useCallback(
       async (range: TimeRange | null) => {
@@ -139,6 +142,35 @@ export const InputPanel: React.FC<InputPanelProps> = React.memo(
 
     const handleVideoDurationChange = useCallback((duration: number) => {
       setVideoDuration(duration);
+    }, []);
+
+    const handleMediaError = useCallback((error: {
+      errorCode: number;
+      errorMessage: string;
+      src: string;
+      originalSrc?: string;
+    }) => {
+      console.error('🚨 Media Error in InputPanel:', error);
+      
+      let userFriendlyMessage = 'Unable to load media file.';
+      
+      // Handle specific error cases
+      if (error.errorCode === 4) { // MEDIA_ERR_SRC_NOT_SUPPORTED
+        if (error.errorMessage?.includes('DEMUXER_ERROR_COULD_NOT_OPEN')) {
+          userFriendlyMessage = 'Media file not found. The file may have been moved, renamed, or deleted.';
+        } else {
+          userFriendlyMessage = 'Media format not supported or file is corrupted.';
+        }
+      } else if (error.errorCode === 2) { // MEDIA_ERR_NETWORK
+        userFriendlyMessage = 'Network error loading media file.';
+      } else if (error.errorCode === 3) { // MEDIA_ERR_DECODE
+        userFriendlyMessage = 'Unable to decode media file. The file may be corrupted.';
+      } else if (error.errorCode === 1) { // MEDIA_ERR_ABORTED
+        userFriendlyMessage = 'Media loading was aborted.';
+      }
+      
+      setMediaError(userFriendlyMessage);
+      setShowErrorSnackbar(true);
     }, []);
 
     // Sync local timeRange state with global config on mount and when config changes
@@ -217,6 +249,27 @@ export const InputPanel: React.FC<InputPanelProps> = React.memo(
       window.addEventListener('resize', handleResize);
       return () => window.removeEventListener('resize', handleResize);
     }, []);
+
+    // Validate media file when inputFile changes (on app reload)
+    useEffect(() => {
+      const validateMediaFile = async () => {
+        if (!config.inputFile) return;
+
+        try {
+          const validation = await window.cantocapAPI.validateMediaFile(config.inputFile);
+          if (!validation.isValid) {
+            setMediaError(validation.error || 'Media file is not accessible');
+            setShowErrorSnackbar(true);
+          }
+        } catch (error) {
+          console.error('Error validating media file:', error);
+          setMediaError('Unable to validate media file');
+          setShowErrorSnackbar(true);
+        }
+      };
+
+      validateMediaFile();
+    }, [config.inputFile]);
 
     // Force recalculation when range state changes (affects status alert size)
     useEffect(() => {
@@ -357,6 +410,7 @@ export const InputPanel: React.FC<InputPanelProps> = React.memo(
                     src={config.inputFile}
                     onTimeRangeChange={handleTimeRangeChange}
                     onDurationChange={handleVideoDurationChange}
+                    onError={handleMediaError}
                     initialRange={timeRange || undefined}
                   />
                 </Box>
@@ -423,6 +477,25 @@ export const InputPanel: React.FC<InputPanelProps> = React.memo(
               ))}
           </Stack>
         </Box>
+        
+        {/* Media Error Snackbar */}
+        <Snackbar
+          open={showErrorSnackbar}
+          autoHideDuration={8000}
+          onClose={() => setShowErrorSnackbar(false)}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        >
+          <Alert
+            onClose={() => setShowErrorSnackbar(false)}
+            severity="error"
+            variant="filled"
+            icon={<ErrorIcon />}
+            sx={{ width: '100%' }}
+          >
+            <AlertTitle>Media Loading Error</AlertTitle>
+            {mediaError}
+          </Alert>
+        </Snackbar>
       </Box>
     );
   }

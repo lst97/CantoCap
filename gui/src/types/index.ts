@@ -165,7 +165,7 @@ export interface ElectronWindow extends Window {
     writeExportFile: (filePath: string, content: string) => Promise<{ success: boolean }>;
     readJsonFile: (filePath: string) => Promise<unknown>;
 
-    // Video Processing
+    // Media Processing
     getVideoMetadata: (filePath: string) => Promise<{
       metadata: {
         duration: number;
@@ -179,7 +179,12 @@ export interface ElectronWindow extends Window {
       error?: string;
     }>;
     clearVideoCache: () => Promise<void>;
-    getVideoDataUrl: (filePath: string) => Promise<string | null>;
+    getMediaUrl: (filePath: string) => Promise<string | null>;
+    validateMediaFile: (filePath: string) => Promise<{
+      isValid: boolean;
+      exists: boolean;
+      error?: string;
+    }>;
 
     // Process Management
     startTranscription: (config: AppConfig) => void;
@@ -334,10 +339,10 @@ export interface ProcessingValidateFFmpegResponse extends BaseIPCResponse {
 }
 
 // ============================================================================
-// Video IPC Response Types
+// Media IPC Response Types
 // ============================================================================
 
-export interface VideoMetadataResponse {
+export interface MediaMetadataResponse {
   metadata: {
     duration: number;
     width: number;
@@ -351,12 +356,12 @@ export interface VideoMetadataResponse {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface VideoClearCacheResponse {
+export interface MediaClearCacheResponse {
   // void return type
 }
 
-export interface VideoDataUrlResponse {
-  dataUrl: string | null;
+export interface MediaUrlResponse {
+  mediaUrl: string | null;
 }
 
 // ============================================================================

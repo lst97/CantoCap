@@ -84,8 +84,14 @@ const api: ElectronAPI = {
   
   clearVideoCache: (): Promise<void> => ipcRenderer.invoke("video:clearCache"),
   
-  getVideoDataUrl: (filePath: string): Promise<string | null> => 
-    ipcRenderer.invoke("video:getDataUrl", filePath),
+  getMediaUrl: (filePath: string): Promise<string | null> => 
+    ipcRenderer.invoke("media:getUrl", filePath),
+  
+  validateMediaFile: (filePath: string): Promise<{
+    isValid: boolean;
+    exists: boolean;
+    error?: string;
+  }> => ipcRenderer.invoke("media:validateFile", filePath),
 
   // Process Management
   startTranscription: (config: AppConfig): void =>

@@ -7,6 +7,12 @@ interface VideoPlayerProps {
   src?: string
   onTimeRangeChange?: (range: { start: number; end: number } | null) => void
   onDurationChange?: (duration: number) => void
+  onError?: (error: {
+    errorCode: number;
+    errorMessage: string;
+    src: string;
+    originalSrc?: string;
+  }) => void
   initialRange?: { start: number; end: number }
 }
 
@@ -14,6 +20,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   src,
   onTimeRangeChange,
   onDurationChange,
+  onError,
   initialRange
 }) => {
   const [isPlaying, setIsPlaying] = useState(false)
@@ -23,15 +30,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [justPausedAtRangeEnd, setJustPausedAtRangeEnd] = useState(false)
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 })
   const containerRef = useRef<HTMLDivElement>(null)
-  const basicVideoPlayerRef = useRef<any>(null)
-  const [videoDataUrl, setVideoDataUrl] = useState<string | null>(null)
-  const [isLoadingVideo, setIsLoadingVideo] = useState(false)
+  const [mediaUrl, setMediaUrl] = useState<string | null>(null)
+  const [isLoadingMedia, setIsLoadingMedia] = useState(false)
 
   // Sync local timeRange with initialRange prop changes
   useEffect(() => {
     if (initialRange !== timeRange) {
       console.log('VideoPlayer: Syncing timeRange with initialRange:', initialRange)
-      setTimeRange(initialRange)
+      setTimeRange(initialRange || null)
     }
   }, [initialRange, timeRange])
 
@@ -159,36 +165,37 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [src]) // Re-run when video source changes
 
-  // Convert local file path to data URL for secure playback
+  // Convert local file path to media URL for secure playback
   useEffect(() => {
-    const convertVideoSource = async () => {
+    const convertMediaSource = async () => {
       if (!src) {
-        setVideoDataUrl(null)
-        setIsLoadingVideo(false)
+        setMediaUrl(null)
+        setIsLoadingMedia(false)
         return
       }
 
-      // Check if it's already a data URL or web URL
-      if (src.startsWith('data:') || src.startsWith('http://') || src.startsWith('https://')) {
-        setVideoDataUrl(src)
-        setIsLoadingVideo(false)
+      // Check if it's already a localmedia://, file://, data:// or web URL
+      if (src.startsWith('localmedia://') || src.startsWith('file://') || src.startsWith('data:') || src.startsWith('http://') || src.startsWith('https://')) {
+        setMediaUrl(src)
+        setIsLoadingMedia(false)
         return
       }
 
-      // Convert local file path to data URL
-      setIsLoadingVideo(true)
+      // Convert local file path to media URL
+      setIsLoadingMedia(true)
       try {
-        const dataUrl = await window.cantocapAPI.getVideoDataUrl(src)
-        setVideoDataUrl(dataUrl)
+        const convertedMediaUrl = await window.cantocapAPI.getMediaUrl(src)
+        setMediaUrl(convertedMediaUrl)
+        console.log('🎬 VideoPlayer: Converted file path to media URL:', { src, convertedMediaUrl })
       } catch (error) {
-        console.error('Failed to convert video to data URL:', error)
-        setVideoDataUrl(null)
+        console.error('Failed to convert media to URL:', error)
+        setMediaUrl(null)
       } finally {
-        setIsLoadingVideo(false)
+        setIsLoadingMedia(false)
       }
     }
 
-    convertVideoSource()
+    convertMediaSource()
   }, [src])
 
   // Keyboard navigation for frame-by-frame control
@@ -287,7 +294,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         overflow: 'hidden',
         position: 'relative'
       }}>
-        {isLoadingVideo && (
+        {isLoadingMedia && (
           <Box sx={{
             position: 'absolute',
             top: 0,
@@ -301,16 +308,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             zIndex: 10,
             color: 'white'
           }}>
-            Loading video...
+            Loading media...
           </Box>
         )}
         
         <BasicVideoPlayer
-          ref={basicVideoPlayerRef}
-          src={videoDataUrl || src}
+          src={mediaUrl || src}
           currentTime={currentTime}
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={handleLoadedMetadata}
+          onError={onError}
           showVolumeControl={false}
           showFullscreenButton={false}
           showSkipButtons={false}

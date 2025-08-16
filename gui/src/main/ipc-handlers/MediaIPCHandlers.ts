@@ -1,10 +1,10 @@
 import { ipcMain } from 'electron';
 import { spawn } from 'child_process';
 import { readFile } from 'fs/promises';
-import { join } from 'path';
+import { join, resolve, normalize } from 'path';
 import { createHash } from 'crypto';
 import { tmpdir } from 'os';
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, statSync } from 'fs';
 
 interface VideoMetadata {
   duration: number;
@@ -39,7 +39,7 @@ interface FFProbeData {
   format?: FFProbeFormat;
 }
 
-export class VideoIPCHandlers {
+export class MediaIPCHandlers {
   private thumbnailCache = new Map<string, string>();
   private metadataCache = new Map<string, VideoMetadata>();
 
@@ -64,20 +64,75 @@ export class VideoIPCHandlers {
       this.metadataCache.clear();
     });
 
-    // Get video as data URL for playback
-    ipcMain.handle('video:getDataUrl', async (_, filePath: string): Promise<string | null> => {
+    // Get media URL for playback (using localmedia:// protocol)
+    ipcMain.handle('media:getUrl', async (_, filePath: string): Promise<string | null> => {
       try {
-        const videoBuffer = await readFile(filePath);
-        const base64Video = videoBuffer.toString('base64');
+        // Validate file path and check if file exists
+        if (!this.isValidMediaPath(filePath)) {
+          console.error('Invalid media file path:', filePath);
+          return null;
+        }
+
+        // Get the main app instance to register the media file
+        const { CantoCap } = await import('../index');
+        const appInstance = CantoCap.getInstance();
         
-        // Determine MIME type based on file extension
-        const ext = filePath.split('.').pop()?.toLowerCase();
-        const mimeType = this.getMimeType(ext || '');
+        if (!appInstance) {
+          console.error('App instance not available');
+          return null;
+        }
+
+        // Register the media file and get a secure URL
+        const mediaId = appInstance.registerMediaFile(filePath);
+        const mediaUrl = `localmedia://${mediaId}`;
         
-        return `data:${mimeType};base64,${base64Video}`;
+        console.log('🎬 Media URL generated:', { filePath, mediaId, mediaUrl });
+        return mediaUrl;
       } catch (error) {
-        console.error('Error creating video data URL:', error);
+        console.error('Error creating media URL:', error);
         return null;
+      }
+    });
+
+    // Validate media file accessibility
+    ipcMain.handle('media:validateFile', async (_, filePath: string): Promise<{
+      isValid: boolean;
+      exists: boolean;
+      error?: string;
+    }> => {
+      try {
+        if (!filePath) {
+          return { isValid: false, exists: false, error: 'No file path provided' };
+        }
+
+        // Check if file exists
+        const exists = existsSync(filePath);
+        if (!exists) {
+          return { 
+            isValid: false, 
+            exists: false, 
+            error: 'File not found. The file may have been moved, renamed, or deleted.' 
+          };
+        }
+
+        // Validate the media file
+        const isValid = this.isValidMediaPath(filePath);
+        if (!isValid) {
+          return { 
+            isValid: false, 
+            exists: true, 
+            error: 'File format not supported or file is not accessible.' 
+          };
+        }
+
+        return { isValid: true, exists: true };
+      } catch (error) {
+        console.error('Error validating media file:', error);
+        return { 
+          isValid: false, 
+          exists: false, 
+          error: error instanceof Error ? error.message : 'Unknown validation error' 
+        };
       }
     });
   }
@@ -269,22 +324,48 @@ export class VideoIPCHandlers {
     }
   }
 
-  private getMimeType(extension: string): string {
-    const mimeTypes: Record<string, string> = {
-      'mp4': 'video/mp4',
-      'webm': 'video/webm',
-      'ogg': 'video/ogg',
-      'avi': 'video/x-msvideo',
-      'mov': 'video/quicktime',
-      'mkv': 'video/x-matroska',
-      'flv': 'video/x-flv',
-    };
-    return mimeTypes[extension] || 'video/mp4';
+
+  private isValidMediaPath(filePath: string): boolean {
+    try {
+      // Normalize and resolve the path to prevent path traversal attacks
+      const normalizedPath = normalize(resolve(filePath));
+      
+      // Check if file exists and is a regular file
+      if (!existsSync(normalizedPath)) {
+        return false;
+      }
+
+      const stats = statSync(normalizedPath);
+      if (!stats.isFile()) {
+        return false;
+      }
+
+      // Validate file extension for both video and audio formats
+      const ext = normalizedPath.split('.').pop()?.toLowerCase();
+      const validVideoExtensions = ['mp4', 'webm', 'ogg', 'avi', 'mov', 'mkv', 'flv', 'm4v', '3gp'];
+      const validAudioExtensions = ['mp3', 'wav', 'ogg', 'aac', 'flac', 'm4a', 'wma'];
+      const validExtensions = [...validVideoExtensions, ...validAudioExtensions];
+      
+      if (!ext || !validExtensions.includes(ext)) {
+        return false;
+      }
+
+      // Additional security: ensure path doesn't contain suspicious patterns
+      if (normalizedPath.includes('..') || normalizedPath.includes('~')) {
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error validating media path:', error);
+      return false;
+    }
   }
 
   public cleanup(): void {
     ipcMain.removeAllListeners('video:getMetadata');
     ipcMain.removeAllListeners('video:clearCache');
-    ipcMain.removeAllListeners('video:getDataUrl');
+    ipcMain.removeAllListeners('media:getUrl');
+    ipcMain.removeAllListeners('media:validateFile');
   }
 }

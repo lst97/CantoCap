@@ -94,7 +94,17 @@ class MediaChunkingService:
         chunk_index = 0
         current_start = 0
         
-        while current_start < duration:
+        # Safety counter to prevent infinite loops
+        max_iterations = int(math.ceil(duration / (chunk_duration - overlap))) + 1
+        iteration_count = 0
+        
+        # Validate chunking parameters
+        if overlap >= chunk_duration:
+            raise ValueError(f"Overlap ({overlap}s) cannot be >= chunk duration ({chunk_duration}s)")
+        if chunk_duration <= 0:
+            raise ValueError(f"Chunk duration must be positive, got {chunk_duration}s")
+        
+        while current_start < duration and iteration_count < max_iterations:
             # Calculate chunk end time
             chunk_end = min(current_start + chunk_duration, duration)
             
@@ -117,9 +127,33 @@ class MediaChunkingService:
             
             chunks.append(chunk_info)
             
+            # Break if we've reached the end of the video
+            if chunk_end >= duration:
+                break
+            
             # Move to next chunk with overlap
-            current_start = chunk_end - overlap
+            next_start = chunk_end - overlap
+            
+            # Ensure we make forward progress - prevent infinite loops
+            if next_start <= current_start:
+                # If overlap is too large, move forward by a minimal amount
+                next_start = current_start + (chunk_duration - overlap) / 2
+                if next_start >= duration:
+                    break
+            
+            current_start = next_start
             chunk_index += 1
+            iteration_count += 1
+        
+        # Check if we hit the safety limit
+        if iteration_count >= max_iterations:
+            import warnings
+            warnings.warn(
+                f"Chunking hit safety limit of {max_iterations} iterations. "
+                f"This may indicate a configuration issue. "
+                f"Duration: {duration}s, Chunk: {chunk_duration}s, Overlap: {overlap}s",
+                UserWarning
+            )
         
         return chunks
     
