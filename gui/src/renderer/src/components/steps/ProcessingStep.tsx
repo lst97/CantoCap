@@ -443,7 +443,7 @@ export const ProcessingStep: React.FC = () => {
                         width: 10,
                         height: 10,
                         borderRadius: "50%",
-                        bgcolor: isRecovering ? "#EF4444" : "#F59E0B",
+                        bgcolor: isRecovering ? "error.main" : "warning.main",
                         animation:
                           "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
                       }}
@@ -452,7 +452,7 @@ export const ProcessingStep: React.FC = () => {
                       variant="body1"
                       sx={{
                         fontWeight: 600,
-                        color: isRecovering ? "#EF4444" : "#F59E0B",
+                        color: isRecovering ? "error.main" : "warning.main",
                         textTransform: "capitalize",
                       }}
                     >
@@ -462,7 +462,7 @@ export const ProcessingStep: React.FC = () => {
                       <Typography
                         variant="caption"
                         sx={{
-                          color: "#EAB308",
+                          color: "warning.dark",
                           fontSize: "0.75rem",
                           fontWeight: 500,
                         }}
@@ -510,7 +510,7 @@ export const ProcessingStep: React.FC = () => {
                       fontWeight: 700,
                       fontFamily: "monospace",
                       color:
-                        processing.status === "completed" ? "#57F287" : "#F59E0B",
+                        processing.status === "completed" ? "success.main" : "warning.main",
                     }}
                   >
                     {processing.progress}%

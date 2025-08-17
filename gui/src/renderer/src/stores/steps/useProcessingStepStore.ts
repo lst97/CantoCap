@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { ProcessingStepData, ElectronWindow } from '../types/StoreTypes';
+import { ProcessingStepData, ElectronWindow, StepStatus, ProcessingStatistics } from '../types/StoreTypes';
 import type { CantocapSubtitleData, SubtitleStatistics } from '../../../../types/SubtitleTypes';
 
 interface ProcessingStepState {
@@ -40,6 +40,31 @@ const defaultProcessingStepData: ProcessingStepData = {
   estimatedTimeRemaining: undefined
 };
 
+// Helper function to safely convert statistics to ProcessingStatistics
+const convertToProcessingStatistics = (statistics: ProcessingStatistics | SubtitleStatistics | unknown): ProcessingStatistics | undefined => {
+  if (!statistics || typeof statistics !== 'object') {
+    return undefined;
+  }
+
+  // If it's already ProcessingStatistics, return as-is
+  if ('quality_score' in statistics || 'processing_time' in statistics) {
+    return statistics as ProcessingStatistics;
+  }
+
+  // If it's SubtitleStatistics, convert to ProcessingStatistics format
+  if ('totalSubtitles' in statistics && 'totalDuration' in statistics && 'averageConfidence' in statistics) {
+    const subtitleStats = statistics as SubtitleStatistics;
+    return {
+      subtitle_count: subtitleStats.totalSubtitles,
+      processing_time: subtitleStats.totalDuration,
+      quality_score: subtitleStats.averageConfidence
+    };
+  }
+
+  // Unknown format, return undefined
+  return undefined;
+};
+
 export const useProcessingStepStore = create<ProcessingStepState>((set, _get) => ({
   data: defaultProcessingStepData,
   
@@ -76,7 +101,7 @@ export const useProcessingStepStore = create<ProcessingStepState>((set, _get) =>
       message?: string;
       error?: string;
       jsonSubtitleData?: CantocapSubtitleData;
-      statistics?: SubtitleStatistics;
+      statistics?: ProcessingStatistics | SubtitleStatistics | unknown;
       outputFile?: string;
       inputFile?: string;
     }) => {
@@ -96,6 +121,9 @@ export const useProcessingStepStore = create<ProcessingStepState>((set, _get) =>
           newLogs.push(eventData.message);
         }
 
+        // Convert statistics safely to ProcessingStatistics format
+        const convertedStatistics = eventData.statistics ? convertToProcessingStatistics(eventData.statistics) : undefined;
+
         return {
           data: {
             ...state.data,
@@ -104,7 +132,7 @@ export const useProcessingStepStore = create<ProcessingStepState>((set, _get) =>
             ...(eventData.phase && { currentPhase: eventData.phase }),
             logs: newLogs,
             ...(eventData.jsonSubtitleData && { jsonSubtitleData: eventData.jsonSubtitleData }),
-            ...(eventData.statistics && { statistics: eventData.statistics }),
+            ...(convertedStatistics && { statistics: convertedStatistics }),
             ...(eventData.outputFile && { outputFile: eventData.outputFile }),
             ...(eventData.status === 'completed' && { 
               endTime: new Date().toISOString(),
@@ -211,6 +239,14 @@ export const useProcessingStepStore = create<ProcessingStepState>((set, _get) =>
             estimatedTimeRemaining: undefined
           }
         }));
+
+        // Reset the workflow step states: processing to READY, and enable steps 1 & 2 as COMPLETE
+        // We need to import this dynamically to avoid circular dependencies
+        const { useWorkflowStore } = await import('../useWorkflowStore');
+        const workflowActions = useWorkflowStore.getState().actions;
+        await workflowActions.setStepState('processing', StepStatus.READY);
+        await workflowActions.setStepState('input', StepStatus.COMPLETE);
+        await workflowActions.setStepState('config', StepStatus.COMPLETE);
         
       } catch (error) {
         console.error('Failed to cancel transcription:', error);

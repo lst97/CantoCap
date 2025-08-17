@@ -88,6 +88,13 @@ const calculateNavigationPermissions = (
   if (stepStates.config === StepStatus.COMPLETE || stepStates.config === StepStatus.WARNING) {
     navigation.processing = true;
   }
+  
+  // Special case: After cancelling processing, allow backward navigation to config and input
+  // when processing is READY and processing status is idle
+  if (stepStates.processing === StepStatus.READY && processingStepContent?.status === 'idle') {
+    navigation.config = true;
+    navigation.input = true;
+  }
 
   // Review accessible if processing is complete or has warning
   // OR if JSON was imported (bypass config and processing requirements)
@@ -179,6 +186,13 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
     setStepState: async (step: StepType, state: StepStatusType) => {
       const currentStates = get().stepStates;
+      
+      // Only proceed if the state has actually changed
+      if (currentStates[step] === state) {
+        console.log(`⏭️ Skipping setStepState for ${step} - state unchanged: ${state}`);
+        return;
+      }
+
       const updatedStates = { ...currentStates, [step]: state };
 
       // Update navigation permissions based on step completion and JSON import status
@@ -191,12 +205,12 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         canNavigate: updatedNavigation,
       });
 
-      // Persist step state change to main process
+      // Persist step state change to main process only when state actually changed
       try {
         const workspaceId = await getWorkspaceId();
         if (workspaceId && (window as unknown as ElectronWindow).electron?.ipcRenderer) {
           await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('workflow:setStepState', workspaceId, step, state);
-          console.log(`💾 Persisted step state: ${step} = ${state} for workspace ${workspaceId}`);
+          console.log(`💾 Persisted step state change: ${step} = ${state} for workspace ${workspaceId}`);
         }
       } catch (error) {
         console.error('Failed to persist step state:', error);

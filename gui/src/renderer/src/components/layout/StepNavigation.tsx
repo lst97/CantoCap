@@ -43,6 +43,7 @@ import {
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useInputStepContent } from '../../stores/useStepStore';
 import { useSubtitleActions, useSaveState } from '../../stores/useSubtitleEditStore';
+import { useProcessingStatus } from '../../stores/steps/useProcessingStepStore';
 import type { StepType, StepStatusType } from '../../stores/types/StoreTypes';
 import { StepStatus } from '../../stores/types/StoreTypes';
 import { UnsavedChangesDialog } from '../common/UnsavedChangesDialog';
@@ -81,6 +82,7 @@ export const StepNavigation: React.FC = React.memo(() => {
   const workspaces = useWorkspaceStore(state => state.workspaces);
   const currentWorkspaceId = useWorkspaceStore(state => state.currentWorkspaceId);
   const inputStepContent = useInputStepContent();
+  const processingStatus = useProcessingStatus();
   
   // Subtitle editing state for unsaved changes detection
   const { saveToWorkspace, loadSubtitlesForWorkspace } = useSubtitleActions();
@@ -93,11 +95,11 @@ export const StepNavigation: React.FC = React.memo(() => {
   // Get current workspace
   const currentWorkspace = currentWorkspaceId ? workspaces[currentWorkspaceId] : null;
 
-  // Memoized processing state - check if processing step is active
+  // Memoized processing state - check if processing is actually running
   const processingStepState = useStepState('processing');
   const isProcessingActive = useMemo(() => {
-    return currentStep === 'processing' && processingStepState === StepStatus.READY;
-  }, [currentStep, processingStepState]);
+    return currentStep === 'processing' && processingStatus === 'running';
+  }, [currentStep, processingStatus]);
 
   // Get steps with states - memoized to prevent infinite renders
   const stepsWithStates = useMemo(() => {
@@ -288,7 +290,7 @@ export const StepNavigation: React.FC = React.memo(() => {
           return 'grey.500';
         case StepStatus.READY:
           if (isProcessingStep) {
-            return 'info.main';
+            return 'warning.main'; // Use orange for processing consistency
           }
           return isCurrent ? 'primary.main' : 'grey.600';
         default:
@@ -430,13 +432,13 @@ export const StepNavigation: React.FC = React.memo(() => {
             return (
               <Chip
                 label='Processing'
-                color='info'
+                color='warning'
                 variant='filled'
                 {...baseChipProps}
                 sx={{
                   ...baseChipProps.sx,
-                  backgroundColor: 'info.main',
-                  color: 'info.contrastText',
+                  backgroundColor: 'warning.main',
+                  color: 'warning.contrastText',
                   animation: 'glow 2s ease-in-out infinite alternate',
                   '@keyframes glow': {
                     '0%': { opacity: 0.8 },
@@ -502,9 +504,9 @@ export const StepNavigation: React.FC = React.memo(() => {
             right: 0,
             height: 3,
             zIndex: 10,
-            backgroundColor: 'rgba(33, 150, 243, 0.1)',
+            backgroundColor: 'rgba(245, 158, 11, 0.1)',
             '& .MuiLinearProgress-bar': {
-              backgroundColor: 'info.main',
+              backgroundColor: 'warning.main',
               animation: 'processingGlow 2s ease-in-out infinite alternate',
               '@keyframes processingGlow': {
                 '0%': { opacity: 0.8 },
@@ -555,7 +557,7 @@ export const StepNavigation: React.FC = React.memo(() => {
               component='span'
               variant='caption'
               sx={{
-                color: 'info.main',
+                color: 'warning.main',
                 fontStyle: 'italic',
                 fontSize: '0.7rem',
               }}
@@ -672,7 +674,7 @@ export const StepNavigation: React.FC = React.memo(() => {
                       // Processing step special styling
                       ...(step === 'processing' &&
                         isProcessingActive && {
-                          backgroundColor: 'rgba(33, 150, 243, 0.08)',
+                          backgroundColor: 'rgba(245, 158, 11, 0.08)',
                           '&::after': {
                             content: '""',
                             position: 'absolute',
@@ -681,7 +683,7 @@ export const StepNavigation: React.FC = React.memo(() => {
                             right: 0,
                             height: 2,
                             background:
-                              'linear-gradient(90deg, transparent, info.main, transparent)',
+                              'linear-gradient(90deg, transparent, warning.main, transparent)',
                             animation: 'shimmer 2s ease-in-out infinite',
                             '@keyframes shimmer': {
                               '0%': { transform: 'translateX(-100%)' },
@@ -729,7 +731,7 @@ export const StepNavigation: React.FC = React.memo(() => {
 
                           ...(step === 'processing' &&
                             isProcessingActive && {
-                              boxShadow: '0 0 0 2px rgba(33, 150, 243, 0.4)',
+                              boxShadow: '0 0 0 2px rgba(245, 158, 11, 0.4)',
                               transform: 'scale(1.1)',
                             }),
 
@@ -763,7 +765,7 @@ export const StepNavigation: React.FC = React.memo(() => {
                               height: 32,
                               borderRadius: '50%',
                               border: '2px solid transparent',
-                              borderTop: '2px solid info.light',
+                              borderTop: '2px solid warning.light',
                               animation: 'spin 1s linear infinite',
                               '@keyframes spin': {
                                 '0%': { transform: 'rotate(0deg)' },
@@ -817,9 +819,9 @@ export const StepNavigation: React.FC = React.memo(() => {
                                 sx={{
                                   height: 2,
                                   borderRadius: 1,
-                                  backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                                  backgroundColor: 'rgba(245, 158, 11, 0.1)',
                                   '& .MuiLinearProgress-bar': {
-                                    backgroundColor: 'info.main',
+                                    backgroundColor: 'warning.main',
                                     borderRadius: 1,
                                   },
                                 }}
@@ -829,7 +831,7 @@ export const StepNavigation: React.FC = React.memo(() => {
                                 component="span"
                                 sx={{
                                   fontSize: '0.65rem',
-                                  color: 'info.main',
+                                  color: 'warning.main',
                                   fontStyle: 'italic',
                                   mt: 0.25,
                                   display: 'block',

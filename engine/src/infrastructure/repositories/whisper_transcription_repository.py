@@ -3,7 +3,7 @@
 from typing import Optional, Dict, Any, Union, List
 
 from ...domain.repositories import ITranscriptionRepository
-from ...domain.entities import AudioStream, Transcription
+from ...domain.entities import AudioStream, Transcription, TranscriptionChunk
 from ..services import WhisperService
 
 # Import WhisperXService conditionally
@@ -102,23 +102,182 @@ class WhisperTranscriptionRepository(ITranscriptionRepository):
         return self._merge_transcriptions(chunk_results)
     
     def _adjust_transcription_timestamps(self, transcription: Transcription, offset: float) -> Transcription:
-        """Adjust transcription timestamps by offset."""
-        # This would need to be implemented based on the Transcription entity structure
-        # For now, return the original transcription
-        # TODO: Implement timestamp adjustment logic
-        return transcription
+        """
+        Adjust all timestamps in a transcription by adding an offset.
+        
+        This method is used to position audio chunks correctly when merging
+        multiple transcribed chunks into a single timeline.
+        
+        Args:
+            transcription: Original transcription to adjust
+            offset: Time offset in seconds to add to all timestamps
+            
+        Returns:
+            New Transcription instance with adjusted timestamps
+            
+        Raises:
+            ValueError: If offset is invalid or would create invalid timestamps
+        """
+        if not isinstance(transcription, Transcription):
+            raise ValueError("transcription must be a Transcription instance")
+        
+        if not isinstance(offset, (int, float)):
+            raise ValueError("offset must be a number")
+        
+        # Handle zero offset case - no adjustment needed
+        if offset == 0.0:
+            return transcription
+        
+        # Handle empty chunks case
+        if not transcription.chunks:
+            # Still need to create new instance for immutability
+            return Transcription.create(
+                chunks=[],
+                full_text=transcription.full_text,
+                language=transcription.language,
+                total_duration=transcription.total_duration
+            )
+        
+        try:
+            # Create new chunks with adjusted timestamps
+            adjusted_chunks = []
+            for chunk in transcription.chunks:
+                # Add offset to both start and end times
+                # Timestamp.__add__ handles validation automatically
+                new_start_time = chunk.start_time + offset
+                new_end_time = chunk.end_time + offset
+                
+                # Create new TranscriptionChunk with adjusted timestamps
+                adjusted_chunk = TranscriptionChunk(
+                    text=chunk.text,
+                    start_time=new_start_time,
+                    end_time=new_end_time,
+                    confidence=chunk.confidence
+                )
+                adjusted_chunks.append(adjusted_chunk)
+            
+            # Calculate adjusted total duration if present
+            adjusted_total_duration = transcription.total_duration
+            if adjusted_total_duration is not None and offset != 0.0:
+                # Total duration doesn't change with offset, only positioning does
+                # Keep the original duration
+                pass
+            
+            # Create new Transcription instance with adjusted chunks
+            return Transcription.create(
+                chunks=adjusted_chunks,
+                full_text=transcription.full_text,  # Text content unchanged
+                language=transcription.language,    # Language unchanged
+                total_duration=adjusted_total_duration
+            )
+            
+        except ValueError as e:
+            # Re-raise with more context
+            raise ValueError(f"Failed to adjust timestamps with offset {offset}s: {e}")
     
     def _merge_transcriptions(self, transcriptions: List[Transcription]) -> Transcription:
-        """Merge multiple transcriptions into a single transcription."""
+        """
+        Merge multiple transcriptions into a single chronologically ordered transcription.
+        
+        This method combines multiple transcription results (typically from audio chunks)
+        into a single coherent transcription with proper temporal ordering.
+        
+        Args:
+            transcriptions: List of transcriptions to merge
+            
+        Returns:
+            New Transcription instance containing all chunks in chronological order
+            
+        Raises:
+            ValueError: If transcriptions list is empty or contains invalid data
+        """
         if not transcriptions:
             raise ValueError("No transcriptions to merge")
         
+        if not isinstance(transcriptions, list):
+            raise ValueError("transcriptions must be a list")
+        
+        # Validate all items are Transcription instances
+        for i, transcription in enumerate(transcriptions):
+            if not isinstance(transcription, Transcription):
+                raise ValueError(f"Item at index {i} is not a Transcription instance")
+        
+        # Handle single transcription case - return as-is for efficiency
         if len(transcriptions) == 1:
             return transcriptions[0]
         
-        # For now, return the first transcription
-        # TODO: Implement proper transcription merging logic
-        return transcriptions[0]
+        # Collect all chunks from all transcriptions
+        all_chunks = []
+        for transcription in transcriptions:
+            all_chunks.extend(transcription.chunks)
+        
+        # Handle case where no chunks exist across all transcriptions
+        if not all_chunks:
+            # Use first transcription's metadata as base
+            first_transcription = transcriptions[0]
+            return Transcription.create(
+                chunks=[],
+                full_text="",
+                language=first_transcription.language,
+                total_duration=0.0
+            )
+        
+        # Sort chunks chronologically by start_time
+        # This ensures the merged transcription maintains chronological order
+        try:
+            sorted_chunks = sorted(all_chunks, key=lambda chunk: chunk.start_time.seconds)
+        except Exception as e:
+            raise ValueError(f"Failed to sort chunks chronologically: {e}")
+        
+        # Combine full_text from all transcriptions
+        combined_texts = []
+        for transcription in transcriptions:
+            text = transcription.full_text.strip()
+            if text:  # Only add non-empty text
+                combined_texts.append(text)
+        
+        # Join texts with appropriate separator
+        if combined_texts:
+            merged_full_text = " ".join(combined_texts)
+        else:
+            # Fallback: generate from chunks if no full text available
+            merged_full_text = " ".join(chunk.text.strip() for chunk in sorted_chunks if chunk.text.strip())
+        
+        # Calculate merged total duration
+        merged_total_duration = None
+        
+        # Method 1: Sum of individual durations (if all are available)
+        individual_durations = [
+            t.total_duration for t in transcriptions 
+            if t.total_duration is not None
+        ]
+        if len(individual_durations) == len(transcriptions):
+            # All transcriptions have duration info
+            merged_total_duration = sum(individual_durations)
+        else:
+            # Method 2: Calculate from first and last chunk timestamps
+            if sorted_chunks:
+                first_chunk = sorted_chunks[0]
+                last_chunk = sorted_chunks[-1]
+                merged_total_duration = last_chunk.end_time.seconds - first_chunk.start_time.seconds
+        
+        # Use first transcription's language as the merged language
+        # This assumes all chunks are in the same language, which is typical
+        merged_language = transcriptions[0].language
+        
+        # Create and return the merged transcription
+        try:
+            merged_transcription = Transcription.create(
+                chunks=sorted_chunks,
+                full_text=merged_full_text,
+                language=merged_language,
+                total_duration=merged_total_duration
+            )
+            return merged_transcription
+            
+        except ValueError as e:
+            # Re-raise with more context
+            raise ValueError(f"Failed to create merged transcription: {e}")
     
     def transcribe_audio(
         self,

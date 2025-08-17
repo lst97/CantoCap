@@ -50,7 +50,11 @@ export const ProcessingStatus: React.FC = () => {
             <Box>
               <Typography
                 variant="body1"
-                sx={{ fontWeight: 600, textTransform: "capitalize" }}
+                sx={{ 
+                  fontWeight: 600, 
+                  textTransform: "capitalize",
+                  color: processing.status === 'running' ? 'warning.main' : 'inherit'
+                }}
               >
                 {processing.currentPhase || processing.status}
               </Typography>
