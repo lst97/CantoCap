@@ -18,12 +18,12 @@ import {
 } from '@mui/material';
 import { Download as DownloadIcon, Cancel as CancelIcon } from '@mui/icons-material';
 
-import { 
-  useExportStepContent, 
+import {
+  useExportStepContent,
   useExportActions,
-  useExportActionsState,
-  useExportStatus,
-  useSubtitles 
+  useSubtitles,
+  useStepLoading,
+  useStepError,
 } from '../../../stores/useStepStore';
 import { createKeyboardHandler } from './utils';
 
@@ -35,81 +35,252 @@ export interface ExportActionsRef {
 const EXPORT_FORMATS = [
   { id: 'srt', name: 'SRT', extension: '.srt' },
   { id: 'vtt', name: 'WebVTT', extension: '.vtt' },
-  { id: 'txt', name: 'Plain Text', extension: '.txt' }
+  { id: 'txt', name: 'Plain Text', extension: '.txt' },
+  { id: 'json', name: 'JSON', extension: '.json' },
 ];
 
 export const ExportActions = React.forwardRef<ExportActionsRef>((_props, ref) => {
   const exportStep = useExportStepContent();
-  const { updateActionsState, setExportingState, addExportRecord } = useExportActions();
-  const actionsState = useExportActionsState();
-  const exportStatus = useExportStatus();
+  const {
+    updateActionsState,
+    setExportingState,
+    addExportRecord,
+    generatePreviewContent,
+    updateExportFormat,
+  } = useExportActions();
   const subtitles = useSubtitles();
+  const isLoading = useStepLoading();
+  const stepError = useStepError();
 
-  const canExport = subtitles.length > 0 && !exportStatus.isExporting;
+  // Extract state from export step
+  const actionsState = exportStep.actionsState;
+  const exportStatus = {
+    isExporting: exportStep.isExporting,
+    exportProgress: exportStep.exportProgress,
+    lastExportError: exportStep.lastExportError,
+  };
+
+  // Add state for success message
+  const [showSuccessMessage, setShowSuccessMessage] = React.useState(false);
+  const [successMessage, setSuccessMessage] = React.useState('');
+
+  const canExport = subtitles && subtitles.length > 0 && !exportStatus.isExporting && !isLoading;
 
   const handleSingleExport = useCallback(async () => {
     if (!canExport) return;
 
     try {
       setExportingState(true, 0);
-      
-      // Simulate export process
-      for (let i = 0; i <= 100; i += 20) {
-        setExportingState(true, i);
-        await new Promise(resolve => setTimeout(resolve, 200));
+
+      // Generate the export content first
+      setExportingState(true, 20);
+      await generatePreviewContent();
+
+      // Get the latest preview content which contains the formatted export
+      // We need to wait a moment for the state to update after generatePreviewContent
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const exportContent = exportStep.previewContent;
+
+      if (!exportContent || exportContent.includes('# No subtitles available')) {
+        throw new Error('No content available for export');
       }
-      
+
+      setExportingState(true, 40);
+
+      // Show save dialog to user
+      const defaultFileName = `subtitles.${exportStep.format}`;
+      const saveResult = await window.electronAPI.saveFileDialog({
+        defaultPath: exportStep.customOutputPath || defaultFileName,
+        filters: [
+          { name: 'Subtitle Files', extensions: [exportStep.format] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+      });
+
+      if (saveResult.canceled || !saveResult.filePath) {
+        setExportingState(false, undefined, 'Export cancelled by user');
+        return;
+      }
+
+      setExportingState(true, 70);
+
+      // Write the file using IPC
+      const writeResult = await window.electronAPI.writeExportFile(
+        saveResult.filePath,
+        exportContent
+      );
+
+      if (!writeResult.success) {
+        throw new Error('Failed to write export file');
+      }
+
+      setExportingState(true, 90);
+
+      // Calculate file size (approximate based on content length)
+      const fileSize = new Blob([exportContent]).size;
+
       // Add to export history
       addExportRecord({
         format: exportStep.format,
-        outputPath: exportStep.customOutputPath || `subtitles.${exportStep.format}`,
+        outputPath: saveResult.filePath,
         exportedAt: new Date().toISOString(),
-        fileSize: Math.floor(Math.random() * 50000) + 10000,
-        subtitleCount: subtitles.length
+        fileSize,
+        subtitleCount: subtitles?.length || 0,
       });
-      
-      setExportingState(false);
+
+      setExportingState(true, 100);
+
+      // Show success message
+      setSuccessMessage(`Successfully exported to ${saveResult.filePath}`);
+      setShowSuccessMessage(true);
+
+      // Show success briefly before clearing
+      setTimeout(() => {
+        setExportingState(false);
+        setShowSuccessMessage(false);
+      }, 3000);
     } catch (error) {
-      console.error('Export failed:', error);
-      setExportingState(false, undefined, error instanceof Error ? error.message : 'Export failed');
+      setShowSuccessMessage(false); // Clear any success messages
+      const errorMessage =
+        error instanceof Error ? error.message : 'Export failed due to an unknown error';
+      setExportingState(false, undefined, errorMessage);
     }
-  }, [canExport, exportStep, subtitles, setExportingState, addExportRecord]);
+  }, [
+    canExport,
+    exportStep,
+    subtitles,
+    setExportingState,
+    addExportRecord,
+    generatePreviewContent,
+  ]);
 
   const handleMultiExport = useCallback(async () => {
-    if (actionsState.selectedFormats.length === 0) return;
+    if (!actionsState.selectedFormats || actionsState.selectedFormats.length === 0) return;
 
     try {
       setExportingState(true, 0);
-      
-      for (const format of actionsState.selectedFormats) {
-        // Simulate export for each format
-        for (let i = 0; i <= 100; i += 25) {
-          setExportingState(true, i);
-          await new Promise(resolve => setTimeout(resolve, 150));
-        }
-        
-        // Add to export history
-        addExportRecord({
-          format,
-          outputPath: `subtitles.${format}`,
-          exportedAt: new Date().toISOString(),
-          fileSize: Math.floor(Math.random() * 50000) + 10000,
-          subtitleCount: subtitles.length
-        });
+
+      // Show folder dialog for multi-export
+      const folderResult = await window.electronAPI.openFolderDialog();
+
+      if (folderResult.canceled || !folderResult.filePaths?.[0]) {
+        setExportingState(false, undefined, 'Export cancelled by user');
+        return;
       }
-      
-      updateActionsState({ 
-        showMultiFormatDialog: false, 
-        selectedFormats: [] 
+
+      const outputFolder = folderResult.filePaths[0];
+      const totalFormats = actionsState.selectedFormats?.length || 0;
+      let completedFormats = 0;
+
+      // Store original format
+      const originalFormat = exportStep.format;
+
+      for (const format of actionsState.selectedFormats || []) {
+        try {
+          const progressStart = (completedFormats / totalFormats) * 80; // Reserve 20% for final operations
+          setExportingState(true, progressStart);
+
+          // Update format for content generation
+          updateExportFormat(format);
+
+          // Wait for format update to propagate
+          await new Promise((resolve) => setTimeout(resolve, 100));
+
+          // Generate content for this format
+          await generatePreviewContent();
+
+          setExportingState(true, progressStart + 10);
+
+          // Wait for content generation to complete
+          await new Promise((resolve) => setTimeout(resolve, 200));
+
+          // Get the generated content
+          const exportContent = exportStep.previewContent;
+
+          if (!exportContent || exportContent.includes('# No subtitles available')) {
+            throw new Error(`No content available for ${format} format`);
+          }
+
+          setExportingState(true, progressStart + 15);
+
+          // Create file path
+          const fileName = `subtitles.${format}`;
+          const filePath = `${outputFolder}/${fileName}`;
+
+          // Write the file
+          const writeResult = await window.electronAPI.writeExportFile(filePath, exportContent);
+
+          if (!writeResult.success) {
+            throw new Error(`Failed to write ${format} file`);
+          }
+
+          setExportingState(true, progressStart + 18);
+
+          // Calculate file size
+          const fileSize = new Blob([exportContent]).size;
+
+          // Add to export history
+          addExportRecord({
+            format,
+            outputPath: filePath,
+            exportedAt: new Date().toISOString(),
+            fileSize,
+            subtitleCount: subtitles?.length || 0,
+          });
+
+          completedFormats++;
+        } catch {
+          // Log format-specific error but continue with other formats
+          // This allows partial success in multi-format exports
+          continue;
+        }
+      }
+
+      setExportingState(true, 90);
+
+      // Restore original format
+      updateExportFormat(originalFormat);
+
+      updateActionsState({
+        showMultiFormatDialog: false,
+        selectedFormats: [],
       });
-      setExportingState(false);
+
+      setExportingState(true, 100);
+
+      // Show success message
+      const exportedFormats = (actionsState.selectedFormats || []).join(', ').toUpperCase();
+      setSuccessMessage(
+        `Successfully exported ${completedFormats} formats (${exportedFormats}) to ${outputFolder}`
+      );
+      setShowSuccessMessage(true);
+
+      // Show success briefly before clearing
+      setTimeout(() => {
+        setExportingState(false);
+        setShowSuccessMessage(false);
+      }, 3000);
     } catch (error) {
-      console.error('Multi-format export failed:', error);
-      setExportingState(false, undefined, error instanceof Error ? error.message : 'Multi-format export failed');
+      setShowSuccessMessage(false); // Clear any success messages
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : 'Multi-format export failed due to an unknown error';
+      setExportingState(false, undefined, errorMessage);
     }
-  }, [actionsState.selectedFormats, subtitles, setExportingState, addExportRecord, updateActionsState]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    actionsState.selectedFormats,
+    subtitles,
+    exportStep,
+    setExportingState,
+    addExportRecord,
+    updateActionsState,
+    generatePreviewContent,
+  ]);
 
   const handleCancel = useCallback(() => {
+    setShowSuccessMessage(false); // Clear any success messages
     setExportingState(false, undefined, 'Export cancelled by user');
   }, [setExportingState]);
 
@@ -121,6 +292,13 @@ export const ExportActions = React.forwardRef<ExportActionsRef>((_props, ref) =>
     }),
     [updateActionsState]
   );
+
+  // Clear success/error messages when export starts
+  useEffect(() => {
+    if (exportStatus.isExporting) {
+      setShowSuccessMessage(false);
+    }
+  }, [exportStatus.isExporting]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -157,11 +335,19 @@ export const ExportActions = React.forwardRef<ExportActionsRef>((_props, ref) =>
         </Box>
       )}
 
+      {/* Success Display */}
+      {showSuccessMessage && (
+        <Alert severity='success' sx={{ mb: 2, '& .MuiAlert-message': { width: '100%' } }}>
+          <AlertTitle>Export Successful</AlertTitle>
+          {successMessage}
+        </Alert>
+      )}
+
       {/* Error Display */}
-      {exportStatus.lastExportError && (
+      {(exportStatus.lastExportError || stepError) && (
         <Alert severity='error' sx={{ mb: 2, '& .MuiAlert-message': { width: '100%' } }}>
           <AlertTitle>Export Error</AlertTitle>
-          {exportStatus.lastExportError}
+          {exportStatus.lastExportError || stepError}
         </Alert>
       )}
 
@@ -171,7 +357,9 @@ export const ExportActions = React.forwardRef<ExportActionsRef>((_props, ref) =>
           <span>
             <Button
               variant='contained'
-              startIcon={exportStatus.isExporting ? <CircularProgress size={20} /> : <DownloadIcon />}
+              startIcon={
+                exportStatus.isExporting ? <CircularProgress size={20} /> : <DownloadIcon />
+              }
               size='large'
               fullWidth
               disabled={!canExport}
@@ -229,13 +417,13 @@ export const ExportActions = React.forwardRef<ExportActionsRef>((_props, ref) =>
                 key={format.id}
                 control={
                   <Checkbox
-                    checked={actionsState.selectedFormats.includes(format.id)}
+                    checked={actionsState.selectedFormats?.includes(format.id) || false}
                     onChange={(e) => {
-                      const currentFormats = actionsState.selectedFormats;
-                      const newFormats = e.target.checked 
+                      const currentFormats = actionsState.selectedFormats || [];
+                      const newFormats = e.target.checked
                         ? [...currentFormats, format.id]
                         : currentFormats.filter((id) => id !== format.id);
-                      
+
                       updateActionsState({ selectedFormats: newFormats });
                     }}
                   />
@@ -252,9 +440,10 @@ export const ExportActions = React.forwardRef<ExportActionsRef>((_props, ref) =>
           <Button
             variant='contained'
             onClick={handleMultiExport}
-            disabled={actionsState.selectedFormats.length === 0}
+            disabled={!actionsState.selectedFormats || actionsState.selectedFormats.length === 0}
           >
-            Export {actionsState.selectedFormats.length} Format{actionsState.selectedFormats.length !== 1 ? 's' : ''}
+            Export {actionsState.selectedFormats?.length || 0} Format
+            {(actionsState.selectedFormats?.length || 0) !== 1 ? 's' : ''}
           </Button>
         </DialogActions>
       </Dialog>

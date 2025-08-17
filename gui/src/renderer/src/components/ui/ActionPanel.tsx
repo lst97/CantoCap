@@ -17,13 +17,7 @@ import {
 } from '../../stores/useStepStore';
 import { useWorkflowActions, useWorkflowStore } from '../../stores/useWorkflowStore';
 import { useProcessingStepActions } from '../../stores/steps/useProcessingStepStore';
-import { ElectronWindow, StepStatus } from '../../stores/types/StoreTypes';
-import {
-  ProcessingConvertConfigResponse,
-  ProcessingTimeEstimateResponse,
-  ProcessingStartResponse,
-  ProcessingCancelResponse,
-} from '@/types';
+import { StepStatus } from '../../stores/types/StoreTypes';
 
 export const ActionPanel = () => {
   // Get app-level data
@@ -95,13 +89,11 @@ export const ActionPanel = () => {
       // Navigate to processing step
       await workflowActions.navigateToStep('processing');
 
-      // Convert step config to ProcessingConfig format using new IPC handler
-      const conversionResult = (await (
-        window as unknown as ElectronWindow
-      ).electron.ipcRenderer.invoke('processing:convertConfig', {
+      // Convert step config to ProcessingConfig format using context bridge API
+      const conversionResult = await window.cantocapAPI.processingConvertConfig({
         inputStep,
         configStep: config,
-      })) as ProcessingConvertConfigResponse;
+      });
 
 
       if (!conversionResult.success || !conversionResult.config) {
@@ -110,12 +102,9 @@ export const ActionPanel = () => {
 
       // Get processing time estimate and show to user
       try {
-        const estimateResult = (await (
-          window as unknown as ElectronWindow
-        ).electron.ipcRenderer.invoke(
-          'processing:getTimeEstimate',
+        const estimateResult = await window.cantocapAPI.processingGetTimeEstimate(
           conversionResult.config
-        )) as ProcessingTimeEstimateResponse;
+        );
 
         if (estimateResult.success && estimateResult.estimate) {
           const { estimate } = estimateResult;
@@ -136,11 +125,10 @@ export const ActionPanel = () => {
         logs: ['Starting transcription process...']
       });
 
-      // Start the actual transcription process
-      const startResult = (await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke(
-        'processing:start',
+      // Start the actual transcription process using context bridge API
+      const startResult = await window.cantocapAPI.processingStart(
         conversionResult.config
-      )) as ProcessingStartResponse;
+      );
 
       if (startResult.success) {
         const successMessage = isRegeneration 
@@ -186,9 +174,7 @@ export const ActionPanel = () => {
 
   const handleCancelTranscription = useCallback(async () => {
     try {
-      const result = (await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke(
-        'processing:cancel'
-      )) as ProcessingCancelResponse;
+      const result = await window.cantocapAPI.processingCancel();
 
       if (result.success) {
         showNotification('Transcription cancelled', 'info');

@@ -735,26 +735,24 @@ export const useConfigAsCliArgs = () => useStepStore((state) => state.actions.ge
 // EXPORT-SPECIFIC HOOKS
 // ============================================================================
 
-// Export state selectors
+// Export state selectors - use centralized store for consistency
+// NOTE: These hooks access export data through the centralized store for consistency,
+// while the individual export store handles its own internal operations
 export const useExportPreviewState = () => useStepStore((state) => state.exportStep.previewState);
 export const useExportActionsState = () => useStepStore((state) => state.exportStep.actionsState);
-export const useExportHighlightConfig = () =>
-  useStepStore((state) => state.exportStep.highlightConfig);
-export const useExportValidationIssues = () =>
-  useStepStore((state) => state.exportStep.validationIssues);
-export const useExportHistoryGrouping = () =>
-  useStepStore((state) => state.exportStep.historyGrouping);
-export const useExportPreviewContent = () =>
-  useStepStore((state) => state.exportStep.previewContent);
+export const useExportHighlightConfig = () => useStepStore((state) => state.exportStep.highlightConfig);
+export const useExportValidationIssues = () => useStepStore((state) => state.exportStep.validationIssues);
+export const useExportHistoryGrouping = () => useStepStore((state) => state.exportStep.historyGrouping);
+export const useExportPreviewContent = () => useStepStore((state) => state.exportStep.previewContent);
+
 export const useExportUserSelections = () => {
   const exportStep = useStepStore((state) => state.exportStep);
-
   return React.useMemo(
     () => ({
-      selectedLanguages: exportStep.selectedLanguages,
-      includeMetadata: exportStep.includeMetadata,
-      showTimestamps: exportStep.showTimestamps,
-      customOutputPath: exportStep.customOutputPath,
+      selectedLanguages: exportStep.selectedLanguages || ['original'],
+      includeMetadata: exportStep.includeMetadata || false,
+      showTimestamps: exportStep.showTimestamps || false,
+      customOutputPath: exportStep.customOutputPath || '',
     }),
     [
       exportStep.selectedLanguages,
@@ -764,9 +762,9 @@ export const useExportUserSelections = () => {
     ]
   );
 };
+
 export const useExportStatus = () => {
   const exportStep = useStepStore((state) => state.exportStep);
-
   return React.useMemo(
     () => ({
       isExporting: exportStep.isExporting,
@@ -777,7 +775,7 @@ export const useExportStatus = () => {
   );
 };
 
-// Export actions selectors - memoized to prevent infinite loops
+// Export actions selectors - delegate to individual export store
 export const useExportActions = () => {
   const actions = useStepStore((state) => state.actions);
 
@@ -801,7 +799,7 @@ export const useExportActions = () => {
   );
 };
 
-// Combined export hook for components - memoized to prevent infinite loops
+// Combined export hook for components - use centralized store for consistency
 export const useExportStepComplete = () => {
   const exportStep = useExportStepContent();
   const actions = useExportActions();

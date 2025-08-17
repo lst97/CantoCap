@@ -1,18 +1,20 @@
-import React, { useMemo, useCallback } from "react";
-import { Box, Typography, Paper, Stack, Chip, Tooltip } from "@mui/material";
+import React, { useMemo, useCallback } from 'react';
+import { Box, Typography, Paper, Stack, Chip, Tooltip, Alert } from '@mui/material';
 import {
   Translate as TranslateIcon,
   Language as LanguageIcon,
   Schedule as ScheduleIcon,
   CheckCircle as CheckCircleIcon,
-} from "@mui/icons-material";
+} from '@mui/icons-material';
 
-import { 
+import {
   useExportActions,
   useExportUserSelections,
-  useSubtitles
-} from "../../../stores/useStepStore";
-import type { Subtitle } from "../../../stores/types/StoreTypes";
+  useSubtitles,
+  useExportStepContent,
+} from '../../../stores/useStepStore';
+import type { Subtitle } from '../../../stores/types/StoreTypes';
+import { getFormatLanguageCapabilities, validateLanguageSelection, type LanguageSelection, type ExportFormat } from '../../../stores/steps/exportLanguageHelpers';
 
 interface QuickOption {
   key: string;
@@ -35,112 +37,180 @@ const analyzeSubtitleEntries = (subtitles: Subtitle[]) => {
       translationCount: 0,
     };
   }
-  
+
   return {
     totalCount: subtitles.length,
-    chineseCount: subtitles.filter(sub => sub.text && sub.text.trim()).length,
-    translationCount: subtitles.filter(sub => sub.translation && sub.translation.trim()).length,
+    chineseCount: subtitles.filter((sub) => sub.text && sub.text.trim()).length,
+    translationCount: subtitles.filter((sub) => sub.translation && sub.translation.trim()).length,
   };
 };
 
 export const LanguageOptions: React.FC = () => {
-  const { updateUserSelections } = useExportActions();
+  const { updateUserSelections, generatePreviewContent } = useExportActions();
   const userSelections = useExportUserSelections();
   const subtitles = useSubtitles();
+  const exportStep = useExportStepContent();
 
   const analysis = useMemo(() => {
-    return analyzeSubtitleEntries(subtitles);
+    return analyzeSubtitleEntries(subtitles || []);
   }, [subtitles]);
+
+  // Get format capabilities for the current export format
+  const formatCapabilities = useMemo(() => {
+    return getFormatLanguageCapabilities(exportStep.format as ExportFormat);
+  }, [exportStep.format]);
+
+  // Validate current language selection
+  const languageValidation = useMemo(() => {
+    return validateLanguageSelection(
+      subtitles || [], 
+      userSelections.selectedLanguages as LanguageSelection[]
+    );
+  }, [subtitles, userSelections.selectedLanguages]);
 
   const handleOptionChange = useCallback(
     (key: string) => {
       switch (key) {
         case 'includeOriginal':
-          const currentLanguages = userSelections.selectedLanguages;
+          const currentLanguages = userSelections.selectedLanguages || [];
           const hasOriginal = currentLanguages.includes('original');
-          const newLanguages = hasOriginal 
-            ? currentLanguages.filter(lang => lang !== 'original')
+          const newLanguages = hasOriginal
+            ? currentLanguages.filter((lang) => lang !== 'original')
             : [...currentLanguages, 'original'];
-          
+
           // Prevent removing all languages
           if (newLanguages.length === 0) return;
-          
+
           updateUserSelections({ selectedLanguages: newLanguages });
+          // Trigger immediate preview update
+          setTimeout(() => generatePreviewContent(), 0);
           break;
-          
+
         case 'includeTranslation':
-          const currentLangs = userSelections.selectedLanguages;
+          const currentLangs = userSelections.selectedLanguages || [];
           const hasTranslation = currentLangs.includes('translation');
-          const newLangs = hasTranslation 
-            ? currentLangs.filter(lang => lang !== 'translation')
+          const newLangs = hasTranslation
+            ? currentLangs.filter((lang) => lang !== 'translation')
             : [...currentLangs, 'translation'];
-          
-          // Prevent removing all languages  
+
+          // Prevent removing all languages
           if (newLangs.length === 0) return;
-          
+
           updateUserSelections({ selectedLanguages: newLangs });
+          // Trigger immediate preview update
+          setTimeout(() => generatePreviewContent(), 0);
           break;
-          
+
         case 'includeMetadata':
           updateUserSelections({ includeMetadata: !userSelections.includeMetadata });
+          // Trigger immediate preview update
+          setTimeout(() => generatePreviewContent(), 0);
           break;
-          
+
         case 'includeTimestamps':
           updateUserSelections({ showTimestamps: !userSelections.showTimestamps });
+          // Trigger immediate preview update
+          setTimeout(() => generatePreviewContent(), 0);
           break;
       }
     },
-    [userSelections, updateUserSelections]
+    [userSelections, updateUserSelections, generatePreviewContent]
   );
 
   const options: QuickOption[] = useMemo(() => {
-    const hasOriginal = userSelections.selectedLanguages.includes('original');
-    const hasTranslation = userSelections.selectedLanguages.includes('translation');
-    
+    const selectedLanguages = userSelections.selectedLanguages || [];
+    const hasOriginal = selectedLanguages.includes('original');
+    const hasTranslation = selectedLanguages.includes('translation');
+
     return [
       {
-        key: "includeOriginal",
-        label: "Original Text",
+        key: 'includeOriginal',
+        label: 'Original Text',
         icon: <LanguageIcon />,
-        description: "Include original subtitle text in the exported file",
+        description: 'Include original subtitle text in the exported file',
         example: `Available: ${analysis.chineseCount}/${analysis.totalCount} subtitles`,
         enabled: hasOriginal,
         disabled: hasOriginal && !hasTranslation,
-        disabledReason: hasOriginal && !hasTranslation ? "At least one language option must be selected" : undefined,
+        disabledReason:
+          hasOriginal && !hasTranslation
+            ? 'At least one language option must be selected'
+            : undefined,
+        compatibility: formatCapabilities.supportsMultipleLanguages 
+          ? undefined 
+          : `${exportStep.format.toUpperCase()} format only supports single language`,
       },
       {
-        key: "includeTranslation",
-        label: "Translation",
+        key: 'includeTranslation',
+        label: 'Translation',
         icon: <TranslateIcon />,
-        description: "Include translation text in the exported file",
-        example: `Available: ${analysis.translationCount}/${analysis.totalCount} subtitles`,
+        description: 'Include translation text in the exported file',
+        example: `Available: ${analysis.translationCount}/${analysis.totalCount} subtitles | ${formatCapabilities.description}`,
         enabled: hasTranslation,
         disabled: hasTranslation && !hasOriginal,
-        disabledReason: hasTranslation && !hasOriginal ? "At least one language option must be selected" : undefined,
+        disabledReason:
+          hasTranslation && !hasOriginal
+            ? 'At least one language option must be selected'
+            : undefined,
+        compatibility: formatCapabilities.supportsMultipleLanguages 
+          ? undefined 
+          : `${exportStep.format.toUpperCase()} format only supports single language`,
       },
       {
-        key: "includeMetadata",
-        label: "Confidence Scores",
+        key: 'includeMetadata',
+        label: 'Confidence Scores',
         icon: <CheckCircleIcon />,
-        description: "Include confidence scores and metadata in export",
+        description: 'Include confidence scores and metadata in export',
         enabled: userSelections.includeMetadata,
+        compatibility: exportStep.format === 'json' ? undefined : 'Limited support in non-JSON formats',
       },
       {
-        key: "includeTimestamps",
-        label: "Show Timestamps",
+        key: 'includeTimestamps',
+        label: 'Show Timestamps',
         icon: <ScheduleIcon />,
-        description: "Include timing information in plain text exports",
+        description: 'Include timing information in plain text exports',
         enabled: userSelections.showTimestamps,
+        compatibility: exportStep.format === 'txt' ? undefined : 'Only applies to TXT format',
       },
     ];
-  }, [analysis, userSelections]);
+  }, [analysis, userSelections, formatCapabilities, exportStep.format]);
 
   return (
     <Box>
+      {/* Language Selection Validation Warning */}
+      {!languageValidation.isValid && languageValidation.warnings.length > 0 && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
+            Language Selection Issue
+          </Typography>
+          {languageValidation.warnings.map((warning, index) => (
+            <Typography key={index} variant="body2" sx={{ fontSize: '0.85rem' }}>
+              • {warning}
+            </Typography>
+          ))}
+        </Alert>
+      )}
+      
+      {/* Format Information */}
+      {formatCapabilities && (
+        <Box sx={{ mb: 2, p: 2, backgroundColor: 'rgba(0, 0, 0, 0.1)', borderRadius: 1 }}>
+          <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+            {exportStep.format.toUpperCase()} Format Compatibility
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem' }}>
+            {formatCapabilities.description}
+          </Typography>
+          {languageValidation.isValid && (
+            <Typography variant="body2" color="success.main" sx={{ fontSize: '0.85rem', mt: 0.5 }}>
+              ✓ {languageValidation.totalAvailable} subtitles will be exported with current selection
+            </Typography>
+          )}
+        </Box>
+      )}
+
       <Box
         sx={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
           gap: 2,
         }}
       >
@@ -152,98 +222,98 @@ export const LanguageOptions: React.FC = () => {
               sx={{
                 p: 2,
                 backgroundColor: option.enabled
-                  ? "rgba(0, 0, 0, 0.3)"
-                  : "rgba(255, 255, 255, 0.05)",
+                  ? 'rgba(0, 0, 0, 0.3)'
+                  : 'rgba(255, 255, 255, 0.05)',
                 border: 1,
-                borderColor: option.enabled ? "primary.main" : "divider",
-                transition: "all 0.2s",
-                cursor: option.disabled ? "not-allowed" : "pointer",
-                position: "relative",
+                borderColor: option.enabled ? 'primary.main' : 'divider',
+                transition: 'all 0.2s',
+                cursor: option.disabled ? 'not-allowed' : 'pointer',
+                position: 'relative',
                 opacity: option.disabled ? 0.6 : 1,
-                "&:hover": !option.disabled ? {
-                  backgroundColor: option.enabled
-                    ? "rgba(0, 0, 0, 0.4)"
-                    : "rgba(255, 255, 255, 0.08)",
-                  transform: "translateY(-1px)",
-                } : {},
+                '&:hover': !option.disabled
+                  ? {
+                      backgroundColor: option.enabled
+                        ? 'rgba(0, 0, 0, 0.4)'
+                        : 'rgba(255, 255, 255, 0.08)',
+                      transform: 'translateY(-1px)',
+                    }
+                  : {},
               }}
             >
-            {/* Check icon in top right */}
-            <Box
-              sx={{
-                position: "absolute",
-                top: 8,
-                right: 8,
-                opacity: option.enabled ? 1 : 0,
-                transition: "opacity 0.2s ease",
-              }}
-            >
-              <CheckCircleIcon color="primary" sx={{ fontSize: "1.2rem" }} />
-            </Box>
-
-            <Stack spacing={1}>
+              {/* Check icon in top right */}
               <Box
-                sx={{ display: "flex", alignItems: "center", gap: 1, pr: 3 }}
+                sx={{
+                  position: 'absolute',
+                  top: 8,
+                  right: 8,
+                  opacity: option.enabled ? 1 : 0,
+                  transition: 'opacity 0.2s ease',
+                }}
               >
-                {option.icon}
-                <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-                  {option.label}
-                </Typography>
+                <CheckCircleIcon color='primary' sx={{ fontSize: '1.2rem' }} />
               </Box>
-              {option.compatibility && (
-                <Box sx={{ ml: 3 }}>
-                  <Chip
-                    label={option.compatibility}
-                    size="small"
-                    sx={{
-                      fontSize: "0.65rem",
-                      height: 18,
-                      backgroundColor: "rgba(255, 152, 0, 0.15)",
-                      color: "#FF9800",
-                      border: "1px solid rgba(255, 152, 0, 0.3)",
-                      fontWeight: 600,
-                    }}
-                  />
+
+              <Stack spacing={1}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, pr: 3 }}>
+                  {option.icon}
+                  <Typography variant='subtitle2' sx={{ fontWeight: 600 }}>
+                    {option.label}
+                  </Typography>
                 </Box>
-              )}
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                sx={{ fontSize: "0.8rem", mb: 1 }}
-              >
-                {option.description}
-              </Typography>
-              {option.example && (
+                {option.compatibility && (
+                  <Box sx={{ ml: 3 }}>
+                    <Chip
+                      label={option.compatibility}
+                      size='small'
+                      sx={{
+                        fontSize: '0.65rem',
+                        height: 18,
+                        backgroundColor: 'rgba(255, 152, 0, 0.15)',
+                        color: '#FF9800',
+                        border: '1px solid rgba(255, 152, 0, 0.3)',
+                        fontWeight: 600,
+                      }}
+                    />
+                  </Box>
+                )}
                 <Typography
-                  variant="body2"
-                  sx={{
-                    fontSize: "0.75rem",
-                    color: option.compatibility
-                      ? "warning.main"
-                      : "primary.main",
-                    fontStyle: "italic",
-                    backgroundColor: option.compatibility
-                      ? "rgba(255, 152, 0, 0.05)"
-                      : "rgba(0, 0, 0, 0.1)",
-                    padding: "4px 8px",
-                    borderRadius: 1,
-                    border: option.compatibility
-                      ? "1px solid rgba(255, 152, 0, 0.2)"
-                      : "1px solid rgba(0, 0, 0, 0.2)",
-                  }}
+                  variant='body2'
+                  color='text.secondary'
+                  sx={{ fontSize: '0.8rem', mb: 1 }}
                 >
-                  {option.example}
+                  {option.description}
                 </Typography>
-              )}
-            </Stack>
-          </Paper>
+                {option.example && (
+                  <Typography
+                    variant='body2'
+                    sx={{
+                      fontSize: '0.75rem',
+                      color: option.compatibility ? 'warning.main' : 'primary.main',
+                      fontStyle: 'italic',
+                      backgroundColor: option.compatibility
+                        ? 'rgba(255, 152, 0, 0.05)'
+                        : 'rgba(0, 0, 0, 0.1)',
+                      padding: '4px 8px',
+                      borderRadius: 1,
+                      border: option.compatibility
+                        ? '1px solid rgba(255, 152, 0, 0.2)'
+                        : '1px solid rgba(0, 0, 0, 0.2)',
+                    }}
+                  >
+                    {option.example}
+                  </Typography>
+                )}
+              </Stack>
+            </Paper>
           );
 
           return option.disabled ? (
             <Tooltip key={option.key} title={option.disabledReason} arrow>
               {paperContent}
             </Tooltip>
-          ) : paperContent;
+          ) : (
+            paperContent
+          );
         })}
       </Box>
     </Box>

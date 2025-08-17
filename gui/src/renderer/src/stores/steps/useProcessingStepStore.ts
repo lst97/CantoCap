@@ -225,7 +225,7 @@ export const useProcessingStepStore = create<ProcessingStepState>((set, _get) =>
 
     cancel: async () => {
       try {
-        await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('processing:cancel');
+        await (window as unknown as ElectronWindow).cantocapAPI.processingCancel();
         
         // Reset processing state
         set(state => ({

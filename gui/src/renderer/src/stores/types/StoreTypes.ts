@@ -223,7 +223,7 @@ export interface WorkflowState {
 
   // Actions
   actions: {
-    navigateToStep: (step: StepType) => Promise<void>;
+    navigateToStep: (step: StepType) => Promise<{ success: boolean; error?: string }>;
     setStepState: (step: StepType, state: StepStatusType) => Promise<void>;
     resetWorkflow: () => Promise<void>;
     loadWorkflowState: (workspaceId: string) => Promise<void>;

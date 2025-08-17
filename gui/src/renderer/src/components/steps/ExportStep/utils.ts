@@ -57,7 +57,7 @@ export const detectLanguageFromFormat = (format: string): string => {
   } else if (lowerFormat.includes('xml') || lowerFormat.includes('ttml')) {
     return 'xml'
   } else if (lowerFormat.includes('json')) {
-    return 'javascript'
+    return 'json'
   }
   
   return 'plaintext'

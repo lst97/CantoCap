@@ -318,7 +318,7 @@ export const useReviewStepStore: UseBoundStore<StoreApi<ReviewStepState>> = crea
 // Selectors
 export const useReviewStepData = () => useReviewStepStore((state: ReviewStepState) => state.data);
 export const useReviewStepActions = () => useReviewStepStore((state: ReviewStepState) => state.actions);
-export const useSubtitles = () => useReviewStepStore((state: ReviewStepState) => state.data.subtitles);
+// Note: useSubtitles is provided by the centralized useStepStore for consistency
 export const useCurrentEdit = () => useReviewStepStore((state: ReviewStepState) => state.data.currentEdit);
 export const usePlaybackPosition = () => useReviewStepStore((state: ReviewStepState) => state.data.playbackPosition);
 export const useSelectedSubtitleIndex = () => useReviewStepStore((state: ReviewStepState) => state.data.selectedSubtitleIndex);

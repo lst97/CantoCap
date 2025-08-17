@@ -70,7 +70,8 @@ const ReviewStepComponent: React.FC = () => {
   }, []);
 
   // Type guard for subtitle validation
-  const isValidSubtitle = useCallback((sub: unknown): sub is { startTime: number; endTime: number; text?: string; caption?: string } => {
+  // Validation for model-generated subtitles (from processing step)
+  const isValidModelSubtitle = useCallback((sub: unknown): sub is { startTime: number; endTime: number; text?: string; caption?: string } => {
     if (sub === null || typeof sub !== 'object') {
       return false;
     }
@@ -80,6 +81,32 @@ const ReviewStepComponent: React.FC = () => {
       typeof subtitle.endTime === 'number' && 
       (typeof subtitle.text === 'string' || typeof subtitle.caption === 'string') && 
       subtitle.startTime < subtitle.endTime
+    );
+  }, []);
+
+  // Validation for user-imported JSON subtitles (from step 1)
+  const isValidImportedSubtitle = useCallback((sub: unknown): sub is { startTime: number; endTime: number; text?: string; caption?: string } => {
+    if (sub === null || typeof sub !== 'object') {
+      return false;
+    }
+    const subtitle = sub as Record<string, unknown>;
+    
+    // More flexible validation for imported JSON - accept different field names
+    const startTime = typeof subtitle.startTime === 'number' ? subtitle.startTime : 
+                     typeof subtitle.start === 'number' ? subtitle.start : null;
+    const endTime = typeof subtitle.endTime === 'number' ? subtitle.endTime : 
+                   typeof subtitle.end === 'number' ? subtitle.end : null;
+    
+    // Accept various text field names from different export formats
+    const hasText = typeof subtitle.text === 'string' || 
+                   typeof subtitle.caption === 'string' || 
+                   typeof subtitle.content === 'string';
+    
+    return (
+      startTime !== null && 
+      endTime !== null && 
+      hasText && 
+      startTime < endTime
     );
   }, []);
 
@@ -106,13 +133,29 @@ const ReviewStepComponent: React.FC = () => {
         };
       }
       
-      // Additional validation for subtitle content - but be more lenient
-      const validSubtitles = stepSubtitles.filter(isValidSubtitle);
-      console.log(`📊 Subtitle validation: ${validSubtitles.length}/${stepSubtitles.length} valid subtitles`);
+      // Additional validation for subtitle content - use appropriate validator
+      // Determine if this is imported JSON (step 1) or model-generated (processing step)
+      const isImportedData = !!importedJsonFile;
+      const validator = isImportedData ? isValidImportedSubtitle : isValidModelSubtitle;
+      const validSubtitles = stepSubtitles.filter(validator);
+      console.log(`📊 Subtitle validation (${isImportedData ? 'imported' : 'model-generated'}): ${validSubtitles.length}/${stepSubtitles.length} valid subtitles`);
       
       // Log some sample subtitles for debugging
       if (stepSubtitles.length > 0 && validSubtitles.length === 0) {
         console.log('🔍 Sample subtitle for debugging:', stepSubtitles[0]);
+        console.log('🔍 Validation type:', isImportedData ? 'imported JSON' : 'model-generated');
+        
+        // Debug first subtitle structure
+        const firstSub = stepSubtitles[0] as Record<string, unknown>;
+        console.log('🔍 First subtitle structure:', {
+          hasStartTime: typeof firstSub?.startTime === 'number',
+          hasEndTime: typeof firstSub?.endTime === 'number',
+          hasText: typeof firstSub?.text === 'string',
+          hasCaption: typeof firstSub?.caption === 'string',
+          hasContent: typeof firstSub?.content === 'string',
+          startTimeValue: firstSub?.startTime,
+          endTimeValue: firstSub?.endTime,
+        });
       }
       
       // Be more lenient - allow if at least some subtitles are valid or if we have any subtitles at all
@@ -151,7 +194,7 @@ const ReviewStepComponent: React.FC = () => {
     }
     
     return { valid: true };
-  }, [isValidSubtitle]);
+  }, [isValidModelSubtitle, isValidImportedSubtitle]);
 
   // Effect to automatically import JSON data from processing step
   useEffect(() => {
@@ -243,7 +286,23 @@ const ReviewStepComponent: React.FC = () => {
                 console.log('⚠️ Failed to update step store:', updateError);
               }
             } else {
-              console.log('❌ No subtitles found in sync store either');
+              console.log('⚠️ No subtitles found in sync store either');
+              // Give a small delay and try again - the export might still be in progress
+              console.log('🔄 Waiting 500ms and trying sync again...');
+              await new Promise(resolve => setTimeout(resolve, 500));
+              const retryResult = await (window as unknown as ElectronWindow).cantocapAPI.subtitleSyncFromStep(activeWorkspaceId!);
+              if (retryResult && retryResult.subtitles && retryResult.subtitles.length > 0) {
+                console.log(`✅ Found ${retryResult.subtitles.length} subtitles in sync store on retry`);
+                subtitlesToValidate = retryResult.subtitles as Subtitle[];
+                try {
+                  await updateStepContent('review', { subtitles: retryResult.subtitles });
+                  console.log('✅ Updated step store with synced subtitles on retry');
+                } catch (updateError) {
+                  console.log('⚠️ Failed to update step store on retry:', updateError);
+                }
+              } else {
+                console.log('❌ Still no subtitles found after retry');
+              }
             }
           } catch (syncError) {
             console.log('⚠️ Failed to load from sync store:', syncError);

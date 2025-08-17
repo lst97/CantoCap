@@ -88,6 +88,30 @@ declare global {
       subtitleSyncToStep: (workspaceId: string, subtitles: any[]) => Promise<{ success: boolean }>;
       subtitleSyncFromStep: (workspaceId: string) => Promise<{ subtitles?: any[] }>;
       
+      // Workflow State Management - CRITICAL FOR STEP TRANSITIONS
+      workflowGetState: (workspaceId: string) => Promise<any>;
+      workflowSetCurrentStep: (workspaceId: string, step: string) => Promise<{ success: boolean }>;
+      workflowSetStepState: (workspaceId: string, step: string, state: string) => Promise<{ success: boolean }>;
+      workflowResetState: (workspaceId: string) => Promise<{ success: boolean }>;
+      workflowRemoveWorkspaceState: (workspaceId: string) => Promise<{ success: boolean }>;
+      workflowGetAllStates: () => Promise<any>;
+      workflowCleanup: (activeWorkspaceIds: string[]) => Promise<{ success: boolean }>;
+      
+      // Processing Control - CRITICAL FOR STEP 2→3 TRANSITION
+      processingStart: (config: any) => Promise<{ success: boolean; error?: string }>;
+      processingCancel: () => Promise<{ success: boolean; error?: string }>;
+      processingGetStatus: () => Promise<{ success: boolean; isRunning: boolean; status: string; error?: string }>;
+      processingConvertConfig: (stepConfig: any) => Promise<{ success: boolean; config?: any; error?: string }>;
+      processingValidateConfig: (config: any) => Promise<{ success: boolean; isValid: boolean; errors?: string[]; error?: string }>;
+      processingGetTimeEstimate: (config: any) => Promise<{ success: boolean; estimate?: any; error?: string }>;
+      processingValidateFFmpeg: () => Promise<{ success: boolean; isValid: boolean; ffmpegPath?: string; error?: string }>;
+      
+      // IPC Event Handlers for processing and workflow events
+      onProcessingEvent: (callback: (data: any) => void) => (() => void);
+      onWorkflowStepChanged: (callback: (data: any) => void) => (() => void);
+      onWorkflowStepStateChanged: (callback: (data: any) => void) => (() => void);
+      onWorkflowStateReset: (callback: (data: any) => void) => (() => void);
+      
       // Utility Functions
       removeAllListeners: () => void;
     };

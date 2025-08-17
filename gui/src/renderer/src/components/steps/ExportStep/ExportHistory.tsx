@@ -61,11 +61,13 @@ export const ExportHistory: React.FC = () => {
     if (!selectedItem) return;
 
     try {
-      // In a real implementation, this would open the file with the system default app
-      // For now, we'll show a message
-      console.log('Opening file:', selectedItem.outputPath);
-    } catch (error) {
-      console.error('Failed to open file:', error);
+      // Use electron API to open file with system default app
+      await window.electronAPI.openFileDialog({
+        defaultPath: selectedItem.outputPath,
+      });
+    } catch {
+      // Silent fail - file may not exist or system may not have default app
+      // TODO: Show user-friendly error message if needed
     }
 
     handleMenuClose();

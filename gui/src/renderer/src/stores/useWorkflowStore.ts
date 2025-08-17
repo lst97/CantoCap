@@ -169,18 +169,21 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         set({ currentStep: step });
         console.log(`✅ Navigation completed: current step set to ${step}`);
 
-        // Persist to main process for cross-session state
+        // Persist to main process for cross-session state using context bridge API
         try {
           const workspaceId = await getWorkspaceId();
-          if (workspaceId && (window as unknown as ElectronWindow).electron?.ipcRenderer) {
-            await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('workflow:setCurrentStep', workspaceId, step);
+          if (workspaceId && (window as unknown as ElectronWindow).cantocapAPI?.workflowSetCurrentStep) {
+            await (window as unknown as ElectronWindow).cantocapAPI.workflowSetCurrentStep(workspaceId, step);
             console.log(`💾 Persisted current step: ${step} for workspace ${workspaceId}`);
           }
         } catch (error) {
           console.error('Failed to persist current step:', error);
+          return { success: false, error: `Failed to persist step: ${error}` };
         }
+        return { success: true };
       } else {
         console.warn(`❌ Cannot navigate to step ${step} - step is blocked or invalid`);
+        return { success: false, error: `Cannot navigate to step ${step} - step is blocked or invalid` };
       }
     },
 
@@ -205,11 +208,11 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         canNavigate: updatedNavigation,
       });
 
-      // Persist step state change to main process only when state actually changed
+      // Persist step state change to main process only when state actually changed using context bridge API
       try {
         const workspaceId = await getWorkspaceId();
-        if (workspaceId && (window as unknown as ElectronWindow).electron?.ipcRenderer) {
-          await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('workflow:setStepState', workspaceId, step, state);
+        if (workspaceId && (window as unknown as ElectronWindow).cantocapAPI?.workflowSetStepState) {
+          await (window as unknown as ElectronWindow).cantocapAPI.workflowSetStepState(workspaceId, step, state);
           console.log(`💾 Persisted step state change: ${step} = ${state} for workspace ${workspaceId}`);
         }
       } catch (error) {
@@ -238,11 +241,11 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
       set(defaultState);
 
-      // Persist the reset state
+      // Persist the reset state using context bridge API
       try {
         const workspaceId = await getWorkspaceId();
-        if (workspaceId && (window as unknown as ElectronWindow).electron?.ipcRenderer) {
-          await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('workflow:resetState', workspaceId);
+        if (workspaceId && (window as unknown as ElectronWindow).cantocapAPI?.workflowResetState) {
+          await (window as unknown as ElectronWindow).cantocapAPI.workflowResetState(workspaceId);
           console.log(`💾 Reset workflow state for workspace ${workspaceId}`);
         }
       } catch (error) {
@@ -252,8 +255,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
     loadWorkflowState: async (workspaceId: string) => {
       try {
-        if ((window as unknown as ElectronWindow).electron?.ipcRenderer) {
-          const persistedState = await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('workflow:getState', workspaceId);
+        if ((window as unknown as ElectronWindow).cantocapAPI?.workflowGetState) {
+          const persistedState = await (window as unknown as ElectronWindow).cantocapAPI.workflowGetState(workspaceId);
           
           if (persistedState && typeof persistedState === 'object' && 
             'currentStep' in persistedState && 'stepStates' in persistedState) {

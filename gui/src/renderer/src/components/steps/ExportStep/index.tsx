@@ -3,8 +3,8 @@ import { Box, Typography, Stack, IconButton, Tooltip, Menu, MenuItem, Alert, Sna
 import { Download as DownloadIcon, MoreVert as MoreVertIcon } from '@mui/icons-material'
 
 import { 
-  useExportStepComplete, 
-  useExportStatus, 
+  useExportStepContent,
+  useExportActions,
   useSubtitles, 
   useStepActions,
   useStepLoading,
@@ -18,19 +18,26 @@ import { ExportPreview } from './ExportPreview'
 import { ExportHistory } from './ExportHistory'
 
 export const ExportStep: React.FC = () => {
-  const exportStep = useExportStepComplete()
-  const exportStatus = useExportStatus()
+  const exportStep = useExportStepContent()
+  const { generatePreviewContent } = useExportActions()
   const subtitles = useSubtitles()
   const stepActions = useStepActions()
   const isLoading = useStepLoading()
   const error = useStepError()
+  
+  // Extract export status from exportStep object
+  const exportStatus = {
+    isExporting: exportStep.isExporting,
+    exportProgress: exportStep.exportProgress,
+    lastExportError: exportStep.lastExportError,
+  }
   
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null)
   const [showErrorNotification, setShowErrorNotification] = useState(false)
   const isMenuOpen = Boolean(menuAnchorEl)
   const exportActionsRef = useRef<ExportActionsRef>(null)
   
-  const canExport = subtitles.length > 0 && !exportStatus.isExporting
+  const canExport = subtitles && subtitles.length > 0 && !exportStatus.isExporting
   
   // Event handlers - defined before any conditional returns to satisfy rules of hooks
   const handleMenuOpen = useCallback((event: React.MouseEvent<HTMLElement>) => {
@@ -55,8 +62,8 @@ export const ExportStep: React.FC = () => {
 
   // Generate initial preview on mount
   useEffect(() => {
-    exportStep.actions.generatePreviewContent()
-  }, [exportStep.actions])
+    generatePreviewContent()
+  }, [generatePreviewContent])
 
   // Show loading state while step is initializing
   if (isLoading) {
@@ -206,10 +213,9 @@ export const ExportStep: React.FC = () => {
           Export Multiple Formats
         </MenuItem>
       </Menu>
-    </Box>
+      </Box>
 
-
-    {/* Error Notification */}
+      {/* Error Notification */}
     <Snackbar
       open={showErrorNotification}
       autoHideDuration={6000}

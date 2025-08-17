@@ -216,6 +216,30 @@ export interface ElectronWindow extends Window {
     ) => Promise<{ success: boolean }>;
     subtitleSyncFromStep: (workspaceId: string) => Promise<{ subtitles?: unknown[] }>;
 
+    // Workflow State Management - CRITICAL FOR STEP TRANSITIONS
+    workflowGetState: (workspaceId: string) => Promise<unknown>;
+    workflowSetCurrentStep: (workspaceId: string, step: string) => Promise<{ success: boolean }>;
+    workflowSetStepState: (workspaceId: string, step: string, state: string) => Promise<{ success: boolean }>;
+    workflowResetState: (workspaceId: string) => Promise<{ success: boolean }>;
+    workflowRemoveWorkspaceState: (workspaceId: string) => Promise<{ success: boolean }>;
+    workflowGetAllStates: () => Promise<unknown>;
+    workflowCleanup: (activeWorkspaceIds: string[]) => Promise<{ success: boolean }>;
+
+    // Processing Control - CRITICAL FOR STEP 2→3 TRANSITION
+    processingStart: (config: unknown) => Promise<{ success: boolean; error?: string }>;
+    processingCancel: () => Promise<{ success: boolean; error?: string }>;
+    processingGetStatus: () => Promise<{ success: boolean; isRunning: boolean; status: string; error?: string }>;
+    processingConvertConfig: (stepConfig: unknown) => Promise<{ success: boolean; config?: unknown; error?: string }>;
+    processingValidateConfig: (config: unknown) => Promise<{ success: boolean; isValid: boolean; errors?: string[]; error?: string }>;
+    processingGetTimeEstimate: (config: unknown) => Promise<{ success: boolean; estimate?: unknown; error?: string }>;
+    processingValidateFFmpeg: () => Promise<{ success: boolean; isValid: boolean; ffmpegPath?: string; error?: string }>;
+
+    // IPC Event Handlers for processing and workflow events
+    onProcessingEvent: (callback: (data: unknown) => void) => (() => void);
+    onWorkflowStepChanged: (callback: (data: unknown) => void) => (() => void);
+    onWorkflowStepStateChanged: (callback: (data: unknown) => void) => (() => void);
+    onWorkflowStateReset: (callback: (data: unknown) => void) => (() => void);
+
     // Utility Functions
     removeAllListeners: () => void;
   };

@@ -20,7 +20,7 @@ import { ProcessingComplete } from "./ProcessingStep/ProcessingComplete";
 import { ProcessingError } from "./ProcessingStep/ProcessingError";
 import { useProcessingEvents } from "../../hooks/useProcessingEvents";
 import type { ProcessingError as ProcessingErrorType } from '@/types';
-import type { ElectronWindow, StepType, StepStatusType } from '../../stores/types/StoreTypes';
+import type { StepType, StepStatusType } from '../../stores/types/StoreTypes';
 
 // Enhanced error categorization and handling
 const categorizeProcessingError = (errorMessage: string): ProcessingErrorType => {
@@ -115,10 +115,7 @@ const validateProcessingPrerequisites = async (): Promise<{ isValid: boolean; er
   
   try {
     // Validate FFmpeg availability
-    const ffmpegValidation = await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('processing:validateFFmpeg') as {
-      success: boolean;
-      isValid: boolean;
-    };
+    const ffmpegValidation = await window.cantocapAPI.processingValidateFFmpeg();
     if (!ffmpegValidation.success || !ffmpegValidation.isValid) {
       errors.push({
         code: 'SETUP_ERROR',

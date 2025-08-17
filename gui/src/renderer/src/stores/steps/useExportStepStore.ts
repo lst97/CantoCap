@@ -1,6 +1,16 @@
 import { create } from 'zustand';
 import { ExportStepData, Subtitle } from '../types/StoreTypes';
 import { formatSRTTime, formatVTTTime, formatTime } from './utils';
+import {
+  getLanguageContent,
+  formatSRTText,
+  formatVTTText,
+  formatTXTText,
+  formatJSONSubtitle,
+  validateLanguageSelection,
+  type LanguageSelection,
+  type ExportFormat
+} from './exportLanguageHelpers';
 
 interface ExportStepState {
   data: ExportStepData;
@@ -284,6 +294,25 @@ export const useExportStepStore = create<ExportStepState>((set, get) => ({
         return;
       }
 
+      // Validate language selection
+      const { selectedLanguages } = state.data;
+      const languageValidation = validateLanguageSelection(
+        subtitles, 
+        selectedLanguages as LanguageSelection[]
+      );
+      
+      if (!languageValidation.isValid) {
+        const warningMessage = `# Export Warning\n\n${languageValidation.warnings.join('\n')}\n\nPlease adjust your language selections in the Export Options.`;
+        set(prevState => ({
+          data: {
+            ...prevState.data,
+            previewContent: warningMessage,
+            lastGenerated: Date.now()
+          }
+        }));
+        return;
+      }
+
       try {
         // Generate preview content based on format
         const { format, exportSettings, selectedLanguages, includeMetadata, showTimestamps } = state.data;
@@ -322,12 +351,13 @@ export const useExportStepStore = create<ExportStepState>((set, get) => ({
                 result += `${startTime} --> ${endTime}\n`;
               }
               
-              let text = sub.text;
-              
-              // Add translation if enabled
-              if ((exportSettings.translation || selectedLanguages.includes('translation')) && sub.translation) {
-                text += `\n${sub.translation}`;
-              }
+              // Get language-aware content
+              const languageContent = getLanguageContent(
+                sub, 
+                selectedLanguages as LanguageSelection[], 
+                'srt' as ExportFormat
+              );
+              let text = formatSRTText(languageContent);
               
               // Add metadata if requested
               if (includeMetadata && sub.confidence) {
@@ -353,12 +383,13 @@ export const useExportStepStore = create<ExportStepState>((set, get) => ({
                 result += `${startTime} --> ${endTime}\n`;
               }
               
-              let text = sub.text;
-              
-              // Add translation if enabled
-              if ((exportSettings.translation || selectedLanguages.includes('translation')) && sub.translation) {
-                text += `\n${sub.translation}`;
-              }
+              // Get language-aware content
+              const languageContent = getLanguageContent(
+                sub, 
+                selectedLanguages as LanguageSelection[], 
+                'vtt' as ExportFormat
+              );
+              let text = formatVTTText(languageContent);
               
               // Apply line breaks and length formatting
               text = formatText(text);
@@ -377,16 +408,66 @@ export const useExportStepStore = create<ExportStepState>((set, get) => ({
                 text += `[${formatTime(sub.startTime)}] `;
               }
               
-              text += sub.text;
-              
-              // Add translation if enabled
-              if ((exportSettings.translation || selectedLanguages.includes('translation')) && sub.translation) {
-                text += ` (${sub.translation})`;
-              }
+              // Get language-aware content
+              const languageContent = getLanguageContent(
+                sub, 
+                selectedLanguages as LanguageSelection[], 
+                'txt' as ExportFormat
+              );
+              text += formatTXTText(languageContent);
               
               // Apply line breaks and length formatting
               return formatText(text);
             }).join('\n');
+            break;
+
+          case 'json':
+            // Get config data for metadata - use a try-catch to handle missing config
+            let configData;
+            try {
+              const { useConfigStepStore } = await import('./useConfigStepStore');
+              configData = useConfigStepStore.getState().data;
+            } catch (error) {
+              console.warn('Could not get config data for JSON export metadata:', error);
+              configData = null;
+            }
+
+            // Calculate total duration
+            const totalDuration = subtitles.length > 0 
+              ? Math.max(...subtitles.map(sub => sub.endTime))
+              : 0;
+
+            // Create JSON structure with dynamic field inclusion
+            const jsonData = {
+              metadata: {
+                format: 'JSON',
+                version: '1.0',
+                generatedAt: new Date().toISOString(),
+                settings: {
+                  language: configData?.language || 'zh',
+                  charset: configData?.charset || 'traditional',
+                  modelUsed: configData?.modelSettings?.whisperModel || 'whisper-medium',
+                  geminiEnabled: configData?.modelSettings?.enableGemini || false,
+                  speakerDiarization: configData?.speakers || false,
+                  musicDetection: configData?.music || false,
+                  selectedLanguages: selectedLanguages
+                },
+                statistics: {
+                  totalSubtitles: subtitles.length,
+                  totalDuration: Math.round(totalDuration * 100) / 100
+                }
+              },
+              subtitles: subtitles.map((sub, index) => {
+                const languageContent = getLanguageContent(
+                  sub, 
+                  selectedLanguages as LanguageSelection[], 
+                  'json' as ExportFormat
+                );
+                return formatJSONSubtitle(sub, languageContent, index);
+              })
+            };
+
+            content = JSON.stringify(jsonData, null, 2);
             break;
 
           default:
@@ -415,36 +496,11 @@ export const useExportStepStore = create<ExportStepState>((set, get) => ({
   }
 }));
 
-// Selectors
+// Individual store selectors - for direct store access when needed
+// These are unique to the individual store and provide direct access to store internals
 export const useExportStepData = () => useExportStepStore(state => state.data);
 export const useExportStepActions = () => useExportStepStore(state => state.actions);
-export const useExportFormat = () => useExportStepStore(state => state.data.format);
-export const useExportPreviewState = () => useExportStepStore(state => state.data.previewState);
-export const useExportActionsState = () => useExportStepStore(state => state.data.actionsState);
-export const useExportHighlightConfig = () => useExportStepStore(state => state.data.highlightConfig);
-export const useExportValidationIssues = () => useExportStepStore(state => state.data.validationIssues);
-export const useExportHistoryGrouping = () => useExportStepStore(state => state.data.historyGrouping);
-export const useExportPreviewContent = () => useExportStepStore(state => state.data.previewContent);
-export const useExportHistory = () => useExportStepStore(state => state.data.exportHistory);
-export const useExportUserSelections = () => useExportStepStore(state => ({
-  selectedLanguages: state.data.selectedLanguages,
-  includeMetadata: state.data.includeMetadata,
-  showTimestamps: state.data.showTimestamps,
-  customOutputPath: state.data.customOutputPath
-}));
-export const useExportStatus = () => useExportStepStore(state => ({
-  isExporting: state.data.isExporting,
-  exportProgress: state.data.exportProgress,
-  lastExportError: state.data.lastExportError
-}));
 
-// Combined export hook for components
-export const useExportStepComplete = () => {
-  const data = useExportStepData();
-  const actions = useExportStepActions();
-  
-  return {
-    ...data,
-    actions
-  };
-};
+// Note: Other export hooks (useExportFormat, useExportPreviewState, etc.) are provided 
+// by the centralized useStepStore for consistency across the application.
+// Components should use the centralized store hooks for better coordination.
