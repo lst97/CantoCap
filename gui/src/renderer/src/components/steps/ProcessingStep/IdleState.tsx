@@ -1,84 +1,70 @@
-import React from "react";
-import {
-  Box,
-  Typography,
-  Stack,
-} from "@mui/material";
+import React from 'react';
+import { Box, Typography, Stack } from '@mui/material';
 import {
   PlayArrow as PlayIcon,
   Visibility as ReviewIcon,
   RestartAlt as RestartIcon,
-} from "@mui/icons-material";
-import { useConfigStepContent } from "../../../stores/useStepStore";
-import { useWorkflowActions } from "../../../stores/useWorkflowStore";
-import { ProcessingCard, GuideButton, SecondaryGuideButton } from "./styles";
+} from '@mui/icons-material';
+import { useConfigStepContent } from '../../../stores/useStepStore';
+import { useWorkflowActions } from '../../../stores/useWorkflowStore';
+import { useSubtitleActions } from '../../../stores/useSubtitleEditStore';
+import { StepStatus } from '../../../stores/types/StoreTypes';
+import { ProcessingCard, GuideButton, SecondaryGuideButton } from './styles';
 
 export const IdleState: React.FC = () => {
   const config = useConfigStepContent();
   const workflowActions = useWorkflowActions();
+  const { clearWorkspace } = useSubtitleActions();
 
-  const handleNewGeneration = () => {
-    workflowActions.navigateToStep("config");
+  const handleNewGeneration = async () => {
+    // Clear subtitle store to prepare for new transcription results
+    console.log('🧹 Clearing subtitle store for fresh transcription from idle state');
+    await clearWorkspace();
+
+    // Set steps 1 and 2 as complete to enable navigation to config
+    await workflowActions.setStepState('input', StepStatus.COMPLETE);
+    await workflowActions.setStepState('config', StepStatus.COMPLETE);
+    await workflowActions.navigateToStep('config');
   };
 
   const handleReviewResults = () => {
-    workflowActions.navigateToStep("review");
+    workflowActions.navigateToStep('review');
   };
 
   return (
     <ProcessingCard>
-      <Box sx={{ textAlign: "center", py: 2 }}>
+      <Box sx={{ textAlign: 'center', py: 2 }}>
         {/* Header */}
         <Box sx={{ mb: 4 }}>
-          <RestartIcon sx={{ fontSize: "3rem", color: "#F59E0B", mb: 2 }} />
-          <Typography
-            variant="h5"
-            sx={{ fontWeight: 600, mb: 1, color: "#FFFFFF" }}
-          >
+          <RestartIcon sx={{ fontSize: '3rem', color: '#F59E0B', mb: 2 }} />
+          <Typography variant='h5' sx={{ fontWeight: 600, mb: 1, color: '#FFFFFF' }}>
             Ready to Process
           </Typography>
-          <Typography
-            variant="body1"
-            sx={{ color: "text.secondary", maxWidth: 400, mx: "auto" }}
-          >
-            Choose what you&apos;d like to do next. You can generate new subtitles or
-            review previous results.
+          <Typography variant='body1' sx={{ color: 'text.secondary', maxWidth: 400, mx: 'auto' }}>
+            Choose what you&apos;d like to do next. You can generate new subtitles or review
+            previous results.
           </Typography>
         </Box>
 
         {/* Action Buttons */}
-        <Stack spacing={3} sx={{ maxWidth: 500, mx: "auto" }}>
-          <GuideButton
-            fullWidth
-            startIcon={<PlayIcon />}
-            onClick={handleNewGeneration}
-          >
-            <Box sx={{ textAlign: "left", flex: 1 }}>
-              <Typography variant="body1" sx={{ fontWeight: 600, mb: 0.5 }}>
+        <Stack spacing={3} sx={{ maxWidth: 500, mx: 'auto' }}>
+          <GuideButton fullWidth startIcon={<PlayIcon />} onClick={handleNewGeneration}>
+            <Box sx={{ textAlign: 'left', flex: 1 }}>
+              <Typography variant='body1' sx={{ fontWeight: 600, mb: 0.5 }}>
                 Generate New Subtitles
               </Typography>
-              <Typography
-                variant="body2"
-                sx={{ opacity: 0.8, fontSize: "0.85rem" }}
-              >
+              <Typography variant='body2' sx={{ opacity: 0.8, fontSize: '0.85rem' }}>
                 Go to Configuration step to set up and start a new transcription
               </Typography>
             </Box>
           </GuideButton>
 
-          <SecondaryGuideButton
-            fullWidth
-            startIcon={<ReviewIcon />}
-            onClick={handleReviewResults}
-          >
-            <Box sx={{ textAlign: "left", flex: 1 }}>
-              <Typography variant="body1" sx={{ fontWeight: 600, mb: 0.5 }}>
+          <SecondaryGuideButton fullWidth startIcon={<ReviewIcon />} onClick={handleReviewResults}>
+            <Box sx={{ textAlign: 'left', flex: 1 }}>
+              <Typography variant='body1' sx={{ fontWeight: 600, mb: 0.5 }}>
                 Review Previous Results
               </Typography>
-              <Typography
-                variant="body2"
-                sx={{ opacity: 0.8, fontSize: "0.85rem" }}
-              >
+              <Typography variant='body2' sx={{ opacity: 0.8, fontSize: '0.85rem' }}>
                 View and edit previously generated subtitles
               </Typography>
             </Box>
@@ -91,19 +77,19 @@ export const IdleState: React.FC = () => {
             sx={{
               mt: 4,
               pt: 3,
-              borderTop: "1px solid rgba(64, 68, 75, 0.3)",
+              borderTop: '1px solid rgba(64, 68, 75, 0.3)',
             }}
           >
-            <Typography variant="body2" sx={{ color: "text.secondary", mb: 1 }}>
+            <Typography variant='body2' sx={{ color: 'text.secondary', mb: 1 }}>
               Last processed file:
             </Typography>
             <Typography
-              variant="body2"
+              variant='body2'
               sx={{
-                color: "#7DD3FC",
-                fontFamily: "monospace",
-                fontSize: "0.85rem",
-                wordBreak: "break-all",
+                color: '#7DD3FC',
+                fontFamily: 'monospace',
+                fontSize: '0.85rem',
+                wordBreak: 'break-all',
               }}
             >
               {config.inputFile}

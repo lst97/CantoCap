@@ -132,6 +132,10 @@ export const useProcessingEvents = () => {
             // Update processing step store with completion data
             updateStatusFromEvent(completionData);
             
+            // CRITICAL FIX: Ensure processing store status is set to 'completed' to prevent timer updates
+            console.log('🔧 useProcessingEvents: Explicitly setting processing store status to completed');
+            updateStatusFromEvent({ status: 'completed' });
+            
             // Handle step transitions and review step setup
             try {
               console.log('📡 useProcessingEvents: Starting completion workflow...');

@@ -80,7 +80,7 @@ const createComprehensiveCleanup = (
     workspaceId?: string
   ) => Promise<void>,
   setStepState: (step: StepType, status: StepStatus) => Promise<void>,
-  navigateToStep: (step: StepType) => Promise<void>,
+  navigateToStep: (step: StepType) => Promise<{ success: boolean; error?: string }>,
   useSubtitleActions: () => SubtitleActionsType
 ) => {
   return async (options: CleanupOptions) => {
@@ -145,7 +145,7 @@ const createComprehensiveCleanup = (
             statistics: undefined,
             timeElapsed: undefined,
             estimatedTimeRemaining: undefined,
-            hardwareInfo: undefined
+            hardwareInfo: undefined,
           });
 
           // Reset review step - clear all subtitle data
@@ -162,23 +162,23 @@ const createComprehensiveCleanup = (
             searchQuery: undefined,
             filteredSubtitles: [],
             hasUnsavedChanges: false,
-            inputFile: undefined
+            inputFile: undefined,
           });
 
-          // Reset export step - clear export history and state  
+          // Reset export step - clear export history and state
           await updateStepContent('export', {
             exportHistory: [],
             lastExported: undefined,
-            actionsState: { 
-              isExporting: false, 
+            actionsState: {
+              isExporting: false,
               exportProgress: 0,
-              exportError: undefined 
+              exportError: undefined,
             },
             previewState: {
               isPreviewReady: false,
               previewContent: '',
-              lastPreviewGenerated: undefined
-            }
+              lastPreviewGenerated: undefined,
+            },
           });
 
           console.log('✅ Processing, review, and export step content reset');
@@ -209,9 +209,13 @@ const createComprehensiveCleanup = (
 
           // Navigate to target step
           const targetStep = options.targetStep || 'input';
-          await navigateToStep(targetStep);
-
-          console.log(`✅ Workflow state reset, navigated to ${targetStep}`);
+          const navigationResult = await navigateToStep(targetStep);
+          
+          if (navigationResult.success) {
+            console.log(`✅ Workflow state reset, navigated to ${targetStep}`);
+          } else {
+            console.error(`❌ Failed to navigate to ${targetStep}:`, navigationResult.error);
+          }
         } catch (workflowError) {
           console.error('❌ Failed to reset workflow state:', workflowError);
         }
@@ -286,85 +290,90 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
   const [isImportingJson, setIsImportingJson] = useState(false);
 
   // Function to generate video thumbnail and metadata using main process
-  const generateVideoMetadata = useCallback(async (filePath: string) => {
-    setIsGeneratingMetadata(true);
-    try {
-      console.log('🎬 Processing video metadata using main process for:', filePath);
+  const generateVideoMetadata = useCallback(
+    async (filePath: string) => {
+      setIsGeneratingMetadata(true);
+      try {
+        console.log('🎬 Processing video metadata using main process for:', filePath);
 
-      // Use the new IPC-based video processing
-      const result = await window.cantocapAPI.getVideoMetadata(filePath);
+        // Use the new IPC-based video processing
+        const result = await window.cantocapAPI.getVideoMetadata(filePath);
 
-      if (result.error) {
-        console.warn('Error processing video metadata:', result.error);
-        setMetadataGenerationFailed(true);
-        return;
-      }
-
-      // Set thumbnail if available
-      if (result.thumbnail) {
-        setVideoThumbnail(result.thumbnail);
-        console.log('✅ Video thumbnail generated successfully');
-      }
-
-      // Set metadata if available
-      if (result.metadata) {
-        // Format duration from seconds to mm:ss format
-        const formatDuration = (seconds: number) => {
-          if (!isFinite(seconds) || seconds < 0) return '0:00';
-          const mins = Math.floor(seconds / 60);
-          const secs = Math.floor(seconds % 60);
-          return `${mins}:${secs.toString().padStart(2, '0')}`;
-        };
-
-        // Format file size
-        const formatFileSize = (bytes: number) => {
-          if (bytes === 0) return 'Unknown';
-          const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-          const i = Math.floor(Math.log(bytes) / Math.log(1024));
-          return Math.round((bytes / Math.pow(1024, i)) * 100) / 100 + ' ' + sizes[i];
-        };
-
-        const formattedMetadata = {
-          duration: formatDuration(result.metadata.duration),
-          resolution: `${result.metadata.width}×${result.metadata.height}`,
-          size: formatFileSize(result.metadata.size),
-        };
-        setVideoMetadata(formattedMetadata);
-        
-        // Also update the step store with metadata, including raw numeric duration for timeout calculation
-        try {
-          console.log('🔧 [DEBUG] FileSelector - Storing videoDurationSeconds:', {
-            'result.metadata.duration': result.metadata.duration,
-            'typeof duration': typeof result.metadata.duration,
-            'isNumber': typeof result.metadata.duration === 'number',
-            'isNaN': isNaN(result.metadata.duration),
-            'value': result.metadata.duration
-          });
-
-          await updateStepContent('input', {
-            mediaMetadata: formattedMetadata,
-            videoDurationSeconds: result.metadata.duration, // Store raw duration in seconds for processing timeout
-            lastModified: Date.now()
-          });
-
-          console.log('✅ FileSelector - Successfully stored video metadata including videoDurationSeconds');
-        } catch (error) {
-          console.error('Failed to save video metadata to step store:', error);
+        if (result.error) {
+          console.warn('Error processing video metadata:', result.error);
+          setMetadataGenerationFailed(true);
+          return;
         }
 
-        console.log('✅ Video metadata processed successfully:', {
-          duration: result.metadata.duration,
-          resolution: `${result.metadata.width}×${result.metadata.height}`,
-          format: result.metadata.format,
-        });
+        // Set thumbnail if available
+        if (result.thumbnail) {
+          setVideoThumbnail(result.thumbnail);
+          console.log('✅ Video thumbnail generated successfully');
+        }
+
+        // Set metadata if available
+        if (result.metadata) {
+          // Format duration from seconds to mm:ss format
+          const formatDuration = (seconds: number) => {
+            if (!isFinite(seconds) || seconds < 0) return '0:00';
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+          };
+
+          // Format file size
+          const formatFileSize = (bytes: number) => {
+            if (bytes === 0) return 'Unknown';
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(1024));
+            return Math.round((bytes / Math.pow(1024, i)) * 100) / 100 + ' ' + sizes[i];
+          };
+
+          const formattedMetadata = {
+            duration: formatDuration(result.metadata.duration),
+            resolution: `${result.metadata.width}×${result.metadata.height}`,
+            size: formatFileSize(result.metadata.size),
+          };
+          setVideoMetadata(formattedMetadata);
+
+          // Also update the step store with metadata, including raw numeric duration for timeout calculation
+          try {
+            console.log('🔧 [DEBUG] FileSelector - Storing videoDurationSeconds:', {
+              'result.metadata.duration': result.metadata.duration,
+              'typeof duration': typeof result.metadata.duration,
+              isNumber: typeof result.metadata.duration === 'number',
+              isNaN: isNaN(result.metadata.duration),
+              value: result.metadata.duration,
+            });
+
+            await updateStepContent('input', {
+              mediaMetadata: formattedMetadata,
+              videoDurationSeconds: result.metadata.duration, // Store raw duration in seconds for processing timeout
+              lastModified: Date.now(),
+            });
+
+            console.log(
+              '✅ FileSelector - Successfully stored video metadata including videoDurationSeconds'
+            );
+          } catch (error) {
+            console.error('Failed to save video metadata to step store:', error);
+          }
+
+          console.log('✅ Video metadata processed successfully:', {
+            duration: result.metadata.duration,
+            resolution: `${result.metadata.width}×${result.metadata.height}`,
+            format: result.metadata.format,
+          });
+        }
+      } catch (error) {
+        console.warn('Error in generateVideoMetadata:', error);
+        setMetadataGenerationFailed(true);
+      } finally {
+        setIsGeneratingMetadata(false);
       }
-    } catch (error) {
-      console.warn('Error in generateVideoMetadata:', error);
-      setMetadataGenerationFailed(true);
-    } finally {
-      setIsGeneratingMetadata(false);
-    }
-  }, []);
+    },
+    [updateStepContent]
+  );
 
   // React 19 Optimization: Memoize video extensions to prevent recreation
   const videoExtensions = useMemo(() => ['mp4', 'avi', 'mov', 'mkv', 'webm', 'flv'], []);
@@ -878,7 +887,10 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
           await setStepState('review', StepStatus.READY); // Step 4 ready
 
           // Navigate to step 4 (review)
-          await navigateToStep('review');
+          const reviewNavigationResult = await navigateToStep('review');
+          if (!reviewNavigationResult.success) {
+            console.error('❌ Failed to navigate to review step:', reviewNavigationResult.error);
+          }
 
           // Notify parent component if callback is provided
           if (onJsonFileSelect) {

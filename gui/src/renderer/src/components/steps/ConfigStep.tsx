@@ -11,7 +11,9 @@ import { QuickOptionsSelector } from '../forms/QuickOptionsSelector';
 import { CharsetSelector } from '../forms/CharsetSelector';
 import { APIKeyInput } from '../forms/APIKeyInput';
 import { TranslationSelector } from '../forms/TranslationSelector';
-import { ActionPanel } from '../ui/ActionPanel';
+// ActionPanel removed - processing logic should be handled in Step 3, not Step 2
+import { Button } from '@mui/material';
+import { PlayArrow as PlayIcon } from '@mui/icons-material';
 import { BaseCard } from '../elements';
 import {
   useConfigStepContent,
@@ -19,16 +21,19 @@ import {
   useStepError,
   useStepLoading,
   useInputStepContent,
-  useProcessingStepContent,
+  useProcessingStepContent, // Re-added for processing status validation
 } from '../../stores/useStepStore';
 import { useWorkflowStore } from '../../stores/useWorkflowStore';
+import { useActiveWorkspaceId } from '../../stores/useAppStore';
+import { useSubtitleActions } from '../../stores/useSubtitleEditStore';
+import { useProcessingStepActions } from '../../stores/steps/useProcessingStepStore';
 import type {
   TranslationLanguage,
   ProcessingLanguage,
   WhisperModel,
   ConfigStepData,
 } from '../../stores/types/StoreTypes';
-import { StepStatus } from '../../stores/types/StoreTypes';
+import { StepStatus, StepStatusType } from '../../stores/types/StoreTypes';
 
 // Context for config updates
 const ConfigUpdateContext = React.createContext<{
@@ -321,13 +326,20 @@ const ConfigSection: React.FC<{
 export const ConfigStep: React.FC = () => {
   const config = useConfigStepContent();
   const inputStep = useInputStepContent();
-  const processing = useProcessingStepContent();
+  const processing = useProcessingStepContent(); // Re-added for processing status validation
   const { updateStepContent, clearError } = useStepActions();
   const setStepState = useWorkflowStore(state => state.actions.setStepState);
+  const currentConfigStepState = useWorkflowStore(state => state.stepStates.config);
+  const workflowActions = useWorkflowStore(state => state.actions);
+  const activeWorkspaceId = useActiveWorkspaceId();
+  const { clearWorkspace } = useSubtitleActions();
+  const { startProcessing } = useProcessingStepActions();
   const error = useStepError();
   const isLoading = useStepLoading();
   const [showErrorNotification, setShowErrorNotification] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [userErrorMessage, setUserErrorMessage] = useState<string>('');
+  const [showUserError, setShowUserError] = useState(false);
 
   const isReady = !isLoading;
 
@@ -375,28 +387,279 @@ export const ConfigStep: React.FC = () => {
   }, [validation]);
 
   // Update config step state based on validation and input file availability
+  // IMPORTANT: Only change step state if the calculated state differs from current state
+  // This prevents unnecessary state changes when navigating to the step
   useEffect(() => {
     const inputFile = inputStep?.inputFile || inputStep?.selectedFile;
-    const isProcessingCompleted = processing?.status === 'completed';
     const huggingFaceKey = config?.apiKeys?.huggingface;
     
-    if (isProcessingCompleted) {
-      // If processing is complete, keep config step as READY
-      setStepState('config', StepStatus.READY);
-    } else if (!inputFile) {
+    // Calculate what the step state should be based on current conditions
+    // Removed processing status check - Step 2 should not depend on processing state
+    let calculatedState: StepStatusType;
+    if (!inputFile) {
       // If no input file from step 1, show warning
-      setStepState('config', StepStatus.WARNING);
+      calculatedState = StepStatus.WARNING;
     } else if (!huggingFaceKey) {
       // If no Hugging Face API key, show warning (required)
-      setStepState('config', StepStatus.WARNING);
+      calculatedState = StepStatus.WARNING;
     } else if (validation.isValid) {
       // If validation passes and input file exists and API key provided, set to READY
-      setStepState('config', StepStatus.READY);
+      calculatedState = StepStatus.READY;
     } else {
       // If other validation fails, set to WARNING
-      setStepState('config', StepStatus.WARNING);
+      calculatedState = StepStatus.WARNING;
     }
-  }, [inputStep?.inputFile, inputStep?.selectedFile, processing?.status, validation.isValid, config?.apiKeys?.huggingface, setStepState]);
+    
+    // Only call setStepState if the calculated state is different from current state
+    // This prevents unnecessary step state changes during navigation
+    if (currentConfigStepState !== calculatedState) {
+      console.log(`📊 ConfigStep: Step state needs update: ${currentConfigStepState} → ${calculatedState}`);
+      setStepState('config', calculatedState);
+    } else {
+      console.log(`📊 ConfigStep: Step state unchanged (${currentConfigStepState}), skipping setStepState`);
+    }
+  }, [inputStep?.inputFile, inputStep?.selectedFile, validation.isValid, config?.apiKeys?.huggingface, currentConfigStepState, setStepState]);
+
+  // Simple handler to start subtitle generation and navigate to Step 3
+  const handleStartTranscription = useCallback(async () => {
+    if (!activeWorkspaceId) {
+      console.error('No workspace selected');
+      return;
+    }
+
+    const inputFile = inputStep?.inputFile || inputStep?.selectedFile;
+    const huggingFaceKey = config?.apiKeys?.huggingface;
+
+    // Comprehensive validation with user-friendly error messages
+    if (!inputFile) {
+      setUserErrorMessage('Please select an input file first');
+      setShowUserError(true);
+      return;
+    }
+
+    if (!activeWorkspaceId) {
+      setUserErrorMessage('Please select a workspace first');
+      setShowUserError(true);
+      return;
+    }
+
+    if (!huggingFaceKey) {
+      setUserErrorMessage('Hugging Face API key is required for subtitle generation');
+      setShowUserError(true);
+      return;
+    }
+
+    if (processing.status === 'running') {
+      setUserErrorMessage('Processing is already running. Please wait for it to complete.');
+      setShowUserError(true);
+      return;
+    }
+
+    // Use the existing validation logic from Step 2
+    const validationResult = validateConfiguration(config);
+    if (!validationResult.isValid) {
+      const errorMsg = `Configuration issues: ${validationResult.errors.join(', ')}`;
+      setUserErrorMessage(errorMsg);
+      setShowUserError(true);
+      return;
+    }
+
+    // Additional validation for required fields
+    if (!config?.charset) {
+      setUserErrorMessage('Character set is required');
+      setShowUserError(true);
+      return;
+    }
+
+    if (!config?.language) {
+      setUserErrorMessage('Processing language is required');
+      setShowUserError(true);
+      return;
+    }
+
+    if (!config?.modelSettings?.whisperModel) {
+      setUserErrorMessage('Whisper model is required');
+      setShowUserError(true);
+      return;
+    }
+
+    try {
+      console.log('🎯 Generate Subtitles clicked - updating workflow states and navigating to Step 3');
+
+      // Clear subtitle store to prepare for new transcription results
+      console.log('🧹 Clearing subtitle store for fresh transcription');
+      await clearWorkspace(activeWorkspaceId, false);
+
+      // IMPORTANT: Mark config as complete first, then set processing step to ready
+      // Navigation permissions are calculated based on current step states
+      await setStepState('config', StepStatus.COMPLETE);
+      console.log('✅ Config step marked as complete');
+      
+      await setStepState('processing', StepStatus.READY);
+      console.log('✅ Processing step set to ready');
+
+      // Navigate to processing step - now it should be accessible
+      await workflowActions.navigateToStep('processing');
+      console.log('🔄 Navigated to Step 3 (Processing)');
+
+      // Now start the actual processing
+      // Convert step config to ProcessingConfig format using context bridge API
+      const conversionResult = await window.cantocapAPI.processingConvertConfig({
+        inputStep,
+        configStep: config,
+      });
+
+      if (!conversionResult.success || !conversionResult.config) {
+        throw new Error(conversionResult.error || 'Failed to convert configuration');
+      }
+
+      // Get processing time estimate and show to user
+      try {
+        const estimateResult = await window.cantocapAPI.processingGetTimeEstimate(
+          conversionResult.config
+        );
+
+        if (estimateResult.success && estimateResult.estimate) {
+          const { estimate } = estimateResult;
+          const durationText = estimate.basedOnDuration
+            ? `Based on media duration, estimated processing time: ${estimate.estimatedProcessingDisplay}`
+            : `Estimated processing time: ${estimate.estimatedProcessingDisplay} (timeout: ${estimate.timeoutDisplay})`;
+          console.log('⏱️ Processing estimate:', durationText);
+        }
+      } catch (estimateError) {
+        console.warn('Failed to get processing estimate:', estimateError);
+        // Continue without estimate - not critical
+      }
+
+      // Update the processing store to 'running' state BEFORE starting the IPC call
+      console.log('🚀 ConfigStep: Setting processing state to running before starting backend');
+      startProcessing({
+        currentPhase: 'initializing',
+        logs: ['Starting transcription process...']
+      });
+
+      // Start the actual transcription process using context bridge API
+      const startResult = await window.cantocapAPI.processingStart(
+        conversionResult.config
+      );
+
+      if (startResult.success) {
+        console.log('✅ ConfigStep: Processing started successfully, backend will send status updates via IPC events');
+      } else {
+        // If backend start failed, reset processing state back to idle
+        console.error('❌ ConfigStep: Backend processing start failed, resetting state');
+        startProcessing({ status: 'idle', logs: ['Failed to start processing'] });
+        throw new Error(startResult.error || 'Failed to start transcription process');
+      }
+      
+    } catch (error) {
+      console.error('Failed to start transcription workflow:', error);
+      
+      // Show user-friendly error message
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      setUserErrorMessage(`Failed to start transcription: ${errorMessage}`);
+      setShowUserError(true);
+      
+      // Reset workflow states back to config if there was an error
+      try {
+        console.log('❌ Transcription start failed - resetting workflow states');
+        await setStepState('config', StepStatus.READY);
+        await setStepState('processing', StepStatus.ERROR);
+        await workflowActions.navigateToStep('config');
+        console.log('✅ Workflow states reset to config step');
+      } catch (navError) {
+        console.error('Failed to reset workflow states:', navError);
+      }
+    }
+  }, [activeWorkspaceId, inputStep, config, clearWorkspace, setStepState, workflowActions, startProcessing]);
+
+  // Check if we can start transcription - comprehensive validation
+  // Step 2 should validate all its configuration requirements
+  const canStartTranscription = useMemo(() => {
+    const inputFile = inputStep?.inputFile || inputStep?.selectedFile;
+    const huggingFaceKey = config?.apiKeys?.huggingface;
+    
+    // Basic requirements
+    if (!inputFile || !activeWorkspaceId || !huggingFaceKey) {
+      return false;
+    }
+
+    // Prevent concurrent processing sessions
+    if (processing.status === 'running') {
+      return false;
+    }
+
+    // Use existing validation logic
+    const validationResult = validateConfiguration(config);
+    if (!validationResult.isValid) {
+      return false;
+    }
+
+    // Check required configuration fields
+    if (!config?.charset || !config?.language || !config?.modelSettings?.whisperModel) {
+      return false;
+    }
+
+    return true;
+  }, [
+    inputStep?.inputFile, 
+    inputStep?.selectedFile, 
+    activeWorkspaceId, 
+    config?.apiKeys?.huggingface,
+    config?.charset,
+    config?.language,
+    config?.modelSettings?.whisperModel,
+    processing.status,
+    validation.isValid
+  ]);
+
+  // Get validation status for user feedback
+  const getValidationStatus = () => {
+    const inputFile = inputStep?.inputFile || inputStep?.selectedFile;
+    const huggingFaceKey = config?.apiKeys?.huggingface;
+    
+    const issues = [];
+    
+    if (!inputFile) {
+      issues.push('No input file selected');
+    }
+    
+    if (!activeWorkspaceId) {
+      issues.push('No workspace selected');
+    }
+    
+    if (!huggingFaceKey) {
+      issues.push('Hugging Face API key is required');
+    }
+    
+    if (processing.status === 'running') {
+      issues.push('Processing is already running');
+    }
+    
+    if (!config?.charset) {
+      issues.push('Character set not selected');
+    }
+    
+    if (!config?.language) {
+      issues.push('Processing language not selected');
+    }
+    
+    if (!config?.modelSettings?.whisperModel) {
+      issues.push('Whisper model not selected');
+    }
+    
+    // Add validation errors from the validateConfiguration function
+    if (!validation.isValid) {
+      issues.push(...validation.errors);
+    }
+    
+    return {
+      isReady: issues.length === 0,
+      issues: issues
+    };
+  };
+
+  const validationStatus = getValidationStatus();
 
   return (
     isReady && (
@@ -523,7 +786,61 @@ export const ConfigStep: React.FC = () => {
               overflow: 'auto',
             }}
           >
-            <ActionPanel />
+            {/* Validation Status */}
+            {!validationStatus.isReady && (
+              <Alert severity='warning' sx={{ mb: 2 }}>
+                <Typography variant='body2' sx={{ mb: 1, fontWeight: 600 }}>
+                  Cannot Generate Subtitles:
+                </Typography>
+                <Box component='ul' sx={{ m: 0, pl: 2 }}>
+                  {validationStatus.issues.slice(0, 3).map((issue, index) => (
+                    <Box component='li' key={index} sx={{ fontSize: '0.875rem' }}>
+                      {issue}
+                    </Box>
+                  ))}
+                  {validationStatus.issues.length > 3 && (
+                    <Box component='li' sx={{ fontSize: '0.875rem', fontStyle: 'italic', color: 'text.secondary' }}>
+                      ...and {validationStatus.issues.length - 3} more issue{validationStatus.issues.length - 3 > 1 ? 's' : ''}
+                    </Box>
+                  )}
+                </Box>
+              </Alert>
+            )}
+
+            {/* Generate Subtitles Button */}
+            <Button
+              variant="contained"
+              color="primary"
+              size="large"
+              fullWidth
+              onClick={handleStartTranscription}
+              disabled={!canStartTranscription}
+              startIcon={<PlayIcon />}
+              sx={{
+                py: 2,
+                fontSize: '1.1rem',
+                fontWeight: 600,
+                textTransform: 'none',
+                borderRadius: 2,
+                background: canStartTranscription
+                  ? 'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)'
+                  : 'rgba(245, 158, 11, 0.3)',
+                '&:hover': {
+                  background: canStartTranscription
+                    ? 'linear-gradient(135deg, #D97706 0%, #B45309 100%)'
+                    : 'rgba(245, 158, 11, 0.3)',
+                  transform: canStartTranscription ? 'translateY(-2px)' : 'none',
+                  boxShadow: canStartTranscription ? '0 8px 25px rgba(245, 158, 11, 0.4)' : 'none',
+                },
+                '&:disabled': {
+                  color: 'rgba(255, 255, 255, 0.5)',
+                },
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              }}
+            >
+              Generate Subtitles
+            </Button>
+            
             <ConfigPreview />
           </Box>
         </Box>
@@ -547,6 +864,28 @@ export const ConfigStep: React.FC = () => {
             variant='filled'
           >
             {error || 'Failed to save configuration'}
+          </Alert>
+        </Snackbar>
+
+        {/* User Error Notification */}
+        <Snackbar
+          open={showUserError}
+          autoHideDuration={6000}
+          onClose={() => {
+            setShowUserError(false);
+            setUserErrorMessage('');
+          }}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        >
+          <Alert
+            onClose={() => {
+              setShowUserError(false);
+              setUserErrorMessage('');
+            }}
+            severity='error'
+            variant='filled'
+          >
+            {userErrorMessage}
           </Alert>
         </Snackbar>
       </ConfigUpdateContext.Provider>

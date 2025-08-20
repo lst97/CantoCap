@@ -309,12 +309,22 @@ export const ProcessingStep: React.FC = () => {
 
   // Real-time timer that updates elapsed time every second
   useEffect(() => {
+    // FIXED: Only run timer when processing is actively running
     if (processing.status !== 'running' || !processing.startTime) return;
 
     const interval = setInterval(() => {
       const now = Date.now();
       const elapsed = Math.floor((now - new Date(processing.startTime!).getTime()) / 1000);
-      updateStepContent('processing', { timeElapsed: elapsed });
+      
+      // FIXED: Check status again before updating to prevent updates after completion
+      const currentState = processing.status;
+      if (currentState === 'running') {
+        updateStepContent('processing', { timeElapsed: elapsed });
+      } else {
+        // Clear the interval if status changed during execution to completed/error
+        console.log(`⏹️ ProcessingStep: Timer stopped - status changed to: ${currentState}`);
+        clearInterval(interval);
+      }
     }, 1000);
 
     return () => clearInterval(interval);

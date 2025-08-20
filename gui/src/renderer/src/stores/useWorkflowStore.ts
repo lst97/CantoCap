@@ -84,8 +84,10 @@ const calculateNavigationPermissions = (
     navigation.config = true;
   }
 
-  // Processing accessible if config is complete or has warning
-  if (stepStates.config === StepStatus.COMPLETE || stepStates.config === StepStatus.WARNING) {
+  // Processing accessible if config is complete/warning OR processing is already ready
+  if (stepStates.config === StepStatus.COMPLETE || 
+      stepStates.config === StepStatus.WARNING ||
+      stepStates.processing === StepStatus.READY) {
     navigation.processing = true;
   }
   
@@ -155,6 +157,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
   // Actions
   actions: {
+    // Navigate to a different step - ONLY changes currentStep, never modifies step states
+    // Step states should only be changed by explicit actions within step content
     navigateToStep: async (step: StepType) => {
       const { actions } = get();
       const currentState = get();
@@ -166,8 +170,21 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       });
 
       if (actions.canNavigateToStep(step)) {
-        set({ currentStep: step });
-        console.log(`✅ Navigation completed: current step set to ${step}`);
+        // IMPORTANT: Navigation should ONLY change currentStep, never step states
+        // This ensures step states are only modified by explicit actions within step content
+        const previousStepStates = currentState.stepStates;
+        
+        set(state => ({
+          ...state,
+          currentStep: step,
+          // Explicitly preserve step states - they should not change during navigation
+          stepStates: previousStepStates
+        }));
+        
+        console.log(`✅ Navigation completed: current step set to ${step}, step states preserved`, {
+          preservedStates: previousStepStates,
+          newCurrentStep: step
+        });
 
         // Persist to main process for cross-session state using context bridge API
         try {
@@ -187,6 +204,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       }
     },
 
+    // Set step state - should only be called from within step content, never from navigation
     setStepState: async (step: StepType, state: StepStatusType) => {
       const currentStates = get().stepStates;
       
@@ -263,7 +281,22 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             const typedState = persistedState as { currentStep: StepType; stepStates: Record<StepType, StepStatusType> };
             const inputStepContent = getInputStepContent();
             const processingStepContent = getProcessingStepContent();
-            const updatedNavigation = calculateNavigationPermissions(typedState.stepStates, inputStepContent, processingStepContent);
+            
+            // CRITICAL FIX: Handle processing step completion status persistence issue
+            // If processing step is marked as COMPLETE in workflow but step content shows 'running',
+            // override the step content status to prevent incorrect navigation back to Step 3
+            let correctedProcessingStepContent = processingStepContent;
+            if (typedState.stepStates.processing === StepStatus.COMPLETE && 
+                processingStepContent?.status === 'running') {
+              console.log('🔧 loadWorkflowState: Correcting processing step status from running to completed based on workflow state');
+              correctedProcessingStepContent = { ...processingStepContent, status: 'completed' as const };
+              
+              // Also update the processing step store to reflect the correct status
+              const { useProcessingStepStore } = await import('./steps/useProcessingStepStore');
+              useProcessingStepStore.getState().actions.updateStatusFromEvent({ status: 'completed' });
+            }
+            
+            const updatedNavigation = calculateNavigationPermissions(typedState.stepStates, inputStepContent, correctedProcessingStepContent);
             
             const currentState = get();
             console.log(`🔄 loadWorkflowState: Loading persisted state for ${workspaceId}`, {

@@ -17,6 +17,7 @@ import {
 } from '../../stores/useStepStore';
 import { useWorkflowActions, useWorkflowStore } from '../../stores/useWorkflowStore';
 import { useProcessingStepActions } from '../../stores/steps/useProcessingStepStore';
+import { useSubtitleActions } from '../../stores/useSubtitleEditStore';
 import { StepStatus } from '../../stores/types/StoreTypes';
 
 export const ActionPanel = () => {
@@ -31,6 +32,7 @@ export const ActionPanel = () => {
   const workflowActions = useWorkflowActions();
   const setStepState = useWorkflowStore((state) => state.actions.setStepState);
   const { startProcessing } = useProcessingStepActions();
+  const { clearWorkspace } = useSubtitleActions();
 
   // Check if transcription can be started
   const canStartTranscription = useCallback(() => {
@@ -73,13 +75,17 @@ export const ActionPanel = () => {
 
     try {
       const isRegeneration = processing.status === 'completed';
-      
+
       if (isRegeneration) {
         console.log('🔄 Regenerate Subtitles clicked - resetting processing state');
         showNotification('Starting subtitle regeneration...', 'info');
       } else {
         console.log('🎯 Generate Subtitles clicked - updating workflow states');
       }
+
+      // Clear subtitle store to prepare for new transcription results
+      console.log('🧹 Clearing subtitle store for fresh transcription');
+      await clearWorkspace();
 
       // Mark config step as complete and set processing step to ready
       await setStepState('config', StepStatus.COMPLETE);
@@ -94,7 +100,6 @@ export const ActionPanel = () => {
         inputStep,
         configStep: config,
       });
-
 
       if (!conversionResult.success || !conversionResult.config) {
         throw new Error(conversionResult.error || 'Failed to convert configuration');
@@ -122,20 +127,20 @@ export const ActionPanel = () => {
       console.log('🚀 ActionPanel: Setting processing state to running before starting backend');
       startProcessing({
         currentPhase: 'initializing',
-        logs: ['Starting transcription process...']
+        logs: ['Starting transcription process...'],
       });
 
       // Start the actual transcription process using context bridge API
-      const startResult = await window.cantocapAPI.processingStart(
-        conversionResult.config
-      );
+      const startResult = await window.cantocapAPI.processingStart(conversionResult.config);
 
       if (startResult.success) {
-        const successMessage = isRegeneration 
+        const successMessage = isRegeneration
           ? 'Subtitle regeneration process started successfully'
           : 'Transcription process started successfully';
         showNotification(successMessage, 'success');
-        console.log('✅ ActionPanel: Processing started successfully, backend will send status updates via IPC events');
+        console.log(
+          '✅ ActionPanel: Processing started successfully, backend will send status updates via IPC events'
+        );
       } else {
         // If backend start failed, reset processing state back to idle
         console.error('❌ ActionPanel: Backend processing start failed, resetting state');
@@ -160,7 +165,7 @@ export const ActionPanel = () => {
         console.error('Failed to reset workflow states:', navError);
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     canStartTranscription,
     inputStep,
@@ -637,8 +642,8 @@ export const ActionPanel = () => {
                 color='text.secondary'
                 sx={{ fontSize: '0.8rem', lineHeight: 1.5 }}
               >
-                Not satisfied with the results? Click &quote;Regenerate Subtitles&quot; to process again with 
-                different settings or improved audio quality
+                Not satisfied with the results? Click &quote;Regenerate Subtitles&quot; to process
+                again with different settings or improved audio quality
               </Typography>
             </Box>
           )}

@@ -15,9 +15,10 @@ import { BasicVideoPlayer } from "../../VideoPlayer/BasicVideoPlayer";
 import { 
   useVideoState,
   useSelectedSubtitle,
-  useSubtitleActions 
+  useSubtitleActions,
+  useSubtitles
 } from "../../../stores/useSubtitleEditStore";
-import { useInputFile, useSubtitles } from "../../../stores/useStepStore";
+import { useInputFile } from "../../../stores/useStepStore";
 import { Subtitle } from "../../../stores/types/StoreTypes";
 import { ActionButton } from "./styles";
 import { formatTime } from "./utils";
@@ -378,21 +379,36 @@ export const VideoPreviewSection: React.FC = () => {
             {/* Centered subtitle text with caption and translation */}
             <Box sx={{ pt: 1 }}>
               {/* Main caption text */}
-              <Typography
-                variant="h6"
-                sx={{
-                  fontWeight: 600,
-                  fontSize: "1.1rem",
-                  lineHeight: 1.3,
-                  color: "white",
-                  textAlign: "center",
-                  whiteSpace: "pre-line",
-                  mb: currentSubtitle.translation && currentSubtitle.translation.trim() && 
-                      currentSubtitle.translation !== currentSubtitle.text ? 0.5 : 0,
-                }}
-              >
-                {currentSubtitle.text}
-              </Typography>
+              {currentSubtitle.text && currentSubtitle.text.trim() ? (
+                <Typography
+                  variant="h6"
+                  sx={{
+                    fontWeight: 600,
+                    fontSize: "1.1rem",
+                    lineHeight: 1.3,
+                    color: "white",
+                    textAlign: "center",
+                    whiteSpace: "pre-line",
+                    mb: currentSubtitle.translation && currentSubtitle.translation.trim() && 
+                        currentSubtitle.translation !== currentSubtitle.text ? 0.5 : 0,
+                  }}
+                >
+                  {currentSubtitle.text}
+                </Typography>
+              ) : (
+                // Fallback when original text is missing - this should rarely happen now
+                <Typography
+                  variant="body2"
+                  sx={{
+                    fontStyle: "italic",
+                    color: "rgba(255, 255, 255, 0.6)",
+                    textAlign: "center",
+                    mb: currentSubtitle.translation ? 0.5 : 0,
+                  }}
+                >
+                  [Original text missing]
+                </Typography>
+              )}
 
               {/* Translation text if available and different from caption */}
               {currentSubtitle.translation && 

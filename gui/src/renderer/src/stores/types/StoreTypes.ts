@@ -413,6 +413,8 @@ export interface ProcessingStepData {
   outputFile?: string; // Generated output file path (SRT backup)
   // Enhanced JSON subtitle data support
   jsonSubtitleData?: import('../../../../types/SubtitleTypes').CantocapSubtitleData;
+  // NEW: Original JSON data preservation for step 4 restore functionality
+  originalJsonData?: import('../../../../types/SubtitleTypes').CantocapSubtitleData;
   convertedSubtitles?: Subtitle[];
 }
 
@@ -550,6 +552,7 @@ export interface SubtitleEditState {
     // Persistence
     saveToWorkspace: () => Promise<void>;
     restoreFromOriginal: () => void;
+    restoreFromProcessingOriginal: (workspaceId: string, videoPath: string, originalJsonData: unknown[]) => Promise<void>;
   };
 }
 

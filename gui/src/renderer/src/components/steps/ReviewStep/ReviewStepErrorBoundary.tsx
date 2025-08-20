@@ -24,34 +24,36 @@ export class ReviewStepErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: any) {
     console.error('🚨 ReviewStep Error Boundary caught an error:', error, errorInfo);
-    
+
     this.setState({
       error,
-      errorInfo
+      errorInfo,
     });
 
     // Try to clear the subtitle editing workspace to prevent further issues
     try {
       const subtitleStore = useSubtitleEditStore.getState();
       if (subtitleStore.actions?.clearWorkspace) {
+        // Handle async clearWorkspace properly in error recovery
         subtitleStore.actions.clearWorkspace();
       }
     } catch (clearError) {
-      console.error('Failed to clear subtitle workspace after error:', clearError);
+      console.error('Failed to access subtitle store during error recovery:', clearError);
     }
   }
 
   handleReset = () => {
     this.setState({ hasError: false, error: null, errorInfo: null });
-    
+
     // Clear subtitle editing workspace
     try {
       const subtitleStore = useSubtitleEditStore.getState();
       if (subtitleStore.actions?.clearWorkspace) {
+        // Handle async clearWorkspace properly in reset
         subtitleStore.actions.clearWorkspace();
       }
     } catch (error) {
-      console.error('Failed to clear workspace during reset:', error);
+      console.error('Failed to access subtitle store during reset:', error);
     }
   };
 
@@ -72,40 +74,37 @@ export class ReviewStepErrorBoundary extends Component<Props, State> {
             alignItems: 'center',
             justifyContent: 'center',
             height: '100%',
-            textAlign: 'center'
+            textAlign: 'center',
           }}
         >
-          <Alert severity="error" sx={{ mb: 3, maxWidth: 600 }}>
-            <Typography variant="h6" gutterBottom>
+          <Alert severity='error' sx={{ mb: 3, maxWidth: 600 }}>
+            <Typography variant='h6' gutterBottom>
               Review Step Error
             </Typography>
-            <Typography variant="body2" sx={{ mb: 2 }}>
-              The subtitle review interface encountered an error. This often happens when processing large files or during workspace initialization.
+            <Typography variant='body2' sx={{ mb: 2 }}>
+              The subtitle review interface encountered an error. This often happens when processing
+              large files or during workspace initialization.
             </Typography>
             {this.state.error && (
-              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem', mb: 2 }}>
+              <Typography
+                variant='body2'
+                sx={{ fontFamily: 'monospace', fontSize: '0.8rem', mb: 2 }}
+              >
                 {this.state.error.message}
               </Typography>
             )}
           </Alert>
 
           <Box sx={{ display: 'flex', gap: 2 }}>
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={this.handleReset}
-            >
+            <Button variant='contained' color='primary' onClick={this.handleReset}>
               Reset Review Workspace
             </Button>
-            <Button
-              variant="outlined"
-              onClick={this.handleRetry}
-            >
+            <Button variant='outlined' onClick={this.handleRetry}>
               Reload Application
             </Button>
           </Box>
 
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 2, maxWidth: 500 }}>
+          <Typography variant='body2' color='text.secondary' sx={{ mt: 2, maxWidth: 500 }}>
             If this error persists, try loading a smaller file or restart the application.
           </Typography>
         </Box>

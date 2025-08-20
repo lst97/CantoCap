@@ -133,21 +133,49 @@ export const useSubtitleEditStore = create<SubtitleEditState>((set, get) => ({
             workspaceData
           );
 
-          set({ lastSaved: new Date() });
+          set({ lastSaved: new Date(), isSaving: false });
         }
 
-        set({ isSaving: false });
+        // FIXED: Ensure isSaving is always reset, even if already set above
+        // This prevents any race conditions or edge cases where isSaving might remain true
+        console.log('✅ loadSubtitlesForWorkspace completed successfully');
       } catch (error) {
         console.error('Failed to load subtitles for workspace:', error);
         set({ 
           isSaving: false,
           saveError: error instanceof Error ? error.message : 'Failed to load workspace'
         });
+      } finally {
+        // DEFENSIVE: Always ensure isSaving is reset, regardless of success or failure
+        // This is a safety net to prevent persistent saving state
+        const currentState = get();
+        if (currentState.isSaving) {
+          console.log('🔧 DEFENSIVE: Resetting isSaving state in finally block');
+          set({ isSaving: false });
+        }
       }
     },
 
-    // Clear current workspace
-    clearWorkspace: () => {
+    // Clear current workspace (memory and optionally persisted data)
+    clearWorkspace: async (workspaceId?: string, preserveModifiedData = false) => {
+      const currentState = get();
+      const targetWorkspaceId = workspaceId || currentState.workspaceId;
+      
+      // Only clear persisted workspace data if explicitly requested (for new transcriptions)
+      if (targetWorkspaceId && !preserveModifiedData) {
+        try {
+          console.log(`🧹 Clearing persisted workspace data for new transcription: ${targetWorkspaceId}`);
+          await (window as unknown as ElectronWindow).cantocapAPI.subtitleWorkspaceDelete(targetWorkspaceId);
+          console.log(`✅ Successfully cleared persisted workspace data for: ${targetWorkspaceId}`);
+        } catch (error) {
+          console.warn(`⚠️ Failed to clear persisted workspace data for ${targetWorkspaceId}:`, error);
+          // Continue with memory clearing even if persistence clearing fails
+        }
+      } else if (preserveModifiedData) {
+        console.log(`🔒 Preserving persisted workspace data for: ${targetWorkspaceId}`);
+      }
+      
+      // Clear in-memory state
       set({
         subtitles: [],
         originalSubtitles: [],
@@ -542,6 +570,13 @@ export const useSubtitleEditStore = create<SubtitleEditState>((set, get) => ({
           isSaving: false,
           saveError: error instanceof Error ? error.message : 'Save failed'
         });
+      } finally {
+        // DEFENSIVE: Always ensure isSaving is reset, regardless of success or failure
+        const currentState = get();
+        if (currentState.isSaving) {
+          console.log('🔧 DEFENSIVE: Resetting isSaving state in saveToWorkspace finally block');
+          set({ isSaving: false });
+        }
       }
     },
 
@@ -555,7 +590,11 @@ export const useSubtitleEditStore = create<SubtitleEditState>((set, get) => ({
           dataLength: jsonData.length,
           firstItem: jsonData[0] ? {
             keys: Object.keys(jsonData[0]),
-            translation: jsonData[0].translation,
+            caption: (jsonData[0] as any).caption,
+            text: (jsonData[0] as any).text,
+            translation: (jsonData[0] as any).translation,
+            hasCaption: !!(jsonData[0] as any).caption,
+            hasText: !!(jsonData[0] as any).text,
             hasTranslation: !!(jsonData[0] as any).translation
           } : 'no data'
         });
@@ -571,8 +610,15 @@ export const useSubtitleEditStore = create<SubtitleEditState>((set, get) => ({
               caption: item.caption,
               text: item.text, 
               translation: item.translation,
+              captionType: typeof item.caption,
+              textType: typeof item.text,
               translationType: typeof item.translation,
-              hasTranslation: !!item.translation
+              hasCaption: !!item.caption,
+              hasText: !!item.text,
+              hasTranslation: !!item.translation,
+              captionLength: item.caption ? item.caption.length : 0,
+              textLength: item.text ? item.text.length : 0,
+              translationLength: item.translation ? item.translation.length : 0
             });
           }
           
@@ -584,10 +630,15 @@ export const useSubtitleEditStore = create<SubtitleEditState>((set, get) => ({
             }
           }
           
+          // Enhanced text field mapping with multiple fallbacks
+          const extractedText = item.caption || item.text || 
+                               (item as any).original || (item as any).content || 
+                               (item as any).subtitle || '';
+          
           const result = {
             id: item.id || `subtitle-${index}-${Date.now()}`,
             index: index + 1,
-            text: item.caption || item.text || '',
+            text: extractedText,
             startTime: item.startTime || 0,
             endTime: item.endTime || 0,
             duration: (item.endTime || 0) - (item.startTime || 0),
@@ -601,7 +652,14 @@ export const useSubtitleEditStore = create<SubtitleEditState>((set, get) => ({
               id: result.id,
               text: result.text,
               translation: result.translation,
-              hasTranslation: !!result.translation
+              hasText: !!result.text,
+              hasTranslation: !!result.translation,
+              textLength: result.text ? result.text.length : 0,
+              translationLength: result.translation ? result.translation.length : 0,
+              originalCaption: item.caption,
+              originalText: item.text,
+              textSource: item.caption ? 'caption' : item.text ? 'text' : (item as any).original ? 'original' : (item as any).content ? 'content' : (item as any).subtitle ? 'subtitle' : 'empty',
+              extractedText: extractedText
             });
           }
           
@@ -637,6 +695,19 @@ export const useSubtitleEditStore = create<SubtitleEditState>((set, get) => ({
           }))
         });
 
+        // Validation warnings
+        const subtitlesWithMissingText = processedSubtitles.filter(s => !s.text && s.translation);
+        const subtitlesWithMissingTranslation = processedSubtitles.filter(s => s.text && !s.translation);
+        
+        if (subtitlesWithMissingText.length > 0) {
+          console.warn(`⚠️ STORE WARNING: ${subtitlesWithMissingText.length} subtitles have translation but missing original text!`);
+          console.warn('First few examples:', subtitlesWithMissingText.slice(0, 3).map(s => ({ id: s.id, translation: s.translation })));
+        }
+        
+        if (subtitlesWithMissingTranslation.length > 0) {
+          console.log(`ℹ️ STORE INFO: ${subtitlesWithMissingTranslation.length} subtitles have original text but no translation (this is normal for some workflows)`);
+        }
+
         console.log(`✅ JSON imported: ${processedSubtitles.length} subtitles loaded with fresh baseline for diff comparison`);
         
       } catch (error) {
@@ -646,6 +717,13 @@ export const useSubtitleEditStore = create<SubtitleEditState>((set, get) => ({
           saveError: error instanceof Error ? error.message : 'Import failed'
         });
         throw error;
+      } finally {
+        // DEFENSIVE: Always ensure isSaving is reset, regardless of success or failure
+        const currentState = get();
+        if (currentState.isSaving) {
+          console.log('🔧 DEFENSIVE: Resetting isSaving state in importFromJson finally block');
+          set({ isSaving: false });
+        }
       }
     },
 
@@ -701,6 +779,79 @@ export const useSubtitleEditStore = create<SubtitleEditState>((set, get) => ({
         isDirty: true,
         selectedSubtitleId: null
       }));
+    },
+
+    // NEW: Restore from processing step's original JSON data
+    restoreFromProcessingOriginal: async (workspaceId: string, videoPath: string, originalJsonData: unknown[]) => {
+      try {
+        console.log('🔄 Restoring from processing step original JSON data');
+        set({ isSaving: true, saveError: null });
+
+        // Transform original JSON data to subtitle format (same as importFromJson)
+        const processedSubtitles = originalJsonData.map((rawItem, index) => {
+          const item = rawItem as ImportedSubtitleData;
+          
+          // Extract caption/text - support various field names with enhanced fallbacks
+          const text = item.caption || item.text || 
+                      (item as any).original || (item as any).content || 
+                      (item as any).subtitle || '';
+          
+          // Map timing fields
+          const startTime = item.startTime || 0;
+          const endTime = item.endTime || startTime + 2;
+          
+          const result: Subtitle = {
+            id: item.id || `sub-${index + 1}-${Date.now()}`,
+            index: index + 1,
+            startTime,
+            endTime,
+            duration: endTime - startTime,
+            text,
+            speaker: item.speaker || undefined,
+            confidence: item.confidence || undefined,
+            translation: item.translation || undefined,
+          };
+          
+          return result;
+        });
+
+        // Create restore action for undo history
+        const action: EditAction = {
+          type: 'update',
+          subtitleId: 'all',
+          data: { 
+            original: get().subtitles[0] || {} as Subtitle,
+            changes: {}
+          } as UpdateEditData,
+          timestamp: new Date(),
+          description: 'Restored from processing step original data'
+        };
+
+        // Update state - this becomes both current and original (fresh baseline)
+        set(prevState => ({
+          subtitles: processedSubtitles,
+          originalSubtitles: [...processedSubtitles], // Set as new original baseline
+          workspaceId,
+          videoPath,
+          undoStack: [...prevState.undoStack, action].slice(-50),
+          redoStack: [],
+          isDirty: true, // Mark as dirty since restored but not saved
+          isSaving: false,
+          selectedSubtitleId: null,
+          currentTime: 0,
+          isVideoPlaying: false
+        }));
+
+        console.log(`✅ Restored from processing original: ${processedSubtitles.length} subtitles with fresh baseline`);
+        
+      } catch (error) {
+        console.error('Failed to restore from processing original:', error);
+        set({
+          isSaving: false,
+          saveError: error instanceof Error ? error.message : 'Restore failed'
+        });
+        throw error;
+      }
     }
   }
 }));

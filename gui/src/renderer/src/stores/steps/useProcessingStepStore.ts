@@ -70,9 +70,51 @@ export const useProcessingStepStore = create<ProcessingStepState>((set, _get) =>
   
   actions: {
     updateProcessingStep: (content: Partial<ProcessingStepData>) => {
-      set(state => ({
-        data: { ...state.data, ...content }
-      }));
+      set(state => {
+        // CRITICAL FIX: Prevent status regression from 'completed' or 'error' back to 'running'
+        // This prevents timer updates from overriding completion status after processing finishes
+        const currentStatus = state.data.status;
+        const newStatus = content.status;
+        
+        if ((currentStatus === 'completed' || currentStatus === 'error') && 
+            newStatus === 'running') {
+          console.log(`⚠️ PROCESSING STORE: Prevented status regression from '${currentStatus}' to 'running'`);
+          // Allow other updates but preserve the completion status
+          const { status, ...otherContent } = content;
+          return {
+            data: { ...state.data, ...otherContent }
+          };
+        }
+        
+        // Also prevent updates that don't include status from affecting completed processing
+        if ((currentStatus === 'completed' || currentStatus === 'error') && 
+            !newStatus && Object.keys(content).length > 0) {
+          // Only allow updates that don't interfere with completion state
+          const allowedFields = ['endTime', 'jsonSubtitleData', 'originalJsonData', 'outputFile', 'statistics'];
+          const filteredContent = Object.keys(content).reduce((acc, key) => {
+            if (allowedFields.includes(key) || key === 'status') {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              (acc as any)[key] = (content as any)[key];
+            } else {
+              console.log(`⚠️ PROCESSING STORE: Blocked update to '${key}' on completed processing`);
+            }
+            return acc;
+          }, {} as Partial<ProcessingStepData>);
+          
+          if (Object.keys(filteredContent).length === 0) {
+            console.log(`⚠️ PROCESSING STORE: Blocked entire update on completed processing`);
+            return state; // No changes
+          }
+          
+          return {
+            data: { ...state.data, ...filteredContent }
+          };
+        }
+        
+        return {
+          data: { ...state.data, ...content }
+        };
+      });
     },
 
     // Start processing and update status
@@ -131,7 +173,14 @@ export const useProcessingStepStore = create<ProcessingStepState>((set, _get) =>
             ...(eventData.progress !== undefined && { progress: eventData.progress }),
             ...(eventData.phase && { currentPhase: eventData.phase }),
             logs: newLogs,
-            ...(eventData.jsonSubtitleData && { jsonSubtitleData: eventData.jsonSubtitleData }),
+            ...(eventData.jsonSubtitleData && { 
+              jsonSubtitleData: eventData.jsonSubtitleData,
+              // NEW: Preserve original JSON data for step 4 restore functionality
+              // Only set originalJsonData if it hasn't been set yet (preserve immutability)
+              ...(eventData.status === 'completed' && !state.data.originalJsonData && {
+                originalJsonData: eventData.jsonSubtitleData
+              })
+            }),
             ...(convertedStatistics && { statistics: convertedStatistics }),
             ...(eventData.outputFile && { outputFile: eventData.outputFile }),
             ...(eventData.status === 'completed' && { 
@@ -148,21 +197,37 @@ export const useProcessingStepStore = create<ProcessingStepState>((set, _get) =>
 
     resetProcessingStep: () => {
       console.log('🔄 PROCESSING STORE: Resetting processing step to defaults for workspace isolation');
-      set({ 
-        data: { 
+      
+      set(state => {
+        const currentState = state;
+        
+        const newData = {
           ...defaultProcessingStepData,
           // Ensure all array references are completely new
           logs: [],
-          status: 'idle',
+          status: 'idle' as const,
           progress: 0,
           currentPhase: undefined,
           hardwareInfo: undefined,
           startTime: undefined,
           endTime: undefined,
-          estimatedTimeRemaining: undefined
-        } 
+          estimatedTimeRemaining: undefined,
+          // IMPORTANT: Preserve completed processing data for Step 4 access
+          ...(currentState.data.status === 'completed' && {
+            jsonSubtitleData: currentState.data.jsonSubtitleData,
+            originalJsonData: currentState.data.originalJsonData,
+            statistics: currentState.data.statistics,
+            outputFile: currentState.data.outputFile
+          })
+        };
+        
+        console.log('✅ PROCESSING STORE: Reset completed, preserved completed data:', {
+          preservedJsonData: !!newData.jsonSubtitleData,
+          preservedOriginalData: !!newData.originalJsonData
+        });
+        
+        return { data: newData };
       });
-      console.log('✅ PROCESSING STORE: Reset completed');
     },
 
     setStatus: (status: ProcessingStepData['status']) => {
@@ -240,13 +305,26 @@ export const useProcessingStepStore = create<ProcessingStepState>((set, _get) =>
           }
         }));
 
-        // Reset the workflow step states: processing to READY, and enable steps 1 & 2 as COMPLETE
+        // Enhanced workflow state management for cancel functionality
         // We need to import this dynamically to avoid circular dependencies
         const { useWorkflowStore } = await import('../useWorkflowStore');
         const workflowActions = useWorkflowStore.getState().actions;
-        await workflowActions.setStepState('processing', StepStatus.READY);
+        
+        // Set Step 3 (processing) to BLOCK status to disable it
+        await workflowActions.setStepState('processing', StepStatus.BLOCK);
+        console.log('✅ Processing step disabled (BLOCK status)');
+        
+        // Set Step 2 (config) back to READY status
+        await workflowActions.setStepState('config', StepStatus.READY);
+        console.log('✅ Config step set back to READY');
+        
+        // Ensure Step 1 remains accessible
         await workflowActions.setStepState('input', StepStatus.COMPLETE);
-        await workflowActions.setStepState('config', StepStatus.COMPLETE);
+        console.log('✅ Input step maintained as COMPLETE');
+        
+        // Navigate back to Step 2 (config)
+        await workflowActions.navigateToStep('config');
+        console.log('✅ Navigated back to Step 2 (Config)');
         
       } catch (error) {
         console.error('Failed to cancel transcription:', error);
@@ -278,5 +356,6 @@ export const useProcessingTimeInfo = () => useProcessingStepStore(state => ({
   estimatedTimeRemaining: state.data.estimatedTimeRemaining
 }));
 export const useProcessingJsonData = () => useProcessingStepStore(state => state.data.jsonSubtitleData);
+export const useProcessingOriginalJsonData = () => useProcessingStepStore(state => state.data.originalJsonData);
 export const useProcessingStatistics = () => useProcessingStepStore(state => state.data.statistics);
 export const useProcessingOutputFile = () => useProcessingStepStore(state => state.data.outputFile);
