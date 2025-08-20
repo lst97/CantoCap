@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback, useEffect } from 'react';
 import { Box, Typography, Paper, Stack, Chip, Tooltip, Alert } from '@mui/material';
 import {
   Translate as TranslateIcon,
@@ -13,6 +13,8 @@ import {
   useSubtitles,
   useExportStepContent,
 } from '../../../stores/useStepStore';
+import { useExportStepActions } from '../../../stores/steps/useExportStepStore';
+import { useAppStore } from '../../../stores/useAppStore';
 import type { Subtitle } from '../../../stores/types/StoreTypes';
 import { getFormatLanguageCapabilities, validateLanguageSelection, type LanguageSelection, type ExportFormat } from '../../../stores/steps/exportLanguageHelpers';
 
@@ -50,6 +52,64 @@ export const LanguageOptions: React.FC = () => {
   const userSelections = useExportUserSelections();
   const subtitles = useSubtitles();
   const exportStep = useExportStepContent();
+  
+  // Enhanced persistence hooks
+  const exportStepActions = useExportStepActions();
+  const appStore = useAppStore();
+  const activeWorkspaceId = appStore.activeWorkspaceId;
+
+  // Load workspace-specific language preferences on mount and workspace change
+  useEffect(() => {
+    if (activeWorkspaceId) {
+      exportStepActions.loadExportPreferences(activeWorkspaceId)
+        .then((preferences) => {
+          if (preferences) {
+            console.log(`📖 Loading language preferences for workspace: ${activeWorkspaceId}`, preferences);
+            
+            // Apply loaded preferences to current state
+            if (preferences.selectedLanguages && preferences.selectedLanguages.length > 0) {
+              updateUserSelections({ 
+                selectedLanguages: preferences.selectedLanguages,
+                includeMetadata: preferences.includeMetadata ?? userSelections.includeMetadata,
+                showTimestamps: preferences.showTimestamps ?? userSelections.showTimestamps,
+                customOutputPath: preferences.customOutputPath || userSelections.customOutputPath
+              });
+            }
+          } else {
+            console.log(`📝 No existing preferences found for workspace: ${activeWorkspaceId}, using defaults`);
+          }
+        })
+        .catch((error) => {
+          console.warn('Failed to load export preferences:', error);
+        });
+    }
+  }, [activeWorkspaceId, exportStepActions, updateUserSelections]);
+
+  // Save preferences when they change
+  const savePreferences = useCallback(async (updatedSelections: Partial<typeof userSelections>) => {
+    if (!activeWorkspaceId) return;
+    
+    try {
+      const preferences = {
+        workspaceId: activeWorkspaceId,
+        preferredFormat: exportStep.format,
+        selectedLanguages: updatedSelections.selectedLanguages || userSelections.selectedLanguages,
+        includeMetadata: updatedSelections.includeMetadata ?? userSelections.includeMetadata,
+        showTimestamps: updatedSelections.showTimestamps ?? userSelections.showTimestamps,
+        customOutputPath: updatedSelections.customOutputPath || userSelections.customOutputPath,
+        exportSettings: exportStep.exportSettings,
+        lastUsedSettings: {
+          format: exportStep.format,
+          timestamp: Date.now()
+        }
+      };
+      
+      await exportStepActions.saveExportPreferences(activeWorkspaceId, preferences);
+      console.log(`💾 Saved language preferences for workspace: ${activeWorkspaceId}`, preferences);
+    } catch (error) {
+      console.error('Failed to save export preferences:', error);
+    }
+  }, [activeWorkspaceId, exportStep.format, exportStep.exportSettings, userSelections, exportStepActions]);
 
   const analysis = useMemo(() => {
     return analyzeSubtitleEntries(subtitles || []);
@@ -69,7 +129,7 @@ export const LanguageOptions: React.FC = () => {
   }, [subtitles, userSelections.selectedLanguages]);
 
   const handleOptionChange = useCallback(
-    (key: string) => {
+    async (key: string) => {
       switch (key) {
         case 'includeOriginal':
           const currentLanguages = userSelections.selectedLanguages || [];
@@ -81,7 +141,10 @@ export const LanguageOptions: React.FC = () => {
           // Prevent removing all languages
           if (newLanguages.length === 0) return;
 
-          updateUserSelections({ selectedLanguages: newLanguages });
+          const originalSelections = { selectedLanguages: newLanguages };
+          updateUserSelections(originalSelections);
+          // Save preferences with workspace isolation
+          await savePreferences(originalSelections);
           // Trigger immediate preview update
           setTimeout(() => generatePreviewContent(), 0);
           break;
@@ -96,25 +159,34 @@ export const LanguageOptions: React.FC = () => {
           // Prevent removing all languages
           if (newLangs.length === 0) return;
 
-          updateUserSelections({ selectedLanguages: newLangs });
+          const translationSelections = { selectedLanguages: newLangs };
+          updateUserSelections(translationSelections);
+          // Save preferences with workspace isolation
+          await savePreferences(translationSelections);
           // Trigger immediate preview update
           setTimeout(() => generatePreviewContent(), 0);
           break;
 
         case 'includeMetadata':
-          updateUserSelections({ includeMetadata: !userSelections.includeMetadata });
+          const metadataSelections = { includeMetadata: !userSelections.includeMetadata };
+          updateUserSelections(metadataSelections);
+          // Save preferences with workspace isolation
+          await savePreferences(metadataSelections);
           // Trigger immediate preview update
           setTimeout(() => generatePreviewContent(), 0);
           break;
 
         case 'includeTimestamps':
-          updateUserSelections({ showTimestamps: !userSelections.showTimestamps });
+          const timestampSelections = { showTimestamps: !userSelections.showTimestamps };
+          updateUserSelections(timestampSelections);
+          // Save preferences with workspace isolation
+          await savePreferences(timestampSelections);
           // Trigger immediate preview update
           setTimeout(() => generatePreviewContent(), 0);
           break;
       }
     },
-    [userSelections, updateUserSelections, generatePreviewContent]
+    [userSelections, updateUserSelections, generatePreviewContent, savePreferences]
   );
 
   const options: QuickOption[] = useMemo(() => {
@@ -161,7 +233,8 @@ export const LanguageOptions: React.FC = () => {
         icon: <CheckCircleIcon />,
         description: 'Include confidence scores and metadata in export',
         enabled: userSelections.includeMetadata,
-        compatibility: exportStep.format === 'json' ? undefined : 'Limited support in non-JSON formats',
+        compatibility: exportStep.format === 'json' ? undefined : 
+                     exportStep.format === 'fcpxml' ? 'Metadata included as XML title attributes' : 'Limited support in non-JSON formats',
       },
       {
         key: 'includeTimestamps',
@@ -169,7 +242,8 @@ export const LanguageOptions: React.FC = () => {
         icon: <ScheduleIcon />,
         description: 'Include timing information in plain text exports',
         enabled: userSelections.showTimestamps,
-        compatibility: exportStep.format === 'txt' ? undefined : 'Only applies to TXT format',
+        compatibility: exportStep.format === 'txt' ? undefined : 
+                     exportStep.format === 'fcpxml' ? 'FCPXML includes timestamps in timeline format' : 'Only applies to TXT format',
       },
     ];
   }, [analysis, userSelections, formatCapabilities, exportStep.format]);

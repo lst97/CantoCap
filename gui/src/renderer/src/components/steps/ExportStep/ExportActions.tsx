@@ -98,7 +98,7 @@ export const ExportActions = React.forwardRef<ExportActionsRef>((_props, ref) =>
       });
 
       if (saveResult.canceled || !saveResult.filePath) {
-        setExportingState(false, undefined, 'Export cancelled by user');
+        setExportingState(false);
         return;
       }
 
@@ -164,7 +164,7 @@ export const ExportActions = React.forwardRef<ExportActionsRef>((_props, ref) =>
       const folderResult = await window.electronAPI.openFolderDialog();
 
       if (folderResult.canceled || !folderResult.filePaths?.[0]) {
-        setExportingState(false, undefined, 'Export cancelled by user');
+        setExportingState(false);
         return;
       }
 
@@ -281,7 +281,7 @@ export const ExportActions = React.forwardRef<ExportActionsRef>((_props, ref) =>
 
   const handleCancel = useCallback(() => {
     setShowSuccessMessage(false); // Clear any success messages
-    setExportingState(false, undefined, 'Export cancelled by user');
+    setExportingState(false);
   }, [setExportingState]);
 
   // Expose methods to parent via ref

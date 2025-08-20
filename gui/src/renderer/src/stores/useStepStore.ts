@@ -364,6 +364,8 @@ export const useStepStore = create<StepContentState>((set, get) => {
                     break;
                   case 'export':
                     useExportStepStore.getState().actions.updateExportStep(content);
+                    // Also load workspace-specific export persistence data (format, history, preferences)
+                    await useExportStepStore.getState().actions.loadWorkspacePersistenceData(workspaceId);
                     break;
                 }
               }

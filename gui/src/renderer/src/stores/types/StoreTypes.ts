@@ -661,6 +661,86 @@ export interface ExportStepData {
 }
 
 // ============================================================================
+// ENHANCED EXPORT PERSISTENCE TYPES
+// ============================================================================
+
+// Workspace-specific export preferences (similar to step 2's design pattern)
+export interface ExportWorkspacePreferences {
+  workspaceId: string;
+  preferredFormat: string;
+  selectedLanguages: string[];
+  includeMetadata: boolean;
+  showTimestamps: boolean;
+  customOutputPath?: string;
+  exportSettings: ExportSettings;
+  lastUsedSettings: {
+    format: string;
+    timestamp: number;
+  };
+}
+
+// Export session state for persistence across app reloads
+export interface ExportSessionState {
+  workspaceId: string;
+  currentFormat: string;
+  previewContent?: string;
+  lastGenerated?: number;
+  userSelections: {
+    selectedLanguages: string[];
+    includeMetadata: boolean;
+    showTimestamps: boolean;
+    customOutputPath?: string;
+  };
+  uiState: {
+    previewState: ExportPreviewState;
+    actionsState: ExportActionsState;
+    highlightConfig: HighlightConfig;
+  };
+}
+
+// Enhanced export history with workspace isolation
+export interface WorkspaceExportHistory {
+  workspaceId: string;
+  exports: ExportRecord[];
+  preferences: ExportWorkspacePreferences;
+  sessionState?: ExportSessionState;
+  lastUpdated: string;
+}
+
+// Modified subtitle data preservation (from step 4)
+export interface ModifiedSubtitleData {
+  workspaceId: string;
+  originalSubtitles: Subtitle[];
+  modifiedSubtitles: Subtitle[];
+  lastModified: string;
+  hasChanges: boolean;
+  metadata: {
+    sourceStep: 'processing' | 'review';
+    processingStatistics?: ProcessingStatistics;
+  };
+}
+
+// Export format metadata (for enhanced format support like FCPXML)
+export interface ExportFormatMetadata {
+  id: string;
+  name: string;
+  extension: string;
+  mimeType: string;
+  description: string;
+  features: string[];
+  compatibility: string[];
+  supportsLanguages: boolean;
+  supportsMetadata: boolean;
+  supportsTimestamps: boolean;
+  isProfessional: boolean;
+  validationRules?: {
+    maxLineLength?: number;
+    forbiddenChars?: string[];
+    requiresSpecialHandling?: boolean;
+  };
+}
+
+// ============================================================================
 // STEP STORE STATE
 // ============================================================================
 
@@ -713,6 +793,21 @@ export interface StepContentState {
     clearHistory: () => void;
     setExportingState: (isExporting: boolean, progress?: number, error?: string) => void;
     generatePreviewContent: () => Promise<void>;
+    
+    // Enhanced persistence actions (similar to step 2's pattern)
+    loadExportPreferences: (workspaceId: string) => Promise<ExportWorkspacePreferences | null>;
+    saveExportPreferences: (workspaceId: string, preferences: Partial<ExportWorkspacePreferences>) => Promise<void>;
+    loadExportSession: (workspaceId: string) => Promise<ExportSessionState | null>;
+    saveExportSession: (workspaceId: string, session: Partial<ExportSessionState>) => Promise<void>;
+    clearExportPreferences: (workspaceId: string) => Promise<void>;
+    
+    // Modified subtitle data preservation (from step 4)
+    loadModifiedSubtitles: (workspaceId: string) => Promise<ModifiedSubtitleData | null>;
+    saveModifiedSubtitles: (workspaceId: string, data: ModifiedSubtitleData) => Promise<void>;
+    
+    // Workspace export history management
+    loadWorkspaceExportHistory: (workspaceId: string) => Promise<WorkspaceExportHistory | null>;
+    saveWorkspaceExportHistory: (workspaceId: string, history: WorkspaceExportHistory) => Promise<void>;
   };
 }
 

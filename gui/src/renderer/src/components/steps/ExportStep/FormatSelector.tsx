@@ -31,6 +31,12 @@ const EXPORT_FORMATS = [
     description: 'Structured JSON format with metadata and subtitles',
     features: ['Structured', 'Metadata', 'API-friendly', 'Machine-readable'],
   },
+  {
+    id: 'fcpxml',
+    name: 'FCPXML',
+    description: 'Final Cut Pro XML format for professional video editing workflows',
+    features: ['Professional', 'Timeline-ready', 'NLE Compatible', 'Final Cut Pro'],
+  },
 ];
 
 // Basic validation for subtitle formats
@@ -62,6 +68,23 @@ const validateForFormat = (subtitles: Subtitle[], formatId: string): string[] =>
     );
     if (hasInvalidChars) {
       issues.push('Contains control characters that may not display properly');
+    }
+  }
+
+  if (formatId === 'fcpxml') {
+    // FCPXML format validation for professional video editing
+    const hasXMLIncompatibleChars = subtitles.some((sub) => 
+      sub.text && /[<>&"']/.test(sub.text.replace(/&[a-zA-Z0-9#]+;/g, ''))
+    );
+    if (hasXMLIncompatibleChars) {
+      issues.push('Contains XML characters that will be escaped');
+    }
+    
+    const hasVeryShortDurations = subtitles.some((sub) => 
+      (sub.endTime - sub.startTime) < 0.1
+    );
+    if (hasVeryShortDurations) {
+      issues.push('Very short subtitle durations may not be suitable for video editing');
     }
   }
 

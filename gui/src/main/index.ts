@@ -15,6 +15,7 @@ import { MediaIPCHandlers } from './ipc-handlers/MediaIPCHandlers';
 import { SubtitleIPCHandlers } from './ipc-handlers/SubtitleIPCHandlers';
 import { WorkflowIPCHandlers } from './ipc-handlers/WorkflowIPCHandlers';
 import { ProcessingIPCHandlers } from './ipc-handlers/ProcessingIPCHandlers';
+import { ExportIPCHandlers } from './ipc-handlers/ExportIPCHandlers';
 import type {
   DependencyStatus,
   AppConfig,
@@ -73,6 +74,7 @@ class CantoCap {
   private subtitleIPCHandlers: SubtitleIPCHandlers | null = null;
   private workflowIPCHandlers: WorkflowIPCHandlers | null = null;
   private processingIPCHandlers: ProcessingIPCHandlers | null = null;
+  private exportIPCHandlers: ExportIPCHandlers | null = null;
   private mainWindow: BrowserWindow | null = null;
   private mediaRegistry: Map<string, MediaRegistryEntry> = new Map(); // Media ID to file path mapping
 
@@ -269,11 +271,17 @@ class CantoCap {
       this.mainWindow.webContents
     );
 
+    // Initialize export handlers
+    this.exportIPCHandlers = new ExportIPCHandlers(
+      this.mainWindow.webContents
+    );
+
     safeLog('✅ IPC config handlers initialized');
     safeLog('✅ Video processing handlers initialized');
     safeLog('✅ Subtitle processing handlers initialized');
     safeLog('✅ Workflow state handlers initialized');
     safeLog('✅ Processing IPC handlers initialized');
+    safeLog('✅ Export IPC handlers initialized');
 
     // System Operations
     ipcMain.handle('check-dependencies', async (): Promise<Record<string, DependencyStatus>> => {
@@ -468,6 +476,34 @@ class CantoCap {
       }
     });
 
+    // File Existence Operations
+    ipcMain.handle('file:exists', async (_event, filePath: string) => {
+      try {
+        return existsSync(filePath);
+      } catch (error) {
+        console.error('Failed to check file existence:', error);
+        return false;
+      }
+    });
+
+    ipcMain.handle('file:getStats', async (_event, filePath: string) => {
+      try {
+        if (!existsSync(filePath)) {
+          return null;
+        }
+        const stats = statSync(filePath);
+        return {
+          size: stats.size,
+          mtime: stats.mtime.getTime(),
+          isFile: stats.isFile(),
+          isDirectory: stats.isDirectory()
+        };
+      } catch (error) {
+        console.error('Failed to get file stats:', error);
+        return null;
+      }
+    });
+
     // ============================================================================
     // SUBTITLE PERSISTENCE HANDLERS
     // ============================================================================
@@ -501,6 +537,11 @@ class CantoCap {
     // Cleanup processing handlers
     if (this.processingIPCHandlers) {
       this.processingIPCHandlers.cleanup();
+    }
+
+    // Cleanup export handlers
+    if (this.exportIPCHandlers) {
+      this.exportIPCHandlers.cleanup();
     }
 
     // Cleanup media registry

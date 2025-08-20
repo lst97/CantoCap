@@ -1,10 +1,12 @@
 {
 	"cSpell.words": [
+		"apos",
 		"cantocap",
 		"charsets",
 		"DEMUXER",
 		"Deutsch",
 		"Español",
+		"FCPXML",
 		"ffprobe",
 		"fileselector",
 		"flac",
@@ -15,6 +17,7 @@
 		"Italiano",
 		"localmedia",
 		"matroska",
+		"moti",
 		"msvideo",
 		"Português",
 		"pyenv",
@@ -23,6 +26,7 @@
 		"safetensors",
 		"subcomponents",
 		"theora",
+		"timecode",
 		"Timecodes",
 		"Toggleable",
 		"ttml",

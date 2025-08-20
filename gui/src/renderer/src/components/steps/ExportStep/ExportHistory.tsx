@@ -11,6 +11,7 @@ import {
   Badge,
   Chip,
   Paper,
+  Alert,
 } from '@mui/material';
 import {
   FilePresent as FileIcon,
@@ -18,18 +19,88 @@ import {
   MoreVert as MoreVertIcon,
   OpenInNew as OpenInNewIcon,
   Delete as DeleteIcon,
+  Description as SrtIcon,
+  Language as VttIcon,
+  TextSnippet as TxtIcon,
+  DataObject as JsonIcon,
+  VideoFile as FcpxmlIcon,
+  Warning as WarningIcon,
+  ErrorOutline as ErrorIcon,
 } from '@mui/icons-material';
 
 import { useExportHistory, useExportActions } from '../../../stores/useStepStore';
 import type { ExportRecord } from '../../../stores/types/StoreTypes';
 import { BaseCard } from '../../elements';
 import { formatRelativeTime, groupHistoryByDate } from './utils';
+import { useExportHistoryFileStatus, getExportRecordStatus } from '../../../hooks/useFileStatus';
+
+// Format-specific icons and metadata
+const getFormatIcon = (format: string) => {
+  switch (format.toLowerCase()) {
+    case 'srt':
+      return <SrtIcon fontSize='small' color='primary' />;
+    case 'vtt':
+      return <VttIcon fontSize='small' color='primary' />;
+    case 'txt':
+      return <TxtIcon fontSize='small' color='primary' />;
+    case 'json':
+      return <JsonIcon fontSize='small' color='primary' />;
+    case 'fcpxml':
+      return <FcpxmlIcon fontSize='small' color='primary' />;
+    default:
+      return <FileIcon fontSize='small' color='primary' />;
+  }
+};
+
+const getFormatMetadata = (format: string) => {
+  switch (format.toLowerCase()) {
+    case 'srt':
+      return { 
+        name: 'SubRip Subtitle',
+        compatibility: 'Universal',
+        professional: false 
+      };
+    case 'vtt':
+      return { 
+        name: 'WebVTT',
+        compatibility: 'HTML5 Video',
+        professional: false 
+      };
+    case 'txt':
+      return { 
+        name: 'Plain Text',
+        compatibility: 'Text Editors',
+        professional: false 
+      };
+    case 'json':
+      return { 
+        name: 'JSON Data',
+        compatibility: 'APIs/Development',
+        professional: false 
+      };
+    case 'fcpxml':
+      return { 
+        name: 'Final Cut Pro XML',
+        compatibility: 'Professional NLE',
+        professional: true 
+      };
+    default:
+      return { 
+        name: format.toUpperCase(),
+        compatibility: 'Unknown',
+        professional: false 
+      };
+  }
+};
 
 export const ExportHistory: React.FC = () => {
   const history = useExportHistory();
   const { removeFromHistory, clearHistory } = useExportActions();
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [selectedItem, setSelectedItem] = useState<ExportRecord | null>(null);
+  
+  // Check file existence for all export records
+  const fileStatusMap = useExportHistoryFileStatus(history);
 
   const formatFileSize = useCallback((bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
@@ -168,32 +239,77 @@ export const ExportHistory: React.FC = () => {
                     <Box
                       sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flex: 1, minWidth: 0 }}
                     >
-                      <FileIcon fontSize='small' color='primary' />
+                      {getFormatIcon(item.format)}
                       <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Tooltip title={item.outputPath}>
-                          <Typography
-                            variant='body2'
-                            noWrap
-                            sx={{
-                              fontWeight: 500,
-                              fontSize: '0.875rem',
-                            }}
-                          >
-                            {item.outputPath.split('/').pop() || item.outputPath}
-                          </Typography>
-                        </Tooltip>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
-                          <Chip
-                            label={item.format.toUpperCase()}
-                            size='small'
-                            variant='outlined'
-                            sx={{
-                              fontSize: '0.7rem',
-                              height: 20,
-                              '& .MuiChip-label': { px: 1 },
-                            }}
-                          />
-                          <Typography variant='caption' color='text.secondary'>
+                        {(() => {
+                          const fileStatus = getExportRecordStatus(item, fileStatusMap);
+                          const fileName = item.outputPath.split('/').pop() || item.outputPath;
+                          const tooltipTitle = fileStatus.exists 
+                            ? item.outputPath 
+                            : `${item.outputPath} (File no longer exists)`;
+                          
+                          return (
+                            <Tooltip title={tooltipTitle}>
+                              <Typography
+                                variant='body2'
+                                noWrap
+                                sx={{
+                                  fontWeight: 500,
+                                  fontSize: '0.875rem',
+                                  ...((!fileStatus.exists) && {
+                                    color: 'text.disabled',
+                                    textDecoration: 'line-through',
+                                    opacity: 0.6,
+                                  }),
+                                }}
+                              >
+                                {fileName}
+                              </Typography>
+                            </Tooltip>
+                          );
+                        })()}
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+                          {(() => {
+                            const formatMeta = getFormatMetadata(item.format);
+                            return (
+                              <Tooltip title={`${formatMeta.name} - ${formatMeta.compatibility}`}>
+                                <Chip
+                                  label={item.format.toUpperCase()}
+                                  size='small'
+                                  variant={formatMeta.professional ? 'filled' : 'outlined'}
+                                  color={formatMeta.professional ? 'primary' : 'default'}
+                                  sx={{
+                                    fontSize: '0.625rem',
+                                    height: 18,
+                                    '& .MuiChip-label': { px: 0.75 },
+                                    ...(formatMeta.professional && {
+                                      backgroundColor: 'rgba(25, 118, 210, 0.15)',
+                                      color: '#1976d2',
+                                      border: '1px solid rgba(25, 118, 210, 0.5)',
+                                      fontWeight: 600,
+                                    }),
+                                  }}
+                                />
+                              </Tooltip>
+                            );
+                          })()}
+                          {getFormatMetadata(item.format).professional && (
+                            <Chip
+                              label='PRO'
+                              size='small'
+                              sx={{
+                                fontSize: '0.5rem',
+                                height: 14,
+                                minWidth: 'auto',
+                                backgroundColor: 'rgba(76, 175, 80, 0.15)',
+                                color: '#4caf50',
+                                border: '1px solid rgba(76, 175, 80, 0.5)',
+                                fontWeight: 700,
+                                '& .MuiChip-label': { px: 0.5 },
+                              }}
+                            />
+                          )}
+                          <Typography variant='caption' color='text.secondary' sx={{ fontSize: '0.7rem' }}>
                             {formatFileSize(item.fileSize ?? 0)} •{' '}
                             {formatRelativeTime(
                               item.timestamp ?? new Date(item.exportedAt).getTime()
@@ -226,12 +342,29 @@ export const ExportHistory: React.FC = () => {
         transformOrigin={{ horizontal: 'right', vertical: 'top' }}
         anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
       >
-        <MenuItem onClick={handleOpenFile}>
-          <ListItemIcon>
-            <OpenInNewIcon fontSize='small' />
-          </ListItemIcon>
-          <ListItemText>Open File</ListItemText>
-        </MenuItem>
+        {(() => {
+          const fileStatus = selectedItem 
+            ? getExportRecordStatus(selectedItem, fileStatusMap) 
+            : { exists: true, isChecking: false };
+          
+          return (
+            <MenuItem 
+              onClick={handleOpenFile} 
+              disabled={!fileStatus.exists}
+            >
+              <ListItemIcon>
+                {fileStatus.exists ? (
+                  <OpenInNewIcon fontSize='small' />
+                ) : (
+                  <ErrorIcon fontSize='small' color='disabled' />
+                )}
+              </ListItemIcon>
+              <ListItemText>
+                {fileStatus.exists ? 'Open File' : 'File Removed'}
+              </ListItemText>
+            </MenuItem>
+          );
+        })()}
         <MenuItem onClick={handleDeleteItem}>
           <ListItemIcon>
             <DeleteIcon fontSize='small' />

@@ -10,7 +10,6 @@ import {
 import {
   useSubtitleWorkspace,
   useSubtitleActions,
-  useSubtitles as useEditStoreSubtitles,
   useSubtitleEditStore,
 } from '../../stores/useSubtitleEditStore';
 import { useStepState, useWorkflowActions } from '../../stores/useWorkflowStore';
@@ -31,7 +30,6 @@ const ReviewStepComponent: React.FC = () => {
   const activeWorkspaceId = useActiveWorkspaceId();
   const { loadSubtitlesForWorkspace, clearWorkspace, importFromJson, exportToStep } =
     useSubtitleActions();
-  const _editStoreSubtitles = useEditStoreSubtitles(); // TODO: Remove if not needed
   const { setStepState, navigateToStep } = useWorkflowActions();
   const { updateStepContent } = useStepActions();
   const inputFile = useInputFile();
