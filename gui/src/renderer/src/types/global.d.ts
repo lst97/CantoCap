@@ -119,6 +119,17 @@ declare global {
     // Electron API alias for consistency
     electronAPI: Window['cantocapAPI'];
 
+    // Additional IPC access for compatibility
+    electron: {
+      ipcRenderer: {
+        invoke: (channel: string, ...args: any[]) => Promise<any>;
+        send: (channel: string, ...args: any[]) => void;
+        on: (channel: string, callback: (...args: any[]) => void) => void;
+        removeListener: (channel: string, callback: (...args: any[]) => void) => void;
+        removeAllListeners: (channel: string) => void;
+      };
+    };
+
     // Debug API (development only)
     debugAPI?: {
       getProcessInfo: () => {

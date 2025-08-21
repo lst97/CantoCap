@@ -5,6 +5,8 @@ import type {
 } from '../../renderer/src/stores/types/StoreTypes';
 import Store from 'electron-store';
 import { v4 as uuidv4 } from 'uuid';
+import { MainLogger } from '../logger';
+import { MainProcessLogger } from '@/types/logger';
 
 interface TimeRange {
   start: number;
@@ -131,6 +133,7 @@ export interface WorkspaceSchema {
 export class WorkspaceConfigService {
   private stores: Map<string, Store<WorkspaceSchema>> = new Map();
   private workspaceList: Store<{ workspaces: string[] }>;
+  private logger: MainProcessLogger = MainLogger.createScopedLogger('WorkspaceConfigService');
 
   constructor() {
     this.workspaceList = new Store<{ workspaces: string[] }>({
@@ -268,13 +271,16 @@ export class WorkspaceConfigService {
     const store = this.getOrCreateStore(id);
     if (store) {
       const currentStepData = store.get(`steps.${stepName}`, {});
-      console.log(`🔍 WorkspaceConfigService: Current ${stepName} step data:`, currentStepData);
+      this.logger.info(
+        `🔍 WorkspaceConfigService: Current ${stepName} step data:`,
+        currentStepData
+      );
 
       // Use complete replacement instead of merge to ensure field deletions work
       store.set(`steps.${stepName}`, content);
 
       const savedData = store.get(`steps.${stepName}`, {});
-      console.log(`✅ WorkspaceConfigService: ${stepName} step data after save:`, savedData);
+      this.logger.info(`✅ WorkspaceConfigService: ${stepName} step data after save:`, savedData);
 
       store.set('lastAccessed', new Date().toISOString());
     }

@@ -27,13 +27,11 @@ import {
   useSubtitleActions,
   useSubtitleWorkspace,
 } from '../../../stores/useSubtitleEditStore';
-import { useInputStepContent } from '../../../stores/useStepStore';
-import { useActiveWorkspaceId } from '../../../stores/useAppStore';
 import { Subtitle } from '../../../stores/types/StoreTypes';
 import { ReviewCard, ModificationChip, ActionButton } from './styles';
 import { formatTime, generateCharacterDiff } from './utils';
 import { DiffPart } from './types';
-import { ElectronWindow } from '../../../../../types';
+import { createComponentLogger } from '@/renderer/src/utils/logger';
 
 // Interface for gap state management
 interface GapState {
@@ -45,11 +43,10 @@ interface GapState {
 }
 
 export const SubtitleListPanel: React.FC = () => {
+  const logger = createComponentLogger('SubtitleListPanel');
   const rawSubtitles = useSubtitles();
   const originalSubtitles = useOriginalSubtitles();
   const { isDirty: _isDirty } = useSaveState();
-  const inputStepContent = useInputStepContent();
-  const activeWorkspaceId = useActiveWorkspaceId();
 
   // Memoize subtitles with proper dependencies to prevent infinite loops while detecting real changes
   const subtitles = useMemo(() => rawSubtitles, [rawSubtitles]);
@@ -60,111 +57,13 @@ export const SubtitleListPanel: React.FC = () => {
   const isVideoPlaying = useSubtitleEditStore((state) => state.isVideoPlaying);
   const videoDuration = useSubtitleEditStore((state) => state.videoDuration);
 
-  const { workspaceId } = useSubtitleWorkspace();
+  useSubtitleWorkspace();
   const { isSaving } = useSaveState();
   const { deleteSubtitle, addSubtitle, setSelectedSubtitle, jumpToSubtitle, saveToWorkspace } =
     useSubtitleActions();
 
-  // State for diff view and JSON loading
+  // State for diff view
   const [showDiff, setShowDiff] = useState(false);
-  const [isLoadingJsonSubtitles, setIsLoadingJsonSubtitles] = useState(false);
-
-  // Handle JSON subtitle loading when JSON was imported but no subtitles are loaded
-  useEffect(() => {
-    const loadJsonSubtitles = async () => {
-      const hasJsonImport = !!inputStepContent?.importedJsonFile;
-      const hasSubtitles = subtitles && subtitles.length > 0;
-
-      // Only load if we have JSON import but no subtitles, and we're not already loading
-      if (hasJsonImport && !hasSubtitles && !isLoadingJsonSubtitles && activeWorkspaceId) {
-        console.log(
-          '🔄 JSON import detected but no subtitles loaded, attempting to load from backend...'
-        );
-        setIsLoadingJsonSubtitles(true);
-
-        try {
-          // Try to load subtitles from the backend sync store
-          const syncResult = await (
-            window as unknown as ElectronWindow
-          ).cantocapAPI.subtitleSyncFromStep(activeWorkspaceId);
-          if (
-            syncResult &&
-            (syncResult as any).subtitles &&
-            Array.isArray((syncResult as any).subtitles) &&
-            (syncResult as any).subtitles.length > 0
-          ) {
-            console.log(
-              `✅ Found ${(syncResult as any).subtitles.length} subtitles in backend, importing to subtitle edit store...`
-            );
-
-            // Note: importFromJson functionality would be handled here
-            // This is where subtitle data would be imported into the edit store
-            console.log(
-              'Subtitle import would happen here with:',
-              (syncResult as any).subtitles.length,
-              'subtitles'
-            );
-
-            console.log(
-              '✅ Subtitles successfully loaded into subtitle edit store from JSON import'
-            );
-          } else {
-            console.log(
-              '❌ No subtitles found in backend sync store, trying to load JSON file directly...'
-            );
-
-            // Fallback: try to load the JSON file directly
-            if (inputStepContent?.importedJsonFile) {
-              try {
-                const jsonContent = await (
-                  window as unknown as ElectronWindow
-                ).cantocapAPI.readJsonFile(inputStepContent.importedJsonFile);
-                if (
-                  jsonContent &&
-                  (jsonContent as any).subtitles &&
-                  Array.isArray((jsonContent as any).subtitles)
-                ) {
-                  console.log(
-                    `✅ Loaded JSON file directly with ${(jsonContent as any).subtitles.length} subtitles`
-                  );
-
-                  // Note: importFromJson functionality would be handled here
-                  console.log('✅ Subtitles would be imported from direct JSON file load');
-                } else {
-                  console.log('❌ JSON file does not contain valid subtitle data');
-                }
-              } catch (jsonError) {
-                console.error('❌ Failed to load JSON file directly:', jsonError);
-              }
-            }
-          }
-        } catch (error) {
-          console.error('❌ Failed to load JSON subtitles:', error);
-        } finally {
-          setIsLoadingJsonSubtitles(false);
-        }
-      }
-    };
-
-    loadJsonSubtitles();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    inputStepContent?.importedJsonFile,
-    subtitles?.length,
-    activeWorkspaceId,
-    isLoadingJsonSubtitles,
-    inputStepContent?.inputFile,
-  ]);
-
-  // Listen for manual retry events
-  useEffect(() => {
-    const handleRetryLoad = () => {
-      setIsLoadingJsonSubtitles(false); // This will trigger the main effect to run again
-    };
-
-    window.addEventListener('retryJsonLoad', handleRetryLoad);
-    return () => window.removeEventListener('retryJsonLoad', handleRetryLoad);
-  }, []);
 
   // Get current subtitle based on current time for highlighting - MEMOIZED FOR PERFORMANCE
   const currentPlayingSubtitle = useMemo((): Subtitle | null => {
@@ -192,8 +91,6 @@ export const SubtitleListPanel: React.FC = () => {
       return gaps;
     }
 
-    console.log('🔧 RECALCULATING GAP STATES for', subtitles.length, 'subtitles');
-
     for (let i = 1; i < subtitles.length; i++) {
       const prevSubtitle = subtitles[i - 1];
       const currSubtitle = subtitles[i];
@@ -206,7 +103,7 @@ export const SubtitleListPanel: React.FC = () => {
 
       // Validate the parsed numbers
       if (isNaN(prevEndTime) || isNaN(currStartTime)) {
-        console.warn(`❌ Invalid timing data for gap ${i}:`, { prevEndTime, currStartTime });
+        logger.warn('Invalid timing data for gap', { gapIndex: i, prevEndTime, currStartTime });
         continue;
       }
 
@@ -223,58 +120,8 @@ export const SubtitleListPanel: React.FC = () => {
       });
     }
 
-    console.log(
-      '✅ Gap calculation complete:',
-      Array.from(gaps.values()).map((g) => ({
-        index: g.index,
-        duration: g.gapDuration.toFixed(2),
-        enabled: g.isEnabled,
-      }))
-    );
     return gaps;
-  }, [subtitles]); // Only recalculate when subtitles change
-
-  // DEBUG: Log subtitle data and gap states - PERFORMANCE OPTIMIZED
-  // Only log when significant changes occur, not on every video time update
-  React.useEffect(() => {
-    console.log('🔍 DEBUG: SubtitleListPanel data:', {
-      workspaceId,
-      hasSubtitles: !!subtitles.length,
-      subtitlesLength: subtitles.length,
-      hasOriginalSubtitles: !!originalSubtitles.length,
-      originalSubtitlesLength: originalSubtitles.length,
-      selectedSubtitleId: selectedSubtitle?.id,
-      gapStatesCount: gapStates.size,
-      availableGaps: Array.from(gapStates.values()).filter((g) => g.isEnabled).length,
-      hasJsonImport: !!inputStepContent?.importedJsonFile,
-      jsonFilePath: inputStepContent?.importedJsonFile,
-      isLoadingJsonSubtitles,
-    });
-
-    // Debug first few subtitles to check caption vs translation data
-    if (subtitles.length > 0) {
-      console.log(
-        '📝 First 3 subtitles data structure:',
-        subtitles.slice(0, 3).map((s, i) => ({
-          index: i,
-          id: s.id,
-          text: s.text,
-          translation: s.translation,
-          hasTranslation: !!(s.translation && s.translation.trim() && s.translation !== s.text),
-        }))
-      );
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    subtitles.length, // Only when subtitle count changes
-    originalSubtitles.length, // Only when original count changes
-    workspaceId, // Only when workspace changes
-    selectedSubtitle?.id, // Only when selection changes
-    gapStates.size, // Only when gap count changes
-    inputStepContent?.importedJsonFile, // Only when JSON import changes
-    isLoadingJsonSubtitles, // Only when loading state changes
-    // Removed: isVideoPlaying, currentTime - these change constantly during playback
-  ]);
+  }, [subtitles, logger]); // Only recalculate when subtitles change
 
   // Auto-scroll to center current subtitle when it changes - THROTTLED FOR PERFORMANCE
   useEffect(() => {
@@ -323,14 +170,14 @@ export const SubtitleListPanel: React.FC = () => {
       deleteSubtitle(subtitleId);
       await saveToWorkspace();
     } catch (error) {
-      console.error('Failed to delete subtitle:', error);
+      logger.error('Failed to delete subtitle', { error, subtitleId });
     }
   };
 
   const handleAddBetween = (index: number) => {
     const gapState = gapStates.get(index);
     if (!gapState || !gapState.isEnabled) {
-      console.warn(`❌ Cannot add subtitle - gap ${index} is disabled or invalid`);
+      logger.warn('Cannot add subtitle - gap is disabled or invalid', { gapIndex: index });
       return;
     }
 
@@ -367,10 +214,15 @@ export const SubtitleListPanel: React.FC = () => {
       }
     }, 100);
 
-    console.log(
-      `✅ Added new subtitle between ${prevSubtitle.index} and ${currSubtitle.index}`,
-      newSubtitle
-    );
+    logger.info('Added new subtitle between existing subtitles', {
+      prevIndex: prevSubtitle.index,
+      currIndex: currSubtitle.index,
+      newSubtitle: {
+        startTime: newSubtitle.startTime,
+        endTime: newSubtitle.endTime,
+        duration: newSubtitle.duration,
+      },
+    });
   };
 
   // Check if there's space at the end for adding new subtitle
@@ -431,7 +283,14 @@ export const SubtitleListPanel: React.FC = () => {
       }
     }, 100);
 
-    console.log('✅ Added new subtitle at end:', newSubtitle);
+    logger.info('Added new subtitle at end', {
+      subtitle: {
+        index: newSubtitle.index,
+        startTime: newSubtitle.startTime,
+        endTime: newSubtitle.endTime,
+        duration: newSubtitle.duration,
+      },
+    });
   };
 
   // Get original subtitle for comparison
@@ -498,47 +357,15 @@ export const SubtitleListPanel: React.FC = () => {
   }
 
   if (!subtitles.length) {
-    const hasJsonImport = !!inputStepContent?.importedJsonFile;
-
     return (
       <ReviewCard>
         <Typography variant='h6' sx={{ mb: 2 }}>
           Generated Subtitles
         </Typography>
-        {isLoadingJsonSubtitles ? (
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', py: 4 }}>
-            <CircularProgress size={24} sx={{ mr: 2 }} />
-            <Typography>Loading subtitles from imported JSON...</Typography>
-          </Box>
-        ) : hasJsonImport ? (
-          <Alert
-            severity='warning'
-            action={
-              <ActionButton
-                size='small'
-                onClick={() => {
-                  setIsLoadingJsonSubtitles(false); // Reset loading state to trigger retry
-                  // Force re-run of the effect
-                  const loadEffect = setTimeout(() => {
-                    const event = new CustomEvent('retryJsonLoad');
-                    window.dispatchEvent(event);
-                  }, 100);
-                  return () => clearTimeout(loadEffect);
-                }}
-                sx={{ fontSize: '0.75rem' }}
-              >
-                Retry Load
-              </ActionButton>
-            }
-          >
-            Imported JSON subtitles could not be loaded. Try re-importing your JSON file from Step
-            1, or check the console for error details.
-          </Alert>
-        ) : (
-          <Alert severity='info'>
-            No subtitles available. Complete the processing step to generate subtitles.
-          </Alert>
-        )}
+        <Alert severity='info'>
+          No subtitles available. Complete the processing step to generate subtitles or import a
+          JSON file from Step 1.
+        </Alert>
       </ReviewCard>
     );
   }
@@ -637,7 +464,7 @@ export const SubtitleListPanel: React.FC = () => {
 
                     // Skip if no gap state (shouldn't happen, but safety first)
                     if (!gapState) {
-                      console.warn(`❌ No gap state found for index ${index}`);
+                      logger.warn('No gap state found for index', { index });
                       return null;
                     }
 

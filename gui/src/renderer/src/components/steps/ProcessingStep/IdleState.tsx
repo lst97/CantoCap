@@ -10,16 +10,18 @@ import { useWorkflowActions } from '../../../stores/useWorkflowStore';
 import { useSubtitleActions } from '../../../stores/useSubtitleEditStore';
 import { StepStatus } from '../../../stores/types/StoreTypes';
 import { ProcessingCard, GuideButton, SecondaryGuideButton } from './styles';
+import { createComponentLogger } from '@/renderer/src/utils/logger';
 
 export const IdleState: React.FC = () => {
+  const logger = createComponentLogger('IdleState');
   const config = useConfigStepContent();
   const workflowActions = useWorkflowActions();
   const { clearWorkspace } = useSubtitleActions();
 
   const handleNewGeneration = async () => {
     // Clear subtitle store to prepare for new transcription results
-    console.log('🧹 Clearing subtitle store for fresh transcription from idle state');
-    await clearWorkspace();
+    logger.info('🧹 Clearing subtitle store for fresh transcription from idle state');
+    clearWorkspace();
 
     // Set steps 1 and 2 as complete to enable navigation to config
     await workflowActions.setStepState('input', StepStatus.COMPLETE);

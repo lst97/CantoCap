@@ -3,51 +3,43 @@
  * Handles state-related errors gracefully with fallback UI
  */
 
-import React, { Component, ErrorInfo, ReactNode } from 'react'
-import {
-  Box,
-  Typography,
-  Button,
-  Alert,
-  AlertTitle,
-  Paper,
-  Stack
-} from '@mui/material'
+import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { Box, Typography, Button, Alert, AlertTitle, Paper, Stack } from '@mui/material';
 import {
   Refresh as RefreshIcon,
   Settings as SettingsIcon,
-  Warning as WarningIcon
-} from '@mui/icons-material'
-import { workflowStateManager } from '../../services/workflow/workflow-state-manager'
-import { stepStateController, atomicStepError } from '../../utils/step-state-controller'
+  Warning as WarningIcon,
+} from '@mui/icons-material';
+import { createComponentLogger } from '../../utils/logger';
 
 interface Props {
-  children: ReactNode
-  fallback?: ReactNode
-  onError?: (error: Error, errorInfo: ErrorInfo) => void
-  stepId?: string // Optional step ID for automatic step state management
-  autoMarkStepError?: boolean // Whether to automatically mark step as error
+  children: ReactNode;
+  fallback?: ReactNode;
+  onError?: (error: Error, errorInfo: ErrorInfo) => void;
+  stepId?: string; // Optional step ID for automatic step state management
+  autoMarkStepError?: boolean; // Whether to automatically mark step as error
 }
 
 interface State {
-  hasError: boolean
-  error: Error | null
-  errorInfo: ErrorInfo | null
-  errorBoundaryId: string
+  hasError: boolean;
+  error: Error | null;
+  errorInfo: ErrorInfo | null;
+  errorBoundaryId: string;
 }
 
 export class WorkflowStateErrorBoundary extends Component<Props, State> {
-  private retryCount = 0
-  private maxRetries = 3
+  private retryCount = 0;
+  private maxRetries = 3;
+  private logger = createComponentLogger('WorkflowStateErrorBoundary');
 
   constructor(props: Props) {
-    super(props)
+    super(props);
     this.state = {
       hasError: false,
       error: null,
       errorInfo: null,
-      errorBoundaryId: `workflow-error-${Date.now()}`
-    }
+      errorBoundaryId: `workflow-error-${Date.now()}`,
+    };
   }
 
   static getDerivedStateFromError(error: Error): Partial<State> {
@@ -55,32 +47,32 @@ export class WorkflowStateErrorBoundary extends Component<Props, State> {
     return {
       hasError: true,
       error,
-      errorBoundaryId: `workflow-error-${Date.now()}`
-    }
+      errorBoundaryId: `workflow-error-${Date.now()}`,
+    };
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('Workflow State Error Boundary caught an error:', {
+    this.logger.error('Workflow State Error Boundary caught an error:', {
       error,
       errorInfo,
       componentStack: errorInfo.componentStack,
       errorBoundaryId: this.state.errorBoundaryId,
-      stepId: this.props.stepId
-    })
+      stepId: this.props.stepId,
+    });
 
     this.setState({
       error,
-      errorInfo
-    })
+      errorInfo,
+    });
 
     // Automatically mark step as error if configured
     if (this.props.stepId && this.props.autoMarkStepError !== false) {
-      this.markStepAsError(this.props.stepId, error.message)
+      this.markStepAsError(this.props.stepId, error.message);
     }
 
     // Call custom error handler if provided
     if (this.props.onError) {
-      this.props.onError(error, errorInfo)
+      this.props.onError(error, errorInfo);
     }
 
     // Report to monitoring service if available
@@ -89,8 +81,8 @@ export class WorkflowStateErrorBoundary extends Component<Props, State> {
         context: 'WorkflowStateErrorBoundary',
         componentStack: errorInfo.componentStack,
         errorBoundaryId: this.state.errorBoundaryId,
-        stepId: this.props.stepId
-      })
+        stepId: this.props.stepId,
+      });
     }
   }
 
@@ -99,102 +91,132 @@ export class WorkflowStateErrorBoundary extends Component<Props, State> {
    */
   private async markStepAsError(stepId: string, errorMessage: string) {
     try {
-      const severity = this.getErrorSeverity()
-      await atomicStepError(stepId, errorMessage, severity)
-      console.log(`✅ Step ${stepId} marked as error automatically by error boundary`)
+      const severity = this.getErrorSeverity();
+      
+      // Get active workspace ID and mark step as error using IPC directly
+      const { useAppStore } = await import('../../stores/useAppStore');
+      
+      const activeWorkspaceId = useAppStore.getState().activeWorkspaceId;
+      if (activeWorkspaceId) {
+        // Use direct IPC call instead of hooks (which can't be used in class components)
+        await window.electron.ipcRenderer.invoke('workflow:setStepState', activeWorkspaceId, stepId, 'error');
+        
+        this.logger.info(`✅ Step ${stepId} marked as error automatically by error boundary`, {
+          severity,
+          errorMessage,
+          workspaceId: activeWorkspaceId
+        });
+      } else {
+        this.logger.warn('Cannot mark step as error: no active workspace', { stepId });
+      }
     } catch (markError) {
-      console.error(`Failed to mark step ${stepId} as error:`, markError)
+      this.logger.error(`Failed to mark step ${stepId} as error:`, {
+        error: markError,
+        stepId,
+        errorMessage
+      });
     }
   }
 
   handleReset = () => {
     if (this.retryCount >= this.maxRetries) {
-      console.warn('Maximum retry attempts reached. Resetting workflow state.')
-      this.handleResetWorkflow()
-      return
+      this.logger.warn('Maximum retry attempts reached. Resetting workflow state.');
+      this.handleResetWorkflow();
+      return;
     }
 
-    this.retryCount += 1
-    console.log(`Retrying workflow state recovery (attempt ${this.retryCount}/${this.maxRetries})`)
-    
+    this.retryCount += 1;
+    this.logger.info(
+      `Retrying workflow state recovery (attempt ${this.retryCount}/${this.maxRetries})`
+    );
+
     this.setState({
       hasError: false,
       error: null,
       errorInfo: null,
-      errorBoundaryId: `workflow-error-${Date.now()}`
-    })
-  }
+      errorBoundaryId: `workflow-error-${Date.now()}`,
+    });
+  };
 
   handleResetWorkflow = async () => {
     try {
-      console.log('Resetting workflow state due to persistent errors')
-      workflowStateManager.reset()
+      this.logger.info('Resetting workflow state due to persistent errors');
       
-      this.retryCount = 0
+      // Reset workflow state using direct IPC call
+      const { useAppStore } = await import('../../stores/useAppStore');
+      const activeWorkspaceId = useAppStore.getState().activeWorkspaceId;
+      
+      if (activeWorkspaceId) {
+        await window.electron.ipcRenderer.invoke('workflow:resetState', activeWorkspaceId);
+        this.logger.info('Workflow state reset successfully', { workspaceId: activeWorkspaceId });
+      } else {
+        this.logger.warn('No active workspace to reset');
+      }
+
+      this.retryCount = 0;
       this.setState({
         hasError: false,
         error: null,
         errorInfo: null,
-        errorBoundaryId: `workflow-error-${Date.now()}`
-      })
+        errorBoundaryId: `workflow-error-${Date.now()}`,
+      });
     } catch (resetError) {
-      console.error('Failed to reset workflow state:', resetError)
+      this.logger.error('Failed to reset workflow state:', {
+        error: resetError,
+      });
       // If reset fails, we need to reload the entire application
       if (typeof window !== 'undefined') {
-        window.location.reload()
+        window.location.reload();
       }
     }
-  }
+  };
 
   handleReloadApp = () => {
     if (typeof window !== 'undefined') {
-      window.location.reload()
+      window.location.reload();
     }
-  }
+  };
 
   getErrorSeverity = (): 'low' | 'medium' | 'high' | 'critical' => {
-    const { error } = this.state
-    
-    if (!error) return 'low'
-    
+    const { error } = this.state;
+
+    if (!error) return 'low';
+
     // Analyze error to determine severity
-    const errorMessage = error.message.toLowerCase()
-    const errorStack = error.stack?.toLowerCase() || ''
-    
+    const errorMessage = error.message.toLowerCase();
+    const errorStack = error.stack?.toLowerCase() || '';
+
     // Critical errors that require immediate attention
     if (
       errorMessage.includes('step_not_found') ||
       errorMessage.includes('invalid_transition') ||
       errorStack.includes('workflowstatemanager')
     ) {
-      return 'critical'
+      return 'critical';
     }
-    
+
     // High severity errors
     if (
       errorMessage.includes('validation_failed') ||
       errorMessage.includes('persistence_error') ||
       this.retryCount >= this.maxRetries
     ) {
-      return 'high'
+      return 'high';
     }
-    
+
     // Medium severity errors
-    if (
-      errorMessage.includes('condition_not_met') ||
-      errorMessage.includes('timeout')
-    ) {
-      return 'medium'
+    if (errorMessage.includes('condition_not_met') || errorMessage.includes('timeout')) {
+      return 'medium';
     }
-    
-    return 'low'
-  }
+
+    return 'low';
+  };
 
   renderErrorFallback() {
-    const { error, errorInfo, errorBoundaryId } = this.state
-    const severity = this.getErrorSeverity()
-    const isRetryAvailable = this.retryCount < this.maxRetries
-    
+    const { error, errorInfo, errorBoundaryId } = this.state;
+    const severity = this.getErrorSeverity();
+    const isRetryAvailable = this.retryCount < this.maxRetries;
+
     return (
       <Box
         sx={{
@@ -204,11 +226,11 @@ export class WorkflowStateErrorBoundary extends Component<Props, State> {
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: 'background.paper'
+          backgroundColor: 'background.paper',
         }}
-        role="alert"
-        aria-labelledby="workflow-error-title"
-        aria-describedby="workflow-error-description"
+        role='alert'
+        aria-labelledby='workflow-error-title'
+        aria-describedby='workflow-error-description'
       >
         <Paper
           elevation={3}
@@ -216,59 +238,54 @@ export class WorkflowStateErrorBoundary extends Component<Props, State> {
             p: 4,
             maxWidth: 600,
             width: '100%',
-            textAlign: 'center'
+            textAlign: 'center',
           }}
         >
           <Stack spacing={3}>
             {/* Error Icon and Title */}
             <Box>
-              <WarningIcon 
-                sx={{ 
-                  fontSize: 48, 
+              <WarningIcon
+                sx={{
+                  fontSize: 48,
                   color: severity === 'critical' ? 'error.main' : 'warning.main',
-                  mb: 2 
-                }} 
+                  mb: 2,
+                }}
               />
-              <Typography 
-                id="workflow-error-title"
-                variant="h5" 
+              <Typography
+                id='workflow-error-title'
+                variant='h5'
                 gutterBottom
                 sx={{ fontWeight: 600 }}
               >
                 Workflow State Error
               </Typography>
             </Box>
-            
+
             {/* Error Alert */}
-            <Alert 
+            <Alert
               severity={severity === 'critical' ? 'error' : 'warning'}
               sx={{ textAlign: 'left' }}
             >
               <AlertTitle>
                 {severity === 'critical' ? 'Critical Error' : 'Workflow Issue'}
               </AlertTitle>
-              <Typography 
-                id="workflow-error-description"
-                variant="body2"
-                sx={{ mb: 1 }}
-              >
-                {severity === 'critical' 
+              <Typography id='workflow-error-description' variant='body2' sx={{ mb: 1 }}>
+                {severity === 'critical'
                   ? 'A critical error occurred in the workflow state system. Your progress is safe, but the workflow needs to be reset.'
-                  : 'There was a problem with the workflow state. This is usually temporary and can be resolved by retrying.'
-                }
+                  : 'There was a problem with the workflow state. This is usually temporary and can be resolved by retrying.'}
               </Typography>
               {error && (
-                <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
+                <Typography variant='caption' sx={{ fontFamily: 'monospace' }}>
                   Error: {error.message}
                 </Typography>
               )}
             </Alert>
-            
+
             {/* Action Buttons */}
-            <Stack direction="row" spacing={2} justifyContent="center">
+            <Stack direction='row' spacing={2} justifyContent='center'>
               {isRetryAvailable && (
                 <Button
-                  variant="contained"
+                  variant='contained'
                   startIcon={<RefreshIcon />}
                   onClick={this.handleReset}
                   aria-label={`Retry workflow recovery (attempt ${this.retryCount + 1} of ${this.maxRetries})`}
@@ -276,29 +293,29 @@ export class WorkflowStateErrorBoundary extends Component<Props, State> {
                   Try Again ({this.maxRetries - this.retryCount} attempts left)
                 </Button>
               )}
-              
+
               <Button
                 variant={isRetryAvailable ? 'outlined' : 'contained'}
                 startIcon={<SettingsIcon />}
                 onClick={this.handleResetWorkflow}
                 color={severity === 'critical' ? 'error' : 'primary'}
-                aria-label="Reset workflow to initial state"
+                aria-label='Reset workflow to initial state'
               >
                 Reset Workflow
               </Button>
-              
+
               {severity === 'critical' && (
                 <Button
-                  variant="outlined"
-                  color="error"
+                  variant='outlined'
+                  color='error'
                   onClick={this.handleReloadApp}
-                  aria-label="Reload entire application"
+                  aria-label='Reload entire application'
                 >
                   Reload App
                 </Button>
               )}
             </Stack>
-            
+
             {/* Debug Information (Development) */}
             {process.env.NODE_ENV === 'development' && error && (
               <details style={{ textAlign: 'left', marginTop: '1rem' }}>
@@ -306,14 +323,22 @@ export class WorkflowStateErrorBoundary extends Component<Props, State> {
                   Debug Information
                 </summary>
                 <Box sx={{ mt: 1, p: 2, backgroundColor: 'grey.100', borderRadius: 1 }}>
-                  <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>
-                    <strong>Error:</strong> {error.toString()}<br />
-                    <strong>Error ID:</strong> {errorBoundaryId}<br />
-                    <strong>Retry Count:</strong> {this.retryCount}/{this.maxRetries}<br />
-                    <strong>Severity:</strong> {severity}<br />
+                  <Typography
+                    variant='caption'
+                    sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}
+                  >
+                    <strong>Error:</strong> {error.toString()}
+                    <br />
+                    <strong>Error ID:</strong> {errorBoundaryId}
+                    <br />
+                    <strong>Retry Count:</strong> {this.retryCount}/{this.maxRetries}
+                    <br />
+                    <strong>Severity:</strong> {severity}
+                    <br />
                     {errorInfo && (
                       <>
-                        <strong>Component Stack:</strong><br />
+                        <strong>Component Stack:</strong>
+                        <br />
                         <pre style={{ fontSize: '0.6rem', overflow: 'auto', maxHeight: '200px' }}>
                           {errorInfo.componentStack}
                         </pre>
@@ -326,20 +351,20 @@ export class WorkflowStateErrorBoundary extends Component<Props, State> {
           </Stack>
         </Paper>
       </Box>
-    )
+    );
   }
 
   render() {
     if (this.state.hasError) {
       // Custom fallback UI takes precedence
       if (this.props.fallback) {
-        return this.props.fallback
+        return this.props.fallback;
       }
-      
-      return this.renderErrorFallback()
+
+      return this.renderErrorFallback();
     }
 
-    return this.props.children
+    return this.props.children;
   }
 }
 
@@ -349,24 +374,24 @@ export class WorkflowStateErrorBoundary extends Component<Props, State> {
 export function withWorkflowStateErrorBoundary<P extends object>(
   Component: React.ComponentType<P>,
   options?: {
-    fallback?: ReactNode
-    stepId?: string
-    autoMarkStepError?: boolean
+    fallback?: ReactNode;
+    stepId?: string;
+    autoMarkStepError?: boolean;
   }
 ) {
   const WrappedComponent = (props: P) => (
-    <WorkflowStateErrorBoundary 
+    <WorkflowStateErrorBoundary
       fallback={options?.fallback}
       stepId={options?.stepId}
       autoMarkStepError={options?.autoMarkStepError}
     >
       <Component {...props} />
     </WorkflowStateErrorBoundary>
-  )
-  
-  WrappedComponent.displayName = `withWorkflowStateErrorBoundary(${Component.displayName || Component.name})`
-  
-  return WrappedComponent
+  );
+
+  WrappedComponent.displayName = `withWorkflowStateErrorBoundary(${Component.displayName || Component.name})`;
+
+  return WrappedComponent;
 }
 
 /**
@@ -375,19 +400,20 @@ export function withWorkflowStateErrorBoundary<P extends object>(
 export function useWorkflowStateErrorHandler() {
   const throwError = (error: Error) => {
     // This will trigger the error boundary
-    throw error
-  }
-  
-  const handleStateError = (errorMessage: string, context?: Record<string, any>) => {
-    const error = new Error(`Workflow State Error: ${errorMessage}`)
+    throw error;
+  };
+
+  const handleStateError = (errorMessage: string, context?: Record<string, unknown>) => {
+    const error = new Error(`Workflow State Error: ${errorMessage}`);
     if (context) {
-      (error as any).context = context
+      (error as unknown as { context: Record<string, unknown> }).context = context;
     }
-    throwError(error)
-  }
-  
+    throwError(error);
+  };
+
   return {
     throwError,
-    handleStateError
-  }
+    handleStateError,
+  };
 }
+// This function is no longer needed as we use the workflow store actions directly

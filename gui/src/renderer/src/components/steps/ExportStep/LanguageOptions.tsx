@@ -6,6 +6,7 @@ import {
   Schedule as ScheduleIcon,
   CheckCircle as CheckCircleIcon,
 } from '@mui/icons-material';
+import { createComponentLogger } from '@/renderer/src/utils/logger';
 
 import {
   useExportActions,
@@ -16,7 +17,12 @@ import {
 import { useExportStepActions } from '../../../stores/steps/useExportStepStore';
 import { useAppStore } from '../../../stores/useAppStore';
 import type { Subtitle } from '../../../stores/types/StoreTypes';
-import { getFormatLanguageCapabilities, validateLanguageSelection, type LanguageSelection, type ExportFormat } from '../../../stores/steps/exportLanguageHelpers';
+import {
+  getFormatLanguageCapabilities,
+  validateLanguageSelection,
+  type LanguageSelection,
+  type ExportFormat,
+} from '../../../stores/steps/exportLanguageHelpers';
 
 interface QuickOption {
   key: string;
@@ -48,11 +54,12 @@ const analyzeSubtitleEntries = (subtitles: Subtitle[]) => {
 };
 
 export const LanguageOptions: React.FC = () => {
+  const logger = createComponentLogger('LanguageOptions');
   const { updateUserSelections, generatePreviewContent } = useExportActions();
   const userSelections = useExportUserSelections();
   const subtitles = useSubtitles();
   const exportStep = useExportStepContent();
-  
+
   // Enhanced persistence hooks
   const exportStepActions = useExportStepActions();
   const appStore = useAppStore();
@@ -61,55 +68,76 @@ export const LanguageOptions: React.FC = () => {
   // Load workspace-specific language preferences on mount and workspace change
   useEffect(() => {
     if (activeWorkspaceId) {
-      exportStepActions.loadExportPreferences(activeWorkspaceId)
+      exportStepActions
+        .loadExportPreferences(activeWorkspaceId)
         .then((preferences) => {
           if (preferences) {
-            console.log(`📖 Loading language preferences for workspace: ${activeWorkspaceId}`, preferences);
-            
+            logger.info(`📖 Loading language preferences for workspace: ${activeWorkspaceId}`, {
+              preferences: preferences,
+            });
+
             // Apply loaded preferences to current state
             if (preferences.selectedLanguages && preferences.selectedLanguages.length > 0) {
-              updateUserSelections({ 
+              updateUserSelections({
                 selectedLanguages: preferences.selectedLanguages,
                 includeMetadata: preferences.includeMetadata ?? userSelections.includeMetadata,
                 showTimestamps: preferences.showTimestamps ?? userSelections.showTimestamps,
-                customOutputPath: preferences.customOutputPath || userSelections.customOutputPath
+                customOutputPath: preferences.customOutputPath || userSelections.customOutputPath,
               });
             }
           } else {
-            console.log(`📝 No existing preferences found for workspace: ${activeWorkspaceId}, using defaults`);
+            logger.info(
+              `📝 No existing preferences found for workspace: ${activeWorkspaceId}, using defaults`
+            );
           }
         })
         .catch((error) => {
           console.warn('Failed to load export preferences:', error);
         });
     }
-  }, [activeWorkspaceId, exportStepActions, updateUserSelections]);
+    // Only depend on activeWorkspaceId to prevent infinite loops
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeWorkspaceId]);
 
   // Save preferences when they change
-  const savePreferences = useCallback(async (updatedSelections: Partial<typeof userSelections>) => {
-    if (!activeWorkspaceId) return;
-    
-    try {
-      const preferences = {
-        workspaceId: activeWorkspaceId,
-        preferredFormat: exportStep.format,
-        selectedLanguages: updatedSelections.selectedLanguages || userSelections.selectedLanguages,
-        includeMetadata: updatedSelections.includeMetadata ?? userSelections.includeMetadata,
-        showTimestamps: updatedSelections.showTimestamps ?? userSelections.showTimestamps,
-        customOutputPath: updatedSelections.customOutputPath || userSelections.customOutputPath,
-        exportSettings: exportStep.exportSettings,
-        lastUsedSettings: {
-          format: exportStep.format,
-          timestamp: Date.now()
-        }
-      };
-      
-      await exportStepActions.saveExportPreferences(activeWorkspaceId, preferences);
-      console.log(`💾 Saved language preferences for workspace: ${activeWorkspaceId}`, preferences);
-    } catch (error) {
-      console.error('Failed to save export preferences:', error);
-    }
-  }, [activeWorkspaceId, exportStep.format, exportStep.exportSettings, userSelections, exportStepActions]);
+  const savePreferences = useCallback(
+    async (updatedSelections: Partial<typeof userSelections>) => {
+      if (!activeWorkspaceId) return;
+
+      try {
+        const preferences = {
+          workspaceId: activeWorkspaceId,
+          preferredFormat: exportStep.format,
+          selectedLanguages:
+            updatedSelections.selectedLanguages || userSelections.selectedLanguages,
+          includeMetadata: updatedSelections.includeMetadata ?? userSelections.includeMetadata,
+          showTimestamps: updatedSelections.showTimestamps ?? userSelections.showTimestamps,
+          customOutputPath: updatedSelections.customOutputPath || userSelections.customOutputPath,
+          exportSettings: exportStep.exportSettings,
+          lastUsedSettings: {
+            format: exportStep.format,
+            timestamp: Date.now(),
+          },
+        };
+
+        await exportStepActions.saveExportPreferences(activeWorkspaceId, preferences);
+        logger.info(
+          `💾 Saved language preferences for workspace: ${activeWorkspaceId}`,
+          preferences
+        );
+      } catch (error) {
+        console.error('Failed to save export preferences:', error);
+      }
+    },
+    [
+      activeWorkspaceId,
+      exportStep.format,
+      exportStep.exportSettings,
+      userSelections,
+      exportStepActions,
+      logger,
+    ]
+  );
 
   const analysis = useMemo(() => {
     return analyzeSubtitleEntries(subtitles || []);
@@ -123,7 +151,7 @@ export const LanguageOptions: React.FC = () => {
   // Validate current language selection
   const languageValidation = useMemo(() => {
     return validateLanguageSelection(
-      subtitles || [], 
+      subtitles || [],
       userSelections.selectedLanguages as LanguageSelection[]
     );
   }, [subtitles, userSelections.selectedLanguages]);
@@ -207,8 +235,8 @@ export const LanguageOptions: React.FC = () => {
           hasOriginal && !hasTranslation
             ? 'At least one language option must be selected'
             : undefined,
-        compatibility: formatCapabilities.supportsMultipleLanguages 
-          ? undefined 
+        compatibility: formatCapabilities.supportsMultipleLanguages
+          ? undefined
           : `${exportStep.format.toUpperCase()} format only supports single language`,
       },
       {
@@ -223,8 +251,8 @@ export const LanguageOptions: React.FC = () => {
           hasTranslation && !hasOriginal
             ? 'At least one language option must be selected'
             : undefined,
-        compatibility: formatCapabilities.supportsMultipleLanguages 
-          ? undefined 
+        compatibility: formatCapabilities.supportsMultipleLanguages
+          ? undefined
           : `${exportStep.format.toUpperCase()} format only supports single language`,
       },
       {
@@ -233,8 +261,12 @@ export const LanguageOptions: React.FC = () => {
         icon: <CheckCircleIcon />,
         description: 'Include confidence scores and metadata in export',
         enabled: userSelections.includeMetadata,
-        compatibility: exportStep.format === 'json' ? undefined : 
-                     exportStep.format === 'fcpxml' ? 'Metadata included as XML title attributes' : 'Limited support in non-JSON formats',
+        compatibility:
+          exportStep.format === 'json'
+            ? undefined
+            : exportStep.format === 'fcpxml'
+              ? 'Metadata included as XML title attributes'
+              : 'Limited support in non-JSON formats',
       },
       {
         key: 'includeTimestamps',
@@ -242,8 +274,12 @@ export const LanguageOptions: React.FC = () => {
         icon: <ScheduleIcon />,
         description: 'Include timing information in plain text exports',
         enabled: userSelections.showTimestamps,
-        compatibility: exportStep.format === 'txt' ? undefined : 
-                     exportStep.format === 'fcpxml' ? 'FCPXML includes timestamps in timeline format' : 'Only applies to TXT format',
+        compatibility:
+          exportStep.format === 'txt'
+            ? undefined
+            : exportStep.format === 'fcpxml'
+              ? 'FCPXML includes timestamps in timeline format'
+              : 'Only applies to TXT format',
       },
     ];
   }, [analysis, userSelections, formatCapabilities, exportStep.format]);
@@ -252,30 +288,31 @@ export const LanguageOptions: React.FC = () => {
     <Box>
       {/* Language Selection Validation Warning */}
       {!languageValidation.isValid && languageValidation.warnings.length > 0 && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
+        <Alert severity='warning' sx={{ mb: 2 }}>
+          <Typography variant='body2' sx={{ fontWeight: 600, mb: 1 }}>
             Language Selection Issue
           </Typography>
           {languageValidation.warnings.map((warning, index) => (
-            <Typography key={index} variant="body2" sx={{ fontSize: '0.85rem' }}>
+            <Typography key={index} variant='body2' sx={{ fontSize: '0.85rem' }}>
               • {warning}
             </Typography>
           ))}
         </Alert>
       )}
-      
+
       {/* Format Information */}
       {formatCapabilities && (
         <Box sx={{ mb: 2, p: 2, backgroundColor: 'rgba(0, 0, 0, 0.1)', borderRadius: 1 }}>
-          <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+          <Typography variant='body2' sx={{ fontWeight: 600, mb: 0.5 }}>
             {exportStep.format.toUpperCase()} Format Compatibility
           </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem' }}>
+          <Typography variant='body2' color='text.secondary' sx={{ fontSize: '0.85rem' }}>
             {formatCapabilities.description}
           </Typography>
           {languageValidation.isValid && (
-            <Typography variant="body2" color="success.main" sx={{ fontSize: '0.85rem', mt: 0.5 }}>
-              ✓ {languageValidation.totalAvailable} subtitles will be exported with current selection
+            <Typography variant='body2' color='success.main' sx={{ fontSize: '0.85rem', mt: 0.5 }}>
+              ✓ {languageValidation.totalAvailable} subtitles will be exported with current
+              selection
             </Typography>
           )}
         </Box>

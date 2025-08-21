@@ -6,6 +6,7 @@ import {
 } from '@mui/icons-material'
 import { useAppStore } from '../../stores/useAppStore'
 import { useCurrentWorkspace } from '../../stores/useWorkspaceStore'
+import { createComponentLogger } from '../../utils/logger'
 
 /**
  * Enhanced CustomTitleBar with dynamic title support
@@ -17,7 +18,7 @@ import { useCurrentWorkspace } from '../../stores/useWorkspaceStore'
  */
 export const CustomTitleBar: React.FC = () => {
   const [platform, setPlatform] = useState<'macos' | 'windows' | 'linux'>('windows')
-  
+  const logger = createComponentLogger('CustomTitleBar')
   // Store subscriptions
   const currentWorkspace = useCurrentWorkspace()
   const { isLoading } = useAppStore()
@@ -31,10 +32,11 @@ export const CustomTitleBar: React.FC = () => {
           setPlatform(detectedPlatform as 'macos' | 'windows' | 'linux')
         }
       } catch {
-        console.log('Platform detection failed, using default')
+        logger.error('Platform detection failed, using default')
       }
     }
     detectPlatform()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Dynamic title logic

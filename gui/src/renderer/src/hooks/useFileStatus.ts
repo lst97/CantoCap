@@ -1,6 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { checkFileExists, getFileStatus } from '../utils/fileUtils';
 import type { ExportRecord } from '../stores/types/StoreTypes';
+import { createHookLogger } from '../utils/logger';
+
+// Module-scoped loggers to maintain stable identity across renders
+const fileExistsLogger = createHookLogger('FileExistsHook');
+const exportHistoryLogger = createHookLogger('ExportHistoryFileStatusHook');
 
 export interface FileStatus {
   exists: boolean;
@@ -37,7 +42,7 @@ export function useFileExists(filePath: string | null | undefined): FileStatus {
         lastModified: fileStatus.lastModified,
       });
     } catch (error) {
-      console.warn('Error checking file status:', error);
+      fileExistsLogger.warn('File status check failed', { path, error });
       setStatus({
         exists: false,
         isChecking: false,
@@ -47,11 +52,13 @@ export function useFileExists(filePath: string | null | undefined): FileStatus {
   }, []);
 
   useEffect(() => {
+    fileExistsLogger.hookMount({ filePath });
     if (filePath) {
       checkFile(filePath);
     } else {
       setStatus({ exists: false, isChecking: false });
     }
+    return () => fileExistsLogger.hookUnmount();
   }, [filePath, checkFile]);
 
   return status;
@@ -63,21 +70,24 @@ export function useFileExists(filePath: string | null | undefined): FileStatus {
 export function useExportHistoryFileStatus(exportHistory: ExportRecord[]): Map<string, FileStatus> {
   const [statusMap, setStatusMap] = useState<Map<string, FileStatus>>(new Map());
 
+  // Create a stable reference to the minimal history data we care about
+  const stableHistory = useMemo(() => {
+    return exportHistory.map((record) => ({
+      outputPath: record.outputPath,
+      exportedAt: record.exportedAt,
+    }));
+  }, [exportHistory]);
+
   useEffect(() => {
+    exportHistoryLogger.hookMount({ exportRecordsCount: stableHistory.length });
+
+    let isMounted = true;
+
     const checkFiles = async () => {
       const newStatusMap = new Map<string, FileStatus>();
 
-      // Initialize all entries as checking to prevent false positives
-      exportHistory.forEach((record) => {
-        const key = `${record.outputPath}-${record.exportedAt}`;
-        newStatusMap.set(key, { exists: false, isChecking: true });
-      });
-
-      // Update state immediately to show checking status
-      setStatusMap(new Map(newStatusMap));
-
-      // Check each export record's file
-      const checkPromises = exportHistory.map(async (record) => {
+      // Check each export record's file directly without intermediate state update
+      const checkPromises = stableHistory.map(async (record) => {
         const key = `${record.outputPath}-${record.exportedAt}`;
 
         if (!record.outputPath || record.outputPath.trim() === '') {
@@ -89,9 +99,14 @@ export function useExportHistoryFileStatus(exportHistory: ExportRecord[]): Map<s
           const fileExists = await checkFileExists(record.outputPath);
           const fileStats = await getFileStatus(record.outputPath);
 
-          console.log(
-            `File check for ${record.outputPath}: exists=${fileExists}, stats.exists=${fileStats.exists}`
-          );
+          // Only log when there's a discrepancy between checks
+          if (fileExists !== fileStats.exists) {
+            exportHistoryLogger.warn('File existence check discrepancy', {
+              path: record.outputPath,
+              checkFileExists: fileExists,
+              getFileStatus: fileStats.exists,
+            });
+          }
 
           return {
             key,
@@ -104,7 +119,11 @@ export function useExportHistoryFileStatus(exportHistory: ExportRecord[]): Map<s
             },
           };
         } catch (error) {
-          console.warn('Error checking file status for export record:', record.outputPath, error);
+          exportHistoryLogger.warn('Export record file check failed', {
+            path: record.outputPath,
+            exportedAt: record.exportedAt,
+            error,
+          });
           return {
             key,
             status: {
@@ -123,15 +142,23 @@ export function useExportHistoryFileStatus(exportHistory: ExportRecord[]): Map<s
         newStatusMap.set(key, status);
       });
 
-      setStatusMap(newStatusMap);
+      // Only update state if component is still mounted
+      if (isMounted) {
+        setStatusMap(newStatusMap);
+      }
     };
 
-    if (exportHistory.length > 0) {
+    if (stableHistory.length > 0) {
       checkFiles();
-    } else {
+    } else if (isMounted) {
       setStatusMap(new Map());
     }
-  }, [exportHistory]);
+
+    return () => {
+      isMounted = false;
+      exportHistoryLogger.hookUnmount();
+    };
+  }, [stableHistory]);
 
   return statusMap;
 }

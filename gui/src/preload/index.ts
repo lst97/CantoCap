@@ -1,5 +1,4 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
-import { electronAPI } from '@electron-toolkit/preload';
 import type {
   ElectronAPI,
   AppConfig,
@@ -228,19 +227,30 @@ const api: ElectronAPI = {
   },
 };
 
+// Custom electron API for IPC compatibility
+const electronCompat = {
+  ipcRenderer: {
+    invoke: (channel: string, ...args: any[]) => ipcRenderer.invoke(channel, ...args),
+    send: (channel: string, ...args: any[]) => ipcRenderer.send(channel, ...args),
+    on: (channel: string, callback: (...args: any[]) => void) => ipcRenderer.on(channel, callback),
+    removeListener: (channel: string, callback: (...args: any[]) => void) => ipcRenderer.removeListener(channel, callback),
+    removeAllListeners: (channel: string) => ipcRenderer.removeAllListeners(channel),
+  }
+};
+
 // Use `contextBridge` APIs to expose Electron APIs to
 // renderer only if context isolation is enabled, otherwise
 // just add to the DOM global.
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld('electron', electronAPI);
+    contextBridge.exposeInMainWorld('electron', electronCompat);
     contextBridge.exposeInMainWorld('cantocapAPI', api);
     contextBridge.exposeInMainWorld('electronAPI', api); // Add alias for consistency
   } catch (error) {
     console.error('Failed to expose APIs:', error);
   }
 } else {
-  (window as any).electron = electronAPI;
+  (window as any).electron = electronCompat;
   (window as any).cantocapAPI = api;
   (window as any).electronAPI = api;
 }

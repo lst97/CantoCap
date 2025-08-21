@@ -19,6 +19,9 @@ import { useWorkflowActions, useWorkflowStore } from '../../stores/useWorkflowSt
 import { useProcessingStepActions } from '../../stores/steps/useProcessingStepStore';
 import { useSubtitleActions } from '../../stores/useSubtitleEditStore';
 import { StepStatus } from '../../stores/types/StoreTypes';
+import { createComponentLogger } from '../../utils/logger';
+
+const logger = createComponentLogger('ActionPanel');
 
 export const ActionPanel = () => {
   // Get app-level data
@@ -47,10 +50,10 @@ export const ActionPanel = () => {
     processing.status,
   ]);
 
-  // Helper to show notifications (placeholder)
+  // Helper to show notifications
   const showNotification = useCallback(
     (message: string, type: string = 'info') => {
-      console.log(`[${type.toUpperCase()}] ${message}`);
+      logger.info(`Notification: ${message}`, { type });
       if (appActions.showNotification) {
         appActions.showNotification(message, type);
       }
@@ -77,20 +80,20 @@ export const ActionPanel = () => {
       const isRegeneration = processing.status === 'completed';
 
       if (isRegeneration) {
-        console.log('🔄 Regenerate Subtitles clicked - resetting processing state');
+        logger.info('Starting subtitle regeneration');
         showNotification('Starting subtitle regeneration...', 'info');
       } else {
-        console.log('🎯 Generate Subtitles clicked - updating workflow states');
+        logger.info('Starting subtitle generation');
       }
 
       // Clear subtitle store to prepare for new transcription results
-      console.log('🧹 Clearing subtitle store for fresh transcription');
+      logger.debug('Clearing subtitle store for fresh transcription');
       await clearWorkspace();
 
       // Mark config step as complete and set processing step to ready
       await setStepState('config', StepStatus.COMPLETE);
       await setStepState('processing', StepStatus.READY);
-      console.log('✅ Config step marked as complete, Processing step set to ready');
+      logger.debug('Config step marked as complete, Processing step set to ready');
 
       // Navigate to processing step
       await workflowActions.navigateToStep('processing');
@@ -119,12 +122,12 @@ export const ActionPanel = () => {
           showNotification(durationText, 'info');
         }
       } catch (estimateError) {
-        console.warn('Failed to get processing estimate:', estimateError);
+        logger.warn('Failed to get processing estimate', { error: estimateError });
         // Continue without estimate - not critical
       }
 
       // Update the processing store to 'running' state BEFORE starting the IPC call
-      console.log('🚀 ActionPanel: Setting processing state to running before starting backend');
+      logger.debug('Setting processing state to running before starting backend');
       startProcessing({
         currentPhase: 'initializing',
         logs: ['Starting transcription process...'],
@@ -138,17 +141,15 @@ export const ActionPanel = () => {
           ? 'Subtitle regeneration process started successfully'
           : 'Transcription process started successfully';
         showNotification(successMessage, 'success');
-        console.log(
-          '✅ ActionPanel: Processing started successfully, backend will send status updates via IPC events'
-        );
+        logger.info('Processing started successfully, backend will send status updates via IPC events');
       } else {
         // If backend start failed, reset processing state back to idle
-        console.error('❌ ActionPanel: Backend processing start failed, resetting state');
+        logger.error('Backend processing start failed, resetting state', { error: startResult.error });
         startProcessing({ status: 'idle', logs: ['Failed to start processing'] });
         throw new Error(startResult.error || 'Failed to start transcription process');
       }
     } catch (error) {
-      console.error('Failed to start transcription:', error);
+      logger.error('Failed to start transcription', { error });
       showNotification(
         `Failed to start transcription: ${error instanceof Error ? error.message : 'Unknown error'}`,
         'error'
@@ -156,13 +157,13 @@ export const ActionPanel = () => {
 
       // Reset workflow states back to config if there was an error
       try {
-        console.log('❌ Transcription start failed - resetting workflow states');
+        logger.debug('Transcription start failed - resetting workflow states');
         await setStepState('config', StepStatus.READY);
         await setStepState('processing', StepStatus.ERROR);
         await workflowActions.navigateToStep('config');
-        console.log('✅ Workflow states reset to config step');
+        logger.debug('Workflow states reset to config step');
       } catch (navError) {
-        console.error('Failed to reset workflow states:', navError);
+        logger.error('Failed to reset workflow states', { error: navError });
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -187,7 +188,7 @@ export const ActionPanel = () => {
         throw new Error(result.error || 'Failed to cancel transcription');
       }
     } catch (error) {
-      console.error('Failed to cancel transcription:', error);
+      logger.error('Failed to cancel transcription', { error });
       showNotification(
         `Failed to cancel transcription: ${error instanceof Error ? error.message : 'Unknown error'}`,
         'error'

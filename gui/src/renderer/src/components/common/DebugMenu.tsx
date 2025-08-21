@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState } from 'react';
 import {
   Box,
   Button,
@@ -9,19 +9,20 @@ import {
   AccordionSummary,
   AccordionDetails,
   Chip,
-  Divider
-} from '@mui/material'
+  Divider,
+} from '@mui/material';
 import {
   ExpandMore as ExpandMoreIcon,
   BugReport as BugReportIcon,
   Info as InfoIcon,
   Storage as StorageIcon,
-  Memory as MemoryIcon
-} from '@mui/icons-material'
-import type { ElectronWindow } from '../../../../types'
+  Memory as MemoryIcon,
+} from '@mui/icons-material';
+import type { ElectronWindow } from '../../../../types';
+import { createComponentLogger } from '../../utils/logger';
 
 interface DebugMenuProps {
-  show?: boolean
+  show?: boolean;
 }
 
 // Extend Performance interface to include memory property
@@ -38,18 +39,19 @@ interface PerformanceWithMemory extends Performance {
  * Shows application state, performance info, and debugging controls
  */
 export const DebugMenu: React.FC<DebugMenuProps> = ({ show = false }) => {
-  const [isVisible, setIsVisible] = useState(show)
+  const logger = createComponentLogger('DebugMenu');
+  const [isVisible, setIsVisible] = useState(show);
 
   // Only show in development
   if (process.env.NODE_ENV === 'production' && !show) {
-    return null
+    return null;
   }
 
   if (!isVisible) {
     return (
       <Button
-        variant="outlined"
-        size="small"
+        variant='outlined'
+        size='small'
         onClick={() => setIsVisible(true)}
         startIcon={<BugReportIcon />}
         sx={{
@@ -63,7 +65,7 @@ export const DebugMenu: React.FC<DebugMenuProps> = ({ show = false }) => {
       >
         Debug Info
       </Button>
-    )
+    );
   }
 
   const debugInfo = {
@@ -74,7 +76,7 @@ export const DebugMenu: React.FC<DebugMenuProps> = ({ show = false }) => {
     location: window.location.href,
     electronAPI: !!(window as unknown as ElectronWindow).electron,
     cantocapAPI: !!(window as unknown as ElectronWindow).cantocapAPI,
-  }
+  };
 
   const handleOpenDevTools = async () => {
     try {
@@ -83,19 +85,21 @@ export const DebugMenu: React.FC<DebugMenuProps> = ({ show = false }) => {
         await electronWindow.electron.ipcRenderer.invoke('devtools:toggle');
       }
     } catch (error) {
-      console.error('Failed to open DevTools:', error)
+      logger.error('Failed to open DevTools:', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
-  }
+  };
 
   const handleReload = () => {
-    window.location.reload()
-  }
+    window.location.reload();
+  };
 
   const handleClearStorage = () => {
-    localStorage.clear()
-    sessionStorage.clear()
-    console.log('Local storage cleared')
-  }
+    localStorage.clear();
+    sessionStorage.clear();
+    logger.log('Local storage cleared');
+  };
 
   return (
     <Card
@@ -114,11 +118,11 @@ export const DebugMenu: React.FC<DebugMenuProps> = ({ show = false }) => {
     >
       <CardContent>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-          <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Typography variant='h6' sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <BugReportIcon />
             Debug Console
           </Typography>
-          <Button size="small" onClick={() => setIsVisible(false)}>
+          <Button size='small' onClick={() => setIsVisible(false)}>
             ×
           </Button>
         </Box>
@@ -126,26 +130,17 @@ export const DebugMenu: React.FC<DebugMenuProps> = ({ show = false }) => {
         {/* Quick Actions */}
         <Box sx={{ mb: 2, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
           <Button
-            size="small"
-            variant="contained"
+            size='small'
+            variant='contained'
             onClick={handleOpenDevTools}
             startIcon={<BugReportIcon />}
           >
             DevTools
           </Button>
-          <Button
-            size="small"
-            variant="outlined"
-            onClick={handleReload}
-          >
+          <Button size='small' variant='outlined' onClick={handleReload}>
             Reload
           </Button>
-          <Button
-            size="small"
-            variant="outlined"
-            color="warning"
-            onClick={handleClearStorage}
-          >
+          <Button size='small' variant='outlined' color='warning' onClick={handleClearStorage}>
             Clear Storage
           </Button>
         </Box>
@@ -156,39 +151,39 @@ export const DebugMenu: React.FC<DebugMenuProps> = ({ show = false }) => {
         <Accordion>
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <InfoIcon fontSize="small" />
-              <Typography variant="subtitle2">System Information</Typography>
+              <InfoIcon fontSize='small' />
+              <Typography variant='subtitle2'>System Information</Typography>
             </Box>
           </AccordionSummary>
           <AccordionDetails>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Typography variant="body2">Environment:</Typography>
-                <Chip 
-                  label={debugInfo.environment} 
-                  size="small" 
+                <Typography variant='body2'>Environment:</Typography>
+                <Chip
+                  label={debugInfo.environment}
+                  size='small'
                   color={debugInfo.environment === 'development' ? 'success' : 'default'}
                 />
               </Box>
               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Typography variant="body2">Viewport:</Typography>
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant='body2'>Viewport:</Typography>
+                <Typography variant='body2' color='text.secondary'>
                   {debugInfo.viewport}
                 </Typography>
               </Box>
               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Typography variant="body2">ElectronAPI:</Typography>
-                <Chip 
-                  label={debugInfo.electronAPI ? 'Available' : 'Missing'} 
-                  size="small" 
+                <Typography variant='body2'>ElectronAPI:</Typography>
+                <Chip
+                  label={debugInfo.electronAPI ? 'Available' : 'Missing'}
+                  size='small'
                   color={debugInfo.electronAPI ? 'success' : 'error'}
                 />
               </Box>
               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Typography variant="body2">CantoCap API:</Typography>
-                <Chip 
-                  label={debugInfo.cantocapAPI ? 'Available' : 'Missing'} 
-                  size="small" 
+                <Typography variant='body2'>CantoCap API:</Typography>
+                <Chip
+                  label={debugInfo.cantocapAPI ? 'Available' : 'Missing'}
+                  size='small'
                   color={debugInfo.cantocapAPI ? 'success' : 'error'}
                 />
               </Box>
@@ -200,21 +195,21 @@ export const DebugMenu: React.FC<DebugMenuProps> = ({ show = false }) => {
         <Accordion>
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <StorageIcon fontSize="small" />
-              <Typography variant="subtitle2">Storage</Typography>
+              <StorageIcon fontSize='small' />
+              <Typography variant='subtitle2'>Storage</Typography>
             </Box>
           </AccordionSummary>
           <AccordionDetails>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Typography variant="body2">localStorage items:</Typography>
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant='body2'>localStorage items:</Typography>
+                <Typography variant='body2' color='text.secondary'>
                   {localStorage.length}
                 </Typography>
               </Box>
               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Typography variant="body2">sessionStorage items:</Typography>
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant='body2'>sessionStorage items:</Typography>
+                <Typography variant='body2' color='text.secondary'>
                   {sessionStorage.length}
                 </Typography>
               </Box>
@@ -226,27 +221,33 @@ export const DebugMenu: React.FC<DebugMenuProps> = ({ show = false }) => {
         <Accordion>
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <MemoryIcon fontSize="small" />
-              <Typography variant="subtitle2">Performance</Typography>
+              <MemoryIcon fontSize='small' />
+              <Typography variant='subtitle2'>Performance</Typography>
             </Box>
           </AccordionSummary>
           <AccordionDetails>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <Typography variant="body2" color="text.secondary">
+              <Typography variant='body2' color='text.secondary'>
                 Timestamp: {debugInfo.timestamp}
               </Typography>
               {(performance as PerformanceWithMemory).memory && (
                 <>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Typography variant="body2">Used JS Heap:</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {Math.round((performance as PerformanceWithMemory).memory!.usedJSHeapSize / 1024 / 1024)}MB
+                    <Typography variant='body2'>Used JS Heap:</Typography>
+                    <Typography variant='body2' color='text.secondary'>
+                      {Math.round(
+                        (performance as PerformanceWithMemory).memory!.usedJSHeapSize / 1024 / 1024
+                      )}
+                      MB
                     </Typography>
                   </Box>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Typography variant="body2">Total JS Heap:</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {Math.round((performance as PerformanceWithMemory).memory!.totalJSHeapSize / 1024 / 1024)}MB
+                    <Typography variant='body2'>Total JS Heap:</Typography>
+                    <Typography variant='body2' color='text.secondary'>
+                      {Math.round(
+                        (performance as PerformanceWithMemory).memory!.totalJSHeapSize / 1024 / 1024
+                      )}
+                      MB
                     </Typography>
                   </Box>
                 </>
@@ -255,12 +256,12 @@ export const DebugMenu: React.FC<DebugMenuProps> = ({ show = false }) => {
           </AccordionDetails>
         </Accordion>
 
-        <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block' }}>
+        <Typography variant='caption' color='text.secondary' sx={{ mt: 2, display: 'block' }}>
           Development Debug Interface - Press F12 or use DevTools button for Chrome DevTools
         </Typography>
       </CardContent>
     </Card>
-  )
-}
+  );
+};
 
-export default DebugMenu
+export default DebugMenu;

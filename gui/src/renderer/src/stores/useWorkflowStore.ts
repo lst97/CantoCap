@@ -9,6 +9,7 @@ import {
 } from './types/StoreTypes';
 import { useStepStore } from './useStepStore';
 import { ElectronWindow } from '@/types';
+import { createStoreLogger } from '../utils/logger';
 
 // Import to get current workspace ID for persistence
 let getAppStore: (() => { activeWorkspaceId: string | null }) | null = null;
@@ -27,7 +28,6 @@ const getInputStepContent = (): { importedJsonFile?: string | null } => {
   try {
     return useStepStore.getState().inputStep || {};
   } catch (error) {
-    console.warn('Failed to get step store state:', error);
     return {};
   }
 };
@@ -37,7 +37,6 @@ const getProcessingStepContent = (): { status?: 'idle' | 'running' | 'completed'
   try {
     return useStepStore.getState().processingStep || {};
   } catch (error) {
-    console.warn('Failed to get processing step state:', error);
     return {};
   }
 };
@@ -46,6 +45,7 @@ const getProcessingStepContent = (): { status?: 'idle' | 'running' | 'completed'
 // WORKFLOW STORE - STEP NAVIGATION AND STATE MANAGEMENT
 // ============================================================================
 
+const logger = createStoreLogger('Workflow');
 const STEP_ORDER: StepType[] = ['input', 'config', 'processing', 'review', 'export'];
 
 // Helper method to calculate which steps can be navigated to
@@ -124,14 +124,12 @@ const calculateNavigationPermissions = (
     }
   });
 
-  console.log('🔍 Navigation permissions calculated:', {
+  logger.debug('Navigation permissions calculated', {
     hasJsonImport,
     isProcessingRunning,
     inputStatus: stepStates.input,
     processingStatus: stepStates.processing,
-    processingStepStatus: processingStepContent?.status,
-    canAccessReview: navigation.review,
-    navigation
+    canAccessReview: navigation.review
   });
 
   return navigation;
@@ -163,10 +161,10 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       const { actions } = get();
       const currentState = get();
       
-      console.log(`🔄 Navigation request: ${currentState.currentStep} → ${step}`, {
-        canNavigate: actions.canNavigateToStep(step),
-        currentState: currentState.currentStep,
-        targetStep: step
+      logger.info('Navigation request', {
+        from: currentState.currentStep,
+        to: step,
+        canNavigate: actions.canNavigateToStep(step)
       });
 
       if (actions.canNavigateToStep(step)) {
@@ -181,9 +179,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           stepStates: previousStepStates
         }));
         
-        console.log(`✅ Navigation completed: current step set to ${step}, step states preserved`, {
-          preservedStates: previousStepStates,
-          newCurrentStep: step
+        logger.debug('Navigation completed successfully', {
+          newCurrentStep: step,
+          statesPreserved: true
         });
 
         // Persist to main process for cross-session state using context bridge API
@@ -191,15 +189,19 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           const workspaceId = await getWorkspaceId();
           if (workspaceId && (window as unknown as ElectronWindow).cantocapAPI?.workflowSetCurrentStep) {
             await (window as unknown as ElectronWindow).cantocapAPI.workflowSetCurrentStep(workspaceId, step);
-            console.log(`💾 Persisted current step: ${step} for workspace ${workspaceId}`);
+            logger.debug('Persisted current step', { step, workspaceId });
           }
         } catch (error) {
-          console.error('Failed to persist current step:', error);
+          logger.error('Failed to persist current step', {
+            step,
+            workspaceId: await getWorkspaceId(),
+            error: error instanceof Error ? error.message : String(error)
+          });
           return { success: false, error: `Failed to persist step: ${error}` };
         }
         return { success: true };
       } else {
-        console.warn(`❌ Cannot navigate to step ${step} - step is blocked or invalid`);
+        logger.warn('Cannot navigate to step - blocked or invalid', { step });
         return { success: false, error: `Cannot navigate to step ${step} - step is blocked or invalid` };
       }
     },
@@ -210,7 +212,6 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       
       // Only proceed if the state has actually changed
       if (currentStates[step] === state) {
-        console.log(`⏭️ Skipping setStepState for ${step} - state unchanged: ${state}`);
         return;
       }
 
@@ -231,10 +232,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         const workspaceId = await getWorkspaceId();
         if (workspaceId && (window as unknown as ElectronWindow).cantocapAPI?.workflowSetStepState) {
           await (window as unknown as ElectronWindow).cantocapAPI.workflowSetStepState(workspaceId, step, state);
-          console.log(`💾 Persisted step state change: ${step} = ${state} for workspace ${workspaceId}`);
+          logger.debug('Persisted step state change', { step, state, workspaceId });
         }
       } catch (error) {
-        console.error('Failed to persist step state:', error);
+        logger.error('Failed to persist step state', {
+          step,
+          state,
+          error: error instanceof Error ? error.message : String(error)
+        });
       }
     },
 
@@ -264,10 +269,12 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         const workspaceId = await getWorkspaceId();
         if (workspaceId && (window as unknown as ElectronWindow).cantocapAPI?.workflowResetState) {
           await (window as unknown as ElectronWindow).cantocapAPI.workflowResetState(workspaceId);
-          console.log(`💾 Reset workflow state for workspace ${workspaceId}`);
+          logger.debug('Reset workflow state persisted', { workspaceId });
         }
       } catch (error) {
-        console.error('Failed to persist workflow reset:', error);
+        logger.error('Failed to persist workflow reset', {
+          error: error instanceof Error ? error.message : String(error)
+        });
       }
     },
 
@@ -288,7 +295,11 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             let correctedProcessingStepContent = processingStepContent;
             if (typedState.stepStates.processing === StepStatus.COMPLETE && 
                 processingStepContent?.status === 'running') {
-              console.log('🔧 loadWorkflowState: Correcting processing step status from running to completed based on workflow state');
+              logger.warn('Correcting processing step status mismatch', {
+                workspaceId,
+                workflowState: 'COMPLETE',
+                processingState: 'running'
+              });
               correctedProcessingStepContent = { ...processingStepContent, status: 'completed' as const };
               
               // Also update the processing step store to reflect the correct status
@@ -299,10 +310,11 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             const updatedNavigation = calculateNavigationPermissions(typedState.stepStates, inputStepContent, correctedProcessingStepContent);
             
             const currentState = get();
-            console.log(`🔄 loadWorkflowState: Loading persisted state for ${workspaceId}`, {
-              currentInStore: currentState.currentStep,
+            logger.info('Loading persisted workflow state', {
+              workspaceId,
+              currentStep: currentState.currentStep,
               persistedStep: typedState.currentStep,
-              willOverride: currentState.currentStep !== typedState.currentStep
+              willChange: currentState.currentStep !== typedState.currentStep
             });
             
             set({
@@ -311,16 +323,19 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
               canNavigate: updatedNavigation,
             });
             
-            console.log(`💾 Loaded persisted workflow state for workspace ${workspaceId}:`, {
-              currentStep: typedState.currentStep,
-              stepStates: typedState.stepStates,
+            logger.debug('Persisted workflow state loaded successfully', {
+              workspaceId,
+              currentStep: typedState.currentStep
             });
           } else {
-            console.log(`💾 No persisted workflow state found for workspace ${workspaceId}, using defaults`);
+            logger.debug('No persisted workflow state found, using defaults', { workspaceId });
           }
         }
       } catch (error) {
-        console.error('Failed to load workflow state:', error);
+        logger.error('Failed to load workflow state', {
+          workspaceId,
+          error: error instanceof Error ? error.message : String(error)
+        });
       }
     },
 
@@ -371,7 +386,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       
       set({ canNavigate: updatedNavigation });
       
-      console.log('🔄 Navigation permissions refreshed due to input step changes');
+      logger.debug('Navigation permissions refreshed due to input step changes');
     },
   },
 }));
@@ -387,14 +402,16 @@ if (typeof window !== 'undefined' && (window as unknown as ElectronWindow).elect
     'workflow:stepChanged',
     (_event: never, data: WorkflowStepChangedEvent) => {
       const { currentStep } = data;
-      console.log(`📡 IPC stepChanged event received: setting step to ${currentStep}`, data);
+      logger.debug('IPC stepChanged event received', { currentStep });
       useWorkflowStore.setState((currentState) => {
         // Only update if step actually changed
         if (currentState.currentStep !== currentStep) {
-          console.log(`🔄 IPC updating step: ${currentState.currentStep} → ${currentStep}`);
+          logger.debug('IPC updating current step', {
+            from: currentState.currentStep,
+            to: currentStep
+          });
           return { ...currentState, currentStep };
         }
-        console.log(`⏸️ IPC step change skipped - already at ${currentStep}`);
         return currentState; // No change needed - return exact same reference
       });
     }
@@ -420,6 +437,7 @@ if (typeof window !== 'undefined' && (window as unknown as ElectronWindow).elect
             return currentState; // No effective change
           }
 
+          logger.debug('IPC step state changed', { step, newState });
           return {
             ...currentState,
             stepStates: updatedStates,

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { ConfigStepData, ProcessingLanguage, WhisperModel, ElectronWindow } from '../types/StoreTypes';
+import { ConfigStepData, ProcessingLanguage, WhisperModel } from '../types/StoreTypes';
+import { createStoreLogger } from '../../utils/logger';
 
 interface ConfigStepState {
   data: ConfigStepData;
@@ -41,17 +42,17 @@ const defaultConfigStepData: ConfigStepData = {
   terminologyConfig: undefined,
   ffmpegPath: undefined,
   verbose: false,
-  
+
   // New adaptive chunking fields
   enableAdaptiveChunking: true, // Enable by default
   whisperChunkDuration: 30, // seconds
   geminiChunkDuration: 900, // seconds (15 minutes)
-  
+
   // Structured settings
   modelSettings: {
     whisperModel: 'openai/whisper-medium',
     enableGemini: false,
-    temperature: 0.1
+    temperature: 0.1,
   },
   apiKeys: {},
   advancedSettings: {
@@ -64,51 +65,55 @@ const defaultConfigStepData: ConfigStepData = {
       whisperChunkDuration: 30,
       whisperOverlap: 5,
       geminiChunkDuration: 900,
-      geminiOverlap: 30
-    }
+      geminiOverlap: 30,
+    },
   },
   isValid: false,
-  validationErrors: []
+  validationErrors: [],
 };
+
+const logger = createStoreLogger('Config');
 
 export const useConfigStepStore = create<ConfigStepState>((set, get) => ({
   data: defaultConfigStepData,
-  
+
   actions: {
     updateConfigStep: async (content: Partial<ConfigStepData>) => {
-      console.log(`🔄 UPDATE CONFIG: Updating config with:`, content);
-      
+      logger.debug('Updating config step', { content });
+
       // Migrate legacy data: if 'model' field exists, move it to modelSettings.whisperModel
       const migratedContent = { ...content };
       if ('model' in migratedContent && (migratedContent as any).model) {
         const legacyModel = (migratedContent as any).model;
-        console.log(`🔄 CONFIG STORE MIGRATION: Found legacy model field:`, legacyModel);
-        
+        logger.info('Migrating legacy model field', { legacyModel });
+
         if (!migratedContent.modelSettings) {
-          migratedContent.modelSettings = { 
+          migratedContent.modelSettings = {
             whisperModel: legacyModel,
             enableGemini: false,
-            temperature: 0.1
+            temperature: 0.1,
           };
         } else {
           migratedContent.modelSettings = {
             ...migratedContent.modelSettings,
-            whisperModel: legacyModel
+            whisperModel: legacyModel,
           };
         }
-        
+
         // Remove the legacy field
         delete (migratedContent as any).model;
-        console.log(`✅ CONFIG STORE MIGRATION: Migrated to modelSettings.whisperModel:`, migratedContent.modelSettings.whisperModel);
+        logger.debug('Migration completed successfully', {
+          whisperModel: migratedContent.modelSettings.whisperModel,
+        });
       }
 
       // Update the store only - persistence is handled by useStepStore
-      set(state => ({
-        data: { 
-          ...state.data, 
-          ...migratedContent, 
-          lastModified: Date.now() 
-        }
+      set((state) => ({
+        data: {
+          ...state.data,
+          ...migratedContent,
+          lastModified: Date.now(),
+        },
       }));
 
       // NOTE: Persistence is handled by useStepStore.updateStepContent()
@@ -116,130 +121,134 @@ export const useConfigStepStore = create<ConfigStepState>((set, get) => ({
     },
 
     resetConfigStep: () => {
-      console.log('🔄 CONFIG STORE: Resetting config step to defaults for workspace isolation');
-      set({ 
-        data: { 
+      logger.info('Resetting config step to defaults for workspace isolation');
+      set({
+        data: {
           ...defaultConfigStepData,
           lastModified: Date.now(),
           // Ensure all object references are completely new
           modelSettings: {
             whisperModel: 'openai/whisper-medium',
             enableGemini: false,
-            temperature: 0.1
+            temperature: 0.1,
           },
           apiKeys: {},
           advancedSettings: {
             chunkDuration: 30,
             numWorkers: 4,
             enableSpeakerDiarization: false,
-            enableMusicDetection: false
+            enableMusicDetection: false,
           },
-          validationErrors: []
-        } 
+          validationErrors: [],
+        },
       });
-      console.log('✅ CONFIG STORE: Reset completed');
+      logger.debug('Config step reset completed');
     },
 
-    setModel: (model: string) => {
+    setModel: async (model: string) => {
       // Update the store only - persistence is handled by useStepStore
-      set(state => ({
+      set((state) => ({
         data: {
           ...state.data,
           modelSettings: {
             ...state.data.modelSettings,
-            whisperModel: model as WhisperModel
+            whisperModel: model as WhisperModel,
           },
-          lastModified: Date.now()
-        }
+          lastModified: Date.now(),
+        },
       }));
     },
 
     setLanguage: (language: string) => {
       // Update the store only - persistence is handled by useStepStore
-      set(state => ({
-        data: { ...state.data, language: language as ProcessingLanguage, lastModified: Date.now() }
+      set((state) => ({
+        data: { ...state.data, language: language as ProcessingLanguage, lastModified: Date.now() },
       }));
     },
 
     setCharset: (charset: string) => {
       // Update the store only - persistence is handled by useStepStore
-      set(state => ({
-        data: { ...state.data, charset: charset as "traditional" | "simplified", lastModified: Date.now() }
+      set((state) => ({
+        data: {
+          ...state.data,
+          charset: charset as 'traditional' | 'simplified',
+          lastModified: Date.now(),
+        },
       }));
     },
 
     setGeminiKey: (key: string | undefined) => {
-      set(state => ({
+      set((state) => ({
         data: {
           ...state.data,
           geminiKey: key,
           modelSettings: {
             ...state.data.modelSettings,
-            enableGemini: !!key
-          }
-        }
+            enableGemini: !!key,
+          },
+        },
       }));
     },
 
     setOutputFile: (file: string | null) => {
-      set(state => ({
-        data: { ...state.data, outputFile: file }
+      set((state) => ({
+        data: { ...state.data, outputFile: file },
       }));
     },
 
     toggleSpeakers: (enabled: boolean) => {
-      set(state => ({
+      set((state) => ({
         data: {
           ...state.data,
           speakers: enabled,
           advancedSettings: {
             ...state.data.advancedSettings,
-            enableSpeakerDiarization: enabled
-          }
-        }
+            enableSpeakerDiarization: enabled,
+          },
+        },
       }));
     },
 
     toggleWritten: (enabled: boolean) => {
-      set(state => ({
-        data: { ...state.data, written: enabled }
+      set((state) => ({
+        data: { ...state.data, written: enabled },
       }));
     },
 
     toggleMusic: (enabled: boolean) => {
-      set(state => ({
+      set((state) => ({
         data: {
           ...state.data,
           music: enabled,
           advancedSettings: {
             ...state.data.advancedSettings,
-            enableMusicDetection: enabled
-          }
-        }
+            enableMusicDetection: enabled,
+          },
+        },
       }));
     },
 
     updateModelSettings: (settings: Partial<ConfigStepData['modelSettings']>) => {
-      set(state => ({
+      set((state) => ({
         data: {
           ...state.data,
-          modelSettings: { ...state.data.modelSettings, ...settings }
-        }
+          modelSettings: { ...state.data.modelSettings, ...settings },
+        },
       }));
     },
 
     updateAdvancedSettings: (settings: Partial<ConfigStepData['advancedSettings']>) => {
-      set(state => ({
+      set((state) => ({
         data: {
           ...state.data,
-          advancedSettings: { ...state.data.advancedSettings, ...settings }
-        }
+          advancedSettings: { ...state.data.advancedSettings, ...settings },
+        },
       }));
     },
 
     setValidation: (isValid: boolean, errors: string[]) => {
-      set(state => ({
-        data: { ...state.data, isValid, validationErrors: errors }
+      set((state) => ({
+        data: { ...state.data, isValid, validationErrors: errors },
       }));
     },
 
@@ -249,7 +258,7 @@ export const useConfigStepStore = create<ConfigStepState>((set, get) => ({
       const args: string[] = [];
 
       // Note: Input file will be added by the main useStepStore
-      
+
       // Output file
       if (config.outputFile) {
         args.push('--output', config.outputFile);
@@ -324,41 +333,42 @@ export const useConfigStepStore = create<ConfigStepState>((set, get) => ({
       if (config.enableAdaptiveChunking) {
         args.push('--enable-adaptive-chunking');
       }
-      
-      
+
       if (config.whisperChunkDuration && config.whisperChunkDuration !== 30) {
         args.push('--whisper-chunk-duration', String(config.whisperChunkDuration));
       }
-      
+
       if (config.geminiChunkDuration && config.geminiChunkDuration !== 900) {
         args.push('--gemini-chunk-duration', String(Math.round(config.geminiChunkDuration / 60))); // Convert to minutes
       }
-      
+
       // Advanced chunking strategy (send as JSON if configured)
       if (config.advancedSettings?.chunkingStrategy) {
         const strategy = config.advancedSettings.chunkingStrategy;
         // Only send if it differs from defaults
-        const isDefault = strategy.whisperChunkDuration === 30 && 
-                         strategy.whisperOverlap === 5 && 
-                         strategy.geminiChunkDuration === 900 && 
-                         strategy.geminiOverlap === 30;
-        
+        const isDefault =
+          strategy.whisperChunkDuration === 30 &&
+          strategy.whisperOverlap === 5 &&
+          strategy.geminiChunkDuration === 900 &&
+          strategy.geminiOverlap === 30;
+
         if (!isDefault) {
           args.push('--chunking-strategy', JSON.stringify(strategy));
         }
       }
 
       return args;
-    }
-  }
+    },
+  },
 }));
 
 // Selectors
-export const useConfigStepData = () => useConfigStepStore(state => state.data);
-export const useConfigStepActions = () => useConfigStepStore(state => state.actions);
-export const useModelSettings = () => useConfigStepStore(state => state.data.modelSettings);
-export const useConfigValidation = () => useConfigStepStore(state => ({
-  isValid: state.data.isValid,
-  errors: state.data.validationErrors
-}));
-export const useConfigAsCliArgs = () => useConfigStepStore(state => state.actions.getCliArgs);
+export const useConfigStepData = () => useConfigStepStore((state) => state.data);
+export const useConfigStepActions = () => useConfigStepStore((state) => state.actions);
+export const useModelSettings = () => useConfigStepStore((state) => state.data.modelSettings);
+export const useConfigValidation = () =>
+  useConfigStepStore((state) => ({
+    isValid: state.data.isValid,
+    errors: state.data.validationErrors,
+  }));
+export const useConfigAsCliArgs = () => useConfigStepStore((state) => state.actions.getCliArgs);

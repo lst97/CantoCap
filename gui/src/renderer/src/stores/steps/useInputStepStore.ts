@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { InputStepData } from '../types/StoreTypes';
+import { createStoreLogger } from '../../utils/logger';
 
 interface InputStepState {
   data: InputStepData;
@@ -31,6 +32,8 @@ const defaultInputStepData: InputStepData = {
   fileMetadata: undefined
 };
 
+const logger = createStoreLogger('Input');
+
 export const useInputStepStore = create<InputStepState>((set, _get) => ({
   data: defaultInputStepData,
   
@@ -48,7 +51,7 @@ export const useInputStepStore = create<InputStepState>((set, _get) => ({
     },
 
     resetInputStep: () => {
-      console.log('🔄 INPUT STORE: Resetting input step to defaults for workspace isolation');
+      logger.info('Resetting input step to defaults for workspace isolation');
       set({ 
         data: { 
           ...defaultInputStepData,
@@ -67,7 +70,7 @@ export const useInputStepStore = create<InputStepState>((set, _get) => ({
           fileMetadata: undefined
         } 
       });
-      console.log('✅ INPUT STORE: Reset completed');
+      logger.debug('Input step reset completed');
     },
 
     setSelectedFile: (file: string | null) => {

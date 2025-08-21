@@ -1,8 +1,18 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, globalShortcut, protocol, net } from 'electron';
+import {
+  app,
+  shell,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  globalShortcut,
+  protocol,
+  net,
+} from 'electron';
 import { join } from 'path';
 import { writeFile, readFile } from 'fs/promises';
 import { existsSync, statSync } from 'fs';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
+import { MainLogger } from './logger';
 import { DependencyChecker } from './dependency-checker';
 import { ProcessManager } from './process-manager';
 import { InitializationService } from './initialization-service';
@@ -34,17 +44,8 @@ interface MediaRegistryEntry {
   isValid: boolean;
 }
 
-// Safe logging function to prevent EPIPE errors
-const safeLog = (message: string, ...args: unknown[]) => {
-  try {
-    if (process.stdout && !process.stdout.destroyed) {
-      console.log(message, ...args);
-    }
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  } catch (error) {
-    // Silently ignore EPIPE and other stream errors
-  }
-};
+// Initialize logger early
+const logger = MainLogger.initialize();
 
 // Register custom protocol for local media access
 protocol.registerSchemesAsPrivileged([
@@ -80,6 +81,7 @@ class CantoCap {
 
   constructor() {
     CantoCap.instance = this;
+    logger.lifecycle('CantoCap application constructor called');
     this.dependencyChecker = new DependencyChecker();
     this.processManager = new ProcessManager();
     this.initializationService = new InitializationService();
@@ -87,6 +89,7 @@ class CantoCap {
     this.workspaceConfigService = new WorkspaceConfigService();
     this.groupConfigService = new GroupConfigService();
     this.workflowStateService = new WorkflowStateService();
+    logger.lifecycle('CantoCap services initialized');
   }
 
   public static getInstance(): CantoCap | null {
@@ -159,28 +162,30 @@ class CantoCap {
 
     // HMR for renderer base on electron-vite cli
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-      safeLog('🔄 Loading renderer from dev server:', process.env['ELECTRON_RENDERER_URL']);
+      logger.info('🔄 Loading renderer from dev server', {
+        url: process.env['ELECTRON_RENDERER_URL'],
+      });
       this.mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']);
     } else {
       const rendererPath = join(__dirname, '../renderer/index.html');
-      safeLog('📄 Loading renderer from file:', rendererPath);
+      logger.info('📄 Loading renderer from file', { path: rendererPath });
       this.mainWindow.loadFile(rendererPath);
     }
 
     // Add critical diagnostic logging
     this.mainWindow.webContents.on('did-finish-load', () => {
-      safeLog('✅ Renderer finished loading');
+      logger.system('✅ Renderer finished loading');
     });
 
     this.mainWindow.webContents.on(
       'did-fail-load',
       (_event, errorCode, errorDescription, validatedURL) => {
-        console.error('❌ Renderer failed to load:', errorCode, errorDescription, validatedURL);
+        logger.error('❌ Renderer failed to load', { errorCode, errorDescription, validatedURL });
       }
     );
 
     this.mainWindow.webContents.on('dom-ready', () => {
-      safeLog('🌐 DOM ready');
+      logger.system('🌐 DOM ready');
 
       // Open DevTools automatically to check console
       if (is.dev) {
@@ -207,21 +212,28 @@ class CantoCap {
         const source = sourceId ? sourceId.split('/').pop() : 'renderer';
 
         // Log all renderer console messages to main process
-        console.log(`🖥️  [RENDERER ${logLevel}] ${source}:${lineNumber} - ${message}`);
+        logger.debug(`🖥️ [RENDERER ${logLevel}] ${source}:${lineNumber} - ${message}`);
 
-        // Highlight React errors
+        // Highlight actual React errors (not development messages)
         if (
-          message.includes('React') ||
+          (message.includes('React') &&
+            (message.includes('Error') ||
+              message.includes('Warning') ||
+              message.includes('Failed') ||
+              message.includes('Invalid'))) ||
           message.includes('Maximum update depth') ||
-          message.includes('Error #185')
+          message.includes('Error #185') ||
+          message.includes('Uncaught Error') ||
+          message.includes('React Hook') ||
+          message.includes('validateDOMNesting')
         ) {
-          console.error(`🚨 [REACT ERROR] ${message}`);
+          logger.error(`🚨 [REACT ERROR] ${message}`);
         }
       }
     );
 
     this.mainWindow.webContents.on('did-start-loading', () => {
-      console.log('⏳ Renderer started loading');
+      logger.system('⏳ Renderer started loading');
     });
   }
 
@@ -254,7 +266,7 @@ class CantoCap {
     );
 
     // Initialize media processing handlers
-    this.mediaIPCHandlers = new MediaIPCHandlers();
+    this.mediaIPCHandlers = new MediaIPCHandlers(this);
 
     // Initialize subtitle processing handlers
     this.subtitleIPCHandlers = new SubtitleIPCHandlers();
@@ -272,16 +284,14 @@ class CantoCap {
     );
 
     // Initialize export handlers
-    this.exportIPCHandlers = new ExportIPCHandlers(
-      this.mainWindow.webContents
-    );
+    this.exportIPCHandlers = new ExportIPCHandlers(this.mainWindow.webContents);
 
-    safeLog('✅ IPC config handlers initialized');
-    safeLog('✅ Video processing handlers initialized');
-    safeLog('✅ Subtitle processing handlers initialized');
-    safeLog('✅ Workflow state handlers initialized');
-    safeLog('✅ Processing IPC handlers initialized');
-    safeLog('✅ Export IPC handlers initialized');
+    logger.system('✅ IPC config handlers initialized');
+    logger.system('✅ Video processing handlers initialized');
+    logger.system('✅ Subtitle processing handlers initialized');
+    logger.system('✅ Workflow state handlers initialized');
+    logger.system('✅ Processing IPC handlers initialized');
+    logger.system('✅ Export IPC handlers initialized');
 
     // System Operations
     ipcMain.handle('check-dependencies', async (): Promise<Record<string, DependencyStatus>> => {
@@ -456,7 +466,10 @@ class CantoCap {
         await writeFile(filePath, content, 'utf8');
         return { success: true };
       } catch (error) {
-        console.error('Failed to write export file:', error);
+        logger.error('Failed to write export file', {
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+        });
         throw new Error(
           `Failed to write file: ${error instanceof Error ? error.message : 'Unknown error'}`
         );
@@ -469,7 +482,10 @@ class CantoCap {
         const content = await readFile(filePath, 'utf8');
         return JSON.parse(content);
       } catch (error) {
-        console.error('Failed to read JSON file:', error);
+        logger.error('Failed to read JSON file', {
+          error: error instanceof Error ? error.message : String(error),
+          filePath,
+        });
         throw new Error(
           `Failed to read JSON file: ${error instanceof Error ? error.message : 'Unknown error'}`
         );
@@ -481,7 +497,10 @@ class CantoCap {
       try {
         return existsSync(filePath);
       } catch (error) {
-        console.error('Failed to check file existence:', error);
+        logger.error('Failed to check file existence', {
+          error: error instanceof Error ? error.message : String(error),
+          filePath,
+        });
         return false;
       }
     });
@@ -496,10 +515,13 @@ class CantoCap {
           size: stats.size,
           mtime: stats.mtime.getTime(),
           isFile: stats.isFile(),
-          isDirectory: stats.isDirectory()
+          isDirectory: stats.isDirectory(),
         };
       } catch (error) {
-        console.error('Failed to get file stats:', error);
+        logger.error('Failed to get file stats', {
+          error: error instanceof Error ? error.message : String(error),
+          filePath,
+        });
         return null;
       }
     });
@@ -510,7 +532,7 @@ class CantoCap {
     // Subtitle persistence is now handled by SubtitleIPCHandlers - handlers are
     // automatically registered in the SubtitleIPCHandlers constructor
 
-    safeLog('✅ All IPC handlers initialized successfully');
+    logger.system('✅ All IPC handlers initialized successfully');
   }
 
   public cleanup(): void {
@@ -556,13 +578,13 @@ class CantoCap {
         const registryEntry = this.mediaRegistry.get(mediaId);
 
         if (!registryEntry) {
-          console.error('🎬 Media ID not found in registry:', mediaId);
+          logger.security('🎬 Media ID not found in registry', { mediaId });
           throw new Error(`Media ID not found: ${mediaId}`);
         }
 
         // Validate file still exists and hasn't been tampered with
         if (!registryEntry.isValid || !existsSync(registryEntry.filePath)) {
-          console.error('🎬 Media file no longer valid:', registryEntry.filePath);
+          logger.warn('🎬 Media file no longer valid', { filePath: registryEntry.filePath });
           this.mediaRegistry.delete(mediaId);
           throw new Error(`Media file no longer valid: ${registryEntry.filePath}`);
         }
@@ -571,15 +593,19 @@ class CantoCap {
         try {
           const currentStats = statSync(registryEntry.filePath);
           if (currentStats.size !== registryEntry.fileSize) {
-            console.error(
-              '🎬 Media file size mismatch, possible tampering:',
-              registryEntry.filePath
-            );
+            logger.security('🎬 Media file size mismatch, possible tampering', {
+              filePath: registryEntry.filePath,
+              expectedSize: registryEntry.fileSize,
+              actualSize: currentStats.size,
+            });
             this.mediaRegistry.delete(mediaId);
             throw new Error(`Media file integrity check failed: ${registryEntry.filePath}`);
           }
         } catch (statError) {
-          console.error('🎬 Error checking file stats:', statError);
+          logger.error('🎬 Error checking file stats', {
+            error: statError instanceof Error ? statError.message : String(statError),
+            filePath: registryEntry.filePath,
+          });
           this.mediaRegistry.delete(mediaId);
           throw new Error(`Media file access error: ${registryEntry.filePath}`);
         }
@@ -605,31 +631,33 @@ class CantoCap {
 
           if (rangeHeader) {
             // Handle range requests for video seeking using net.fetch with range headers
-            return net.fetch(fileUrl, {
-              headers: {
-                'Range': rangeHeader
-              }
-            }).then(response => {
-              // Pass through the range response from file system with correct headers
-              const range = rangeHeader.replace(/bytes=/, '').split('-');
-              const start = parseInt(range[0], 10);
-              const end = range[1] ? parseInt(range[1], 10) : stats.size - 1;
-              const chunksize = end - start + 1;
-
-              return new Response(response.body, {
-                status: 206,
+            return net
+              .fetch(fileUrl, {
                 headers: {
-                  'Content-Type': mimeType,
-                  'Content-Range': `bytes ${start}-${end}/${stats.size}`,
-                  'Accept-Ranges': 'bytes',
-                  'Content-Length': chunksize.toString(),
-                  'Cache-Control': 'no-cache',
+                  Range: rangeHeader,
                 },
+              })
+              .then((response) => {
+                // Pass through the range response from file system with correct headers
+                const range = rangeHeader.replace(/bytes=/, '').split('-');
+                const start = parseInt(range[0], 10);
+                const end = range[1] ? parseInt(range[1], 10) : stats.size - 1;
+                const chunksize = end - start + 1;
+
+                return new Response(response.body, {
+                  status: 206,
+                  headers: {
+                    'Content-Type': mimeType,
+                    'Content-Range': `bytes ${start}-${end}/${stats.size}`,
+                    'Accept-Ranges': 'bytes',
+                    'Content-Length': chunksize.toString(),
+                    'Cache-Control': 'no-cache',
+                  },
+                });
               });
-            });
           } else {
             // Serve full file using net.fetch
-            return net.fetch(fileUrl).then(response => {
+            return net.fetch(fileUrl).then((response) => {
               return new Response(response.body, {
                 status: 200,
                 headers: {
@@ -642,16 +670,21 @@ class CantoCap {
             });
           }
         } catch (fileError) {
-          console.error('🎬 Error creating file stream:', fileError);
+          logger.error('🎬 Error creating file stream', {
+            error: fileError instanceof Error ? fileError.message : String(fileError),
+            filePath: registryEntry.filePath,
+          });
           throw new Error(`Failed to stream file: ${registryEntry.filePath}`);
         }
       } catch (error) {
-        console.error('🎬 Error serving media file:', error);
+        logger.error('🎬 Error serving media file', {
+          error: error instanceof Error ? error.message : String(error),
+        });
         throw error;
       }
     });
 
-    console.log('✅ Local media protocol handler registered with enhanced security');
+    logger.system('✅ Local media protocol handler registered with enhanced security');
   }
 
   public registerMediaFile(filePath: string): string {
@@ -686,7 +719,10 @@ class CantoCap {
 
       return mediaId;
     } catch (error) {
-      console.error('🎬 Failed to register media file:', error);
+      logger.error('🎬 Failed to register media file', {
+        error: error instanceof Error ? error.message : String(error),
+        filePath,
+      });
       throw error;
     }
   }
@@ -754,7 +790,7 @@ class CantoCap {
     });
 
     if (entriesToRemove.length > 0) {
-      console.log('🎬 Cleaned up old registry entries:', {
+      logger.system('🎬 Cleaned up old registry entries', {
         removedCount: entriesToRemove.length,
         remainingCount: this.mediaRegistry.size,
       });
@@ -826,7 +862,12 @@ app.on('before-quit', () => {
 // Security: Prevent new window creation is handled by setWindowOpenHandler in createWindow()
 
 // Initialize the application
-cantocap.initialize().catch(console.error);
+cantocap.initialize().catch((error) => {
+  logger.error('Failed to initialize CantoCap application', {
+    error: error.message,
+    stack: error.stack,
+  });
+});
 
 // Export for other modules
 export { CantoCap };

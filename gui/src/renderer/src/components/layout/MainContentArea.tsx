@@ -10,32 +10,34 @@ import { ReviewStep } from '../steps/ReviewStep';
 import { ExportStep } from '../steps/ExportStep';
 import { ErrorBoundary } from '../common/ErrorBoundary';
 import type { StepType } from '../../stores/types/StoreTypes';
+import { createComponentLogger } from '../../utils/logger';
 
 // Step metadata for UI display
 const STEP_METADATA: Record<StepType, { title: string; description: string }> = {
   input: {
     title: 'Input File Selection',
-    description: 'Select your audio or video file to transcribe'
+    description: 'Select your audio or video file to transcribe',
   },
   config: {
     title: 'Configuration',
-    description: 'Configure transcription settings and options'
+    description: 'Configure transcription settings and options',
   },
   processing: {
     title: 'Processing',
-    description: 'Transcribing your audio to generate subtitles'
+    description: 'Transcribing your audio to generate subtitles',
   },
   review: {
     title: 'Review & Edit',
-    description: 'Review and edit the generated subtitles'
+    description: 'Review and edit the generated subtitles',
   },
   export: {
     title: 'Export',
-    description: 'Export your subtitles in various formats'
-  }
+    description: 'Export your subtitles in various formats',
+  },
 };
 
 export const MainContentArea: React.FC = () => {
+  const logger = createComponentLogger('MainContentArea');
   // Get current workflow step and workspace data from new stores
   const currentStep = useCurrentStep();
   const currentWorkspace = useCurrentWorkspace();
@@ -91,8 +93,8 @@ export const MainContentArea: React.FC = () => {
   const renderStepContent = () => {
     // FIXED: Use conditional rendering instead of CSS hiding to prevent background rendering
     // This ensures only the active step is mounted and running, preventing unnecessary effects
-    console.log(`🔄 MainContentArea: Rendering step "${currentStepId}"`);
-    
+    logger.info(`🔄 MainContentArea: Rendering step "${currentStepId}"`);
+
     switch (currentStepId) {
       case 'input':
         return (

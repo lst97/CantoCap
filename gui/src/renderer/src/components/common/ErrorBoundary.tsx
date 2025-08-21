@@ -1,57 +1,61 @@
-import { Component, ErrorInfo, ReactNode } from 'react'
-import { 
-  Box, 
-  Typography, 
-  Button, 
-  Card, 
-  Alert, 
-  Stack, 
+import { Component, ErrorInfo, ReactNode } from 'react';
+import {
+  Box,
+  Typography,
+  Button,
+  Card,
+  Alert,
+  Stack,
   IconButton,
   Chip,
   Fade,
   Accordion,
   AccordionSummary,
   AccordionDetails,
-  Tooltip
-} from '@mui/material'
+  Tooltip,
+} from '@mui/material';
 import {
   RestartAlt as RestartIcon,
   ExpandMore as ExpandMoreIcon,
   ContentCopy as CopyIcon,
   Download as DownloadIcon,
   Refresh as RefreshIcon,
-  Security as SafeModeIcon} from '@mui/icons-material'
-import { errorHandler } from '../../utils/errorHandler'
-import { ErrorCategory, ErrorSeverity, ErrorContext, RecoveryAction } from '../../types/error'
+  Security as SafeModeIcon,
+} from '@mui/icons-material';
+import { errorHandler } from '../../utils/errorHandler';
+import { ErrorCategory, ErrorSeverity, ErrorContext, RecoveryAction } from '../../types/error';
+import { createComponentLogger } from '../../utils/logger';
 
 interface Props {
-  children: ReactNode
-  fallbackTitle?: string
-  fallbackMessage?: string
-  onError?: (error: Error, errorInfo: ErrorInfo) => void
-  enableDetailedView?: boolean
-  enableRecovery?: boolean
-  level?: 'page' | 'section' | 'component'
+  children: ReactNode;
+  fallbackTitle?: string;
+  fallbackMessage?: string;
+  onError?: (error: Error, errorInfo: ErrorInfo) => void;
+  enableDetailedView?: boolean;
+  enableRecovery?: boolean;
+  level?: 'page' | 'section' | 'component';
 }
 
 interface State {
-  hasError: boolean
-  error: Error | null
-  errorInfo: ErrorInfo | null
-  errorContext: ErrorContext | null
-  showTechnicalDetails: boolean
-  isRecovering: boolean
+  hasError: boolean;
+  error: Error | null;
+  errorInfo: ErrorInfo | null;
+  errorContext: ErrorContext | null;
+  showTechnicalDetails: boolean;
+  isRecovering: boolean;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
+  private logger = createComponentLogger('ErrorBoundary');
+
   public state: State = {
     hasError: false,
     error: null,
     errorInfo: null,
     errorContext: null,
     showTechnicalDetails: false,
-    isRecovering: false
-  }
+    isRecovering: false,
+  };
 
   public static getDerivedStateFromError(error: Error): Partial<State> {
     return {
@@ -62,15 +66,21 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('ErrorBoundary caught an error:', error, errorInfo)
-    
-    const errorContext = errorHandler.createErrorContext(error, errorInfo.componentStack || undefined)
-    
+    this.logger.error('ErrorBoundary caught an error:', {
+      error,
+      errorInfo,
+    });
+
+    const errorContext = errorHandler.createErrorContext(
+      error,
+      errorInfo.componentStack || undefined
+    );
+
     this.setState({
       error,
       errorInfo,
-      errorContext
-    })
+      errorContext,
+    });
 
     // Add breadcrumb for error boundary catch
     errorHandler.addBreadcrumb({
@@ -80,9 +90,9 @@ export class ErrorBoundary extends Component<Props, State> {
       level: 'error',
       data: {
         componentStack: errorInfo.componentStack,
-        errorId: errorContext.errorId
-      }
-    })
+        errorId: errorContext.errorId,
+      },
+    });
 
     // Report error to debug panel if available
     if ((window as any).electronAPI?.logError) {
@@ -90,25 +100,25 @@ export class ErrorBoundary extends Component<Props, State> {
         message: error.message,
         stack: error.stack,
         componentStack: errorInfo.componentStack,
-        errorContext
-      })
+        errorContext,
+      });
     }
 
     // Call custom error handler if provided
     if (this.props.onError) {
-      this.props.onError(error, errorInfo)
+      this.props.onError(error, errorInfo);
     }
   }
 
   private handleReload = () => {
-    this.setState({ isRecovering: true })
+    this.setState({ isRecovering: true });
     setTimeout(() => {
-      window.location.reload()
-    }, 500)
-  }
+      window.location.reload();
+    }, 500);
+  };
 
   private handleReset = () => {
-    this.setState({ isRecovering: true })
+    this.setState({ isRecovering: true });
     setTimeout(() => {
       this.setState({
         hasError: false,
@@ -116,17 +126,17 @@ export class ErrorBoundary extends Component<Props, State> {
         errorInfo: null,
         errorContext: null,
         showTechnicalDetails: false,
-        isRecovering: false
-      })
-    }, 500)
-  }
+        isRecovering: false,
+      });
+    }, 500);
+  };
 
   private handleSafeMode = () => {
     // Clear all local storage and reset to safe state
-    localStorage.clear()
-    sessionStorage.clear()
-    this.handleReload()
-  }
+    localStorage.clear();
+    sessionStorage.clear();
+    this.handleReload();
+  };
 
   private handleCopyError = () => {
     if (this.state.errorContext && this.state.error) {
@@ -134,20 +144,21 @@ export class ErrorBoundary extends Component<Props, State> {
         error: {
           message: this.state.error.message,
           stack: this.state.error.stack,
-          name: this.state.error.name
+          name: this.state.error.name,
         },
         context: this.state.errorContext,
-        componentStack: this.state.errorInfo?.componentStack
-      }
-      
-      navigator.clipboard.writeText(JSON.stringify(errorData, null, 2))
+        componentStack: this.state.errorInfo?.componentStack,
+      };
+
+      navigator.clipboard
+        .writeText(JSON.stringify(errorData, null, 2))
         .then(() => {
           // Could show a toast notification here
-          console.log('Error data copied to clipboard')
+          this.logger.log('Error data copied to clipboard');
         })
-        .catch(err => console.error('Failed to copy error data:', err))
+        .catch((err) => this.logger.error('Failed to copy error data:', err));
     }
-  }
+  };
 
   private handleDownloadError = () => {
     if (this.state.errorContext && this.state.error) {
@@ -155,33 +166,33 @@ export class ErrorBoundary extends Component<Props, State> {
         error: {
           message: this.state.error.message,
           stack: this.state.error.stack,
-          name: this.state.error.name
+          name: this.state.error.name,
         },
         context: this.state.errorContext,
         componentStack: this.state.errorInfo?.componentStack,
-        exportedAt: new Date().toISOString()
-      }
-      
+        exportedAt: new Date().toISOString(),
+      };
+
       const blob = new Blob([JSON.stringify(errorData, null, 2)], {
-        type: 'application/json'
-      })
-      
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `error-report-${this.state.errorContext.errorId}.json`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+        type: 'application/json',
+      });
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `error-report-${this.state.errorContext.errorId}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     }
-  }
+  };
 
   private toggleTechnicalDetails = () => {
-    this.setState(prevState => ({
-      showTechnicalDetails: !prevState.showTechnicalDetails
-    }))
-  }
+    this.setState((prevState) => ({
+      showTechnicalDetails: !prevState.showTechnicalDetails,
+    }));
+  };
 
   private getRecoveryActions(): RecoveryAction[] {
     return [
@@ -191,14 +202,14 @@ export class ErrorBoundary extends Component<Props, State> {
         description: 'Attempt to recover from the error',
         icon: '🔄',
         action: this.handleReset,
-        primary: true
+        primary: true,
       },
       {
         id: 'reload',
         label: 'Reload App',
         description: 'Refresh the entire application',
         icon: '🔃',
-        action: this.handleReload
+        action: this.handleReload,
       },
       {
         id: 'safe-mode',
@@ -206,9 +217,9 @@ export class ErrorBoundary extends Component<Props, State> {
         description: 'Clear all data and restart safely',
         icon: '🛡️',
         action: this.handleSafeMode,
-        dangerous: true
-      }
-    ]
+        dangerous: true,
+      },
+    ];
   }
 
   private getCategoryColor(category: ErrorCategory | undefined): string {
@@ -224,9 +235,9 @@ export class ErrorBoundary extends Component<Props, State> {
       [ErrorCategory.ENGINE_EXIT]: '#B91C1C', // Dark Red - Exit Errors
       [ErrorCategory.ENGINE_SPAWN]: '#7C2D12', // Dark Orange - Spawn Errors
       [ErrorCategory.ENGINE_SETUP]: '#1E40AF', // Blue - Setup Issues
-      [ErrorCategory.UNKNOWN]: '#96989D' // Discord Medium Text
-    }
-    return colors[category || ErrorCategory.UNKNOWN] || colors[ErrorCategory.UNKNOWN]
+      [ErrorCategory.UNKNOWN]: '#96989D', // Discord Medium Text
+    };
+    return colors[category || ErrorCategory.UNKNOWN] || colors[ErrorCategory.UNKNOWN];
   }
 
   private getSeverityColor(severity: ErrorSeverity | undefined): string {
@@ -234,20 +245,20 @@ export class ErrorBoundary extends Component<Props, State> {
       [ErrorSeverity.LOW]: '#57F287', // Discord Green
       [ErrorSeverity.MEDIUM]: '#FEE75C', // Discord Yellow
       [ErrorSeverity.HIGH]: '#F59E0B', // Primary Amber
-      [ErrorSeverity.CRITICAL]: '#ED4245' // Discord Red
-    }
-    return colors[severity || ErrorSeverity.MEDIUM] || colors[ErrorSeverity.MEDIUM]
+      [ErrorSeverity.CRITICAL]: '#ED4245', // Discord Red
+    };
+    return colors[severity || ErrorSeverity.MEDIUM] || colors[ErrorSeverity.MEDIUM];
   }
 
   public render() {
     if (this.state.hasError) {
-      const { fallbackTitle = 'Something went wrong', enableDetailedView = true, enableRecovery = true } = this.props
-      const { error, errorContext, showTechnicalDetails, isRecovering } = this.state
-      
-      if (!error || !errorContext) return null
-      
-      const explanation = errorHandler.getErrorExplanation(error, errorContext.category)
-      const recoveryActions = this.getRecoveryActions()
+      const { enableDetailedView = true, enableRecovery = true } = this.props;
+      const { error, errorContext, showTechnicalDetails, isRecovering } = this.state;
+
+      if (!error || !errorContext) return null;
+
+      const explanation = errorHandler.getErrorExplanation(error, errorContext.category);
+      const recoveryActions = this.getRecoveryActions();
 
       return (
         <Box
@@ -277,7 +288,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 position: 'relative',
                 boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.15), 0px 2px 4px rgba(0, 0, 0, 0.3)',
                 display: 'flex',
-                flexDirection: 'column'
+                flexDirection: 'column',
               }}
             >
               {/* Error Header */}
@@ -286,10 +297,10 @@ export class ErrorBoundary extends Component<Props, State> {
                   p: 4,
                   background: `linear-gradient(135deg, ${this.getCategoryColor(errorContext.category)}15 0%, ${this.getCategoryColor(errorContext.category)}05 100%)`,
                   borderBottom: `1px solid ${this.getCategoryColor(errorContext.category)}30`,
-                  position: 'relative'
+                  position: 'relative',
                 }}
               >
-                <Stack direction="row" alignItems="center" spacing={3}>
+                <Stack direction='row' alignItems='center' spacing={3}>
                   <Box
                     sx={{
                       width: 80,
@@ -299,55 +310,58 @@ export class ErrorBoundary extends Component<Props, State> {
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      fontSize: '2.5rem'
+                      fontSize: '2.5rem',
                     }}
                   >
                     🚨
                   </Box>
-                  
+
                   <Box sx={{ flex: 1 }}>
-                    <Typography variant="h4" sx={{ 
-                      fontWeight: 700,
-                      mb: 1,
-                      color: this.getCategoryColor(errorContext.category)
-                    }}>
+                    <Typography
+                      variant='h4'
+                      sx={{
+                        fontWeight: 700,
+                        mb: 1,
+                        color: this.getCategoryColor(errorContext.category),
+                      }}
+                    >
                       {explanation.title}
                     </Typography>
-                    
-                    <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+
+                    <Stack direction='row' spacing={1} sx={{ mb: 2 }}>
                       <Chip
                         label={(errorContext.category || 'unknown').replace('_', ' ').toUpperCase()}
-                        size="small"
+                        size='small'
                         sx={{
                           backgroundColor: `${this.getCategoryColor(errorContext.category)}20`,
                           color: this.getCategoryColor(errorContext.category),
                           fontWeight: 600,
-                          border: `1px solid ${this.getCategoryColor(errorContext.category)}40`
+                          border: `1px solid ${this.getCategoryColor(errorContext.category)}40`,
                         }}
                       />
                       <Chip
                         label={(errorContext.severity || 'medium').toUpperCase()}
-                        size="small"
+                        size='small'
                         sx={{
                           backgroundColor: `${this.getSeverityColor(errorContext.severity)}20`,
                           color: this.getSeverityColor(errorContext.severity),
                           fontWeight: 600,
-                          border: `1px solid ${this.getSeverityColor(errorContext.severity)}40`
+                          border: `1px solid ${this.getSeverityColor(errorContext.severity)}40`,
                         }}
                       />
                       <Chip
                         label={`ID: ${errorContext.errorId || 'unknown'}`}
-                        size="small"
+                        size='small'
                         sx={{
                           backgroundColor: 'rgba(150, 152, 157, 0.15)',
                           color: 'text.secondary',
                           fontFamily: 'monospace',
-                          fontSize: '0.7rem'
+                          fontSize: '0.7rem',
                         }}
                       />
                     </Stack>
-                    
-                    <Typography variant="body1" sx={{ lineHeight: 1.6, color: '#DCDDDE' }}>
+
+                    <Typography variant='body1' sx={{ lineHeight: 1.6, color: '#DCDDDE' }}>
                       {explanation.description}
                     </Typography>
                   </Box>
@@ -355,66 +369,78 @@ export class ErrorBoundary extends Component<Props, State> {
               </Box>
 
               {/* Error Summary */}
-              <Box sx={{ 
-                p: 4, 
-                flex: 1, 
-                overflow: 'auto',
-                '&::-webkit-scrollbar': {
-                  width: 8,
-                },
-                '&::-webkit-scrollbar-track': {
-                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                  borderRadius: 4,
-                },
-                '&::-webkit-scrollbar-thumb': {
-                  backgroundColor: 'rgba(245, 158, 11, 0.5)',
-                  borderRadius: 4,
-                  '&:hover': {
-                    backgroundColor: 'rgba(245, 158, 11, 0.7)',
+              <Box
+                sx={{
+                  p: 4,
+                  flex: 1,
+                  overflow: 'auto',
+                  '&::-webkit-scrollbar': {
+                    width: 8,
                   },
-                },
-              }}>
-                <Alert 
-                  severity="error" 
-                  sx={{ 
+                  '&::-webkit-scrollbar-track': {
+                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                    borderRadius: 4,
+                  },
+                  '&::-webkit-scrollbar-thumb': {
+                    backgroundColor: 'rgba(245, 158, 11, 0.5)',
+                    borderRadius: 4,
+                    '&:hover': {
+                      backgroundColor: 'rgba(245, 158, 11, 0.7)',
+                    },
+                  },
+                }}
+              >
+                <Alert
+                  severity='error'
+                  sx={{
                     mb: 3,
                     backgroundColor: 'rgba(237, 66, 69, 0.1)',
                     border: '1px solid rgba(237, 66, 69, 0.3)',
                     color: '#DCDDDE', // Discord Light Text
                     '& .MuiAlert-icon': {
-                      color: '#ED4245' // Discord Red
+                      color: '#ED4245', // Discord Red
                     },
                     '& .MuiAlert-message': {
-                      color: '#DCDDDE'
-                    }
+                      color: '#DCDDDE',
+                    },
                   }}
                 >
-                  <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+                  <Typography variant='subtitle2' sx={{ fontWeight: 600, mb: 1 }}>
                     Error Message:
                   </Typography>
-                  <Typography variant="body2" sx={{ 
-                    fontFamily: 'monospace', 
-                    wordBreak: 'break-word',
-                    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                    color: '#FF6B6B',
-                    p: 1,
-                    borderRadius: 1,
-                    border: '1px solid rgba(255, 107, 107, 0.2)'
-                  }}>
+                  <Typography
+                    variant='body2'
+                    sx={{
+                      fontFamily: 'monospace',
+                      wordBreak: 'break-word',
+                      backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                      color: '#FF6B6B',
+                      p: 1,
+                      borderRadius: 1,
+                      border: '1px solid rgba(255, 107, 107, 0.2)',
+                    }}
+                  >
                     {error.message}
                   </Typography>
                 </Alert>
 
                 {/* Possible Causes */}
                 <Box sx={{ mb: 3 }}>
-                  <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1, color: '#DCDDDE' }}>
+                  <Typography
+                    variant='h6'
+                    sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1, color: '#DCDDDE' }}
+                  >
                     🔍 Possible Causes
                   </Typography>
                   <Stack spacing={1}>
                     {explanation.possibleCauses.map((cause, index) => (
                       <Box key={index} sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-                        <Typography variant="body2" sx={{ color: '#96989D' }}>•</Typography>
-                        <Typography variant="body2" sx={{ color: '#96989D' }}>{cause}</Typography>
+                        <Typography variant='body2' sx={{ color: '#96989D' }}>
+                          •
+                        </Typography>
+                        <Typography variant='body2' sx={{ color: '#96989D' }}>
+                          {cause}
+                        </Typography>
                       </Box>
                     ))}
                   </Stack>
@@ -422,14 +448,21 @@ export class ErrorBoundary extends Component<Props, State> {
 
                 {/* Suggested Actions */}
                 <Box sx={{ mb: 3 }}>
-                  <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1, color: '#DCDDDE' }}>
+                  <Typography
+                    variant='h6'
+                    sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1, color: '#DCDDDE' }}
+                  >
                     💡 Suggested Actions
                   </Typography>
                   <Stack spacing={1}>
                     {explanation.suggestedActions.map((action, index) => (
                       <Box key={index} sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-                        <Typography variant="body2" sx={{ color: '#F59E0B' }}>•</Typography>
-                        <Typography variant="body2" sx={{ color: '#DCDDDE' }}>{action}</Typography>
+                        <Typography variant='body2' sx={{ color: '#F59E0B' }}>
+                          •
+                        </Typography>
+                        <Typography variant='body2' sx={{ color: '#DCDDDE' }}>
+                          {action}
+                        </Typography>
                       </Box>
                     ))}
                   </Stack>
@@ -438,7 +471,16 @@ export class ErrorBoundary extends Component<Props, State> {
                 {/* Recovery Actions */}
                 {enableRecovery && (
                   <Box sx={{ mb: 3 }}>
-                    <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1, color: '#DCDDDE' }}>
+                    <Typography
+                      variant='h6'
+                      sx={{
+                        mb: 2,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1,
+                        color: '#DCDDDE',
+                      }}
+                    >
                       🔧 Recovery Options
                     </Typography>
                     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
@@ -446,13 +488,19 @@ export class ErrorBoundary extends Component<Props, State> {
                         <Button
                           key={action.id}
                           variant={action.primary ? 'contained' : 'outlined'}
-                          color={action.dangerous ? 'error' : action.primary ? 'primary' : 'inherit'}
+                          color={
+                            action.dangerous ? 'error' : action.primary ? 'primary' : 'inherit'
+                          }
                           onClick={action.action}
                           disabled={isRecovering}
                           startIcon={
-                            action.id === 'retry' ? <RestartIcon /> :
-                            action.id === 'reload' ? <RefreshIcon /> :
-                            action.id === 'safe-mode' ? <SafeModeIcon /> : null
+                            action.id === 'retry' ? (
+                              <RestartIcon />
+                            ) : action.id === 'reload' ? (
+                              <RefreshIcon />
+                            ) : action.id === 'safe-mode' ? (
+                              <SafeModeIcon />
+                            ) : null
                           }
                           sx={{
                             py: 1.5,
@@ -460,34 +508,41 @@ export class ErrorBoundary extends Component<Props, State> {
                             borderRadius: 3,
                             fontWeight: 600,
                             transition: 'all 0.3s ease',
-                            ...(action.primary ? {
-                              background: 'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)',
-                              color: '#000000',
-                              boxShadow: '0px 1px 3px rgba(245, 158, 11, 0.12), 0px 1px 2px rgba(245, 158, 11, 0.24)',
-                              '&:hover': {
-                                background: 'linear-gradient(135deg, #FCD34D 0%, #F59E0B 100%)',
-                                boxShadow: '0px 4px 8px rgba(245, 158, 11, 0.15), 0px 2px 4px rgba(245, 158, 11, 0.3)',
-                                transform: isRecovering ? 'none' : 'translateY(-1px)'
-                              }
-                            } : action.dangerous ? {
-                              background: 'linear-gradient(135deg, #ED4245 0%, #DC2626 100%)',
-                              color: '#FFFFFF',
-                              border: 'none',
-                              '&:hover': {
-                                background: 'linear-gradient(135deg, #F87171 0%, #ED4245 100%)',
-                                transform: isRecovering ? 'none' : 'translateY(-1px)'
-                              }
-                            } : {
-                              backgroundColor: 'transparent',
-                              color: '#F59E0B',
-                              border: '2px solid #F59E0B',
-                              '&:hover': {
-                                backgroundColor: 'rgba(245, 158, 11, 0.1)',
-                                borderColor: '#FCD34D',
-                                color: '#FCD34D',
-                                transform: isRecovering ? 'none' : 'translateY(-1px)'
-                              }
-                            })
+                            ...(action.primary
+                              ? {
+                                  background: 'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)',
+                                  color: '#000000',
+                                  boxShadow:
+                                    '0px 1px 3px rgba(245, 158, 11, 0.12), 0px 1px 2px rgba(245, 158, 11, 0.24)',
+                                  '&:hover': {
+                                    background: 'linear-gradient(135deg, #FCD34D 0%, #F59E0B 100%)',
+                                    boxShadow:
+                                      '0px 4px 8px rgba(245, 158, 11, 0.15), 0px 2px 4px rgba(245, 158, 11, 0.3)',
+                                    transform: isRecovering ? 'none' : 'translateY(-1px)',
+                                  },
+                                }
+                              : action.dangerous
+                                ? {
+                                    background: 'linear-gradient(135deg, #ED4245 0%, #DC2626 100%)',
+                                    color: '#FFFFFF',
+                                    border: 'none',
+                                    '&:hover': {
+                                      background:
+                                        'linear-gradient(135deg, #F87171 0%, #ED4245 100%)',
+                                      transform: isRecovering ? 'none' : 'translateY(-1px)',
+                                    },
+                                  }
+                                : {
+                                    backgroundColor: 'transparent',
+                                    color: '#F59E0B',
+                                    border: '2px solid #F59E0B',
+                                    '&:hover': {
+                                      backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                                      borderColor: '#FCD34D',
+                                      color: '#FCD34D',
+                                      transform: isRecovering ? 'none' : 'translateY(-1px)',
+                                    },
+                                  }),
                           }}
                         >
                           {isRecovering ? 'Processing...' : action.label}
@@ -499,8 +554,8 @@ export class ErrorBoundary extends Component<Props, State> {
 
                 {/* Technical Details */}
                 {enableDetailedView && (
-                  <Accordion 
-                    expanded={showTechnicalDetails} 
+                  <Accordion
+                    expanded={showTechnicalDetails}
                     onChange={this.toggleTechnicalDetails}
                     sx={{
                       backgroundColor: 'rgba(64, 68, 75, 0.1)',
@@ -509,50 +564,72 @@ export class ErrorBoundary extends Component<Props, State> {
                       color: '#DCDDDE',
                       '&:before': { display: 'none' },
                       '& .MuiAccordionSummary-content': {
-                        color: '#DCDDDE'
+                        color: '#DCDDDE',
                       },
                       '& .MuiSvgIcon-root': {
-                        color: '#DCDDDE'
-                      }
+                        color: '#DCDDDE',
+                      },
                     }}
                   >
                     <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                      <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography
+                        variant='h6'
+                        sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
+                      >
                         🔬 Technical Details
                       </Typography>
                     </AccordionSummary>
-                    <AccordionDetails sx={{ 
-                      maxHeight: 400, 
-                      overflow: 'auto',
-                      '&::-webkit-scrollbar': {
-                        width: 6,
-                      },
-                      '&::-webkit-scrollbar-track': {
-                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                        borderRadius: 3,
-                      },
-                      '&::-webkit-scrollbar-thumb': {
-                        backgroundColor: 'rgba(245, 158, 11, 0.4)',
-                        borderRadius: 3,
-                        '&:hover': {
-                          backgroundColor: 'rgba(245, 158, 11, 0.6)',
+                    <AccordionDetails
+                      sx={{
+                        maxHeight: 400,
+                        overflow: 'auto',
+                        '&::-webkit-scrollbar': {
+                          width: 6,
                         },
-                      },
-                    }}>
+                        '&::-webkit-scrollbar-track': {
+                          backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                          borderRadius: 3,
+                        },
+                        '&::-webkit-scrollbar-thumb': {
+                          backgroundColor: 'rgba(245, 158, 11, 0.4)',
+                          borderRadius: 3,
+                          '&:hover': {
+                            backgroundColor: 'rgba(245, 158, 11, 0.6)',
+                          },
+                        },
+                      }}
+                    >
                       <Stack spacing={3}>
                         {/* Error Stack */}
                         <Box>
-                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-                            <Typography variant="subtitle2" sx={{ color: '#96989D' }}>Stack Trace</Typography>
-                            <Stack direction="row" spacing={1}>
-                              <Tooltip title="Copy to clipboard">
-                                <IconButton size="small" onClick={this.handleCopyError} sx={{ color: '#96989D', '&:hover': { color: '#DCDDDE' } }}>
-                                  <CopyIcon fontSize="small" />
+                          <Box
+                            sx={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              mb: 2,
+                            }}
+                          >
+                            <Typography variant='subtitle2' sx={{ color: '#96989D' }}>
+                              Stack Trace
+                            </Typography>
+                            <Stack direction='row' spacing={1}>
+                              <Tooltip title='Copy to clipboard'>
+                                <IconButton
+                                  size='small'
+                                  onClick={this.handleCopyError}
+                                  sx={{ color: '#96989D', '&:hover': { color: '#DCDDDE' } }}
+                                >
+                                  <CopyIcon fontSize='small' />
                                 </IconButton>
                               </Tooltip>
-                              <Tooltip title="Download error report">
-                                <IconButton size="small" onClick={this.handleDownloadError} sx={{ color: '#96989D', '&:hover': { color: '#DCDDDE' } }}>
-                                  <DownloadIcon fontSize="small" />
+                              <Tooltip title='Download error report'>
+                                <IconButton
+                                  size='small'
+                                  onClick={this.handleDownloadError}
+                                  sx={{ color: '#96989D', '&:hover': { color: '#DCDDDE' } }}
+                                >
+                                  <DownloadIcon fontSize='small' />
                                 </IconButton>
                               </Tooltip>
                             </Stack>
@@ -564,17 +641,17 @@ export class ErrorBoundary extends Component<Props, State> {
                               borderRadius: 2,
                               border: '1px solid rgba(255, 255, 255, 0.1)',
                               maxHeight: 300,
-                              overflow: 'auto'
+                              overflow: 'auto',
                             }}
                           >
                             <Typography
-                              variant="body2"
+                              variant='body2'
                               sx={{
                                 fontFamily: 'monospace',
                                 fontSize: '0.8rem',
                                 whiteSpace: 'pre-wrap',
                                 wordBreak: 'break-word',
-                                color: '#FF6B6B'
+                                color: '#FF6B6B',
                               }}
                             >
                               {error.stack || 'No stack trace available'}
@@ -584,30 +661,78 @@ export class ErrorBoundary extends Component<Props, State> {
 
                         {/* System Info */}
                         <Box>
-                          <Typography variant="subtitle2" sx={{ mb: 2, color: '#96989D' }}>System Information</Typography>
+                          <Typography variant='subtitle2' sx={{ mb: 2, color: '#96989D' }}>
+                            System Information
+                          </Typography>
                           <Box
                             sx={{
                               p: 2,
                               backgroundColor: 'rgba(0, 0, 0, 0.2)',
                               borderRadius: 2,
-                              border: '1px solid rgba(255, 255, 255, 0.1)'
+                              border: '1px solid rgba(255, 255, 255, 0.1)',
                             }}
                           >
                             <Stack spacing={1}>
-                              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem', color: '#96989D' }}>
-                                <strong style={{ color: '#DCDDDE' }}>Timestamp:</strong> {new Date(errorContext.timestamp || Date.now()).toISOString()}
+                              <Typography
+                                variant='body2'
+                                sx={{
+                                  fontFamily: 'monospace',
+                                  fontSize: '0.8rem',
+                                  color: '#96989D',
+                                }}
+                              >
+                                <strong style={{ color: '#DCDDDE' }}>Timestamp:</strong>{' '}
+                                {new Date(errorContext.timestamp || Date.now()).toISOString()}
                               </Typography>
-                              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem', color: '#96989D' }}>
-                                <strong style={{ color: '#DCDDDE' }}>Session ID:</strong> {errorContext.sessionId || 'unknown'}
+                              <Typography
+                                variant='body2'
+                                sx={{
+                                  fontFamily: 'monospace',
+                                  fontSize: '0.8rem',
+                                  color: '#96989D',
+                                }}
+                              >
+                                <strong style={{ color: '#DCDDDE' }}>Session ID:</strong>{' '}
+                                {errorContext.sessionId || 'unknown'}
                               </Typography>
-                              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem', color: '#96989D' }}>
-                                <strong style={{ color: '#DCDDDE' }}>Platform:</strong> {errorContext.systemInfo?.platform || navigator.platform}
+                              <Typography
+                                variant='body2'
+                                sx={{
+                                  fontFamily: 'monospace',
+                                  fontSize: '0.8rem',
+                                  color: '#96989D',
+                                }}
+                              >
+                                <strong style={{ color: '#DCDDDE' }}>Platform:</strong>{' '}
+                                {errorContext.systemInfo?.platform || navigator.platform}
                               </Typography>
-                              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem', color: '#96989D' }}>
-                                <strong style={{ color: '#DCDDDE' }}>Language:</strong> {errorContext.systemInfo?.language || navigator.language}
+                              <Typography
+                                variant='body2'
+                                sx={{
+                                  fontFamily: 'monospace',
+                                  fontSize: '0.8rem',
+                                  color: '#96989D',
+                                }}
+                              >
+                                <strong style={{ color: '#DCDDDE' }}>Language:</strong>{' '}
+                                {errorContext.systemInfo?.language || navigator.language}
                               </Typography>
-                              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem', color: '#96989D' }}>
-                                <strong style={{ color: '#DCDDDE' }}>Online:</strong> {errorContext.systemInfo?.onLine !== undefined ? (errorContext.systemInfo.onLine ? 'Yes' : 'No') : (navigator.onLine ? 'Yes' : 'No')}
+                              <Typography
+                                variant='body2'
+                                sx={{
+                                  fontFamily: 'monospace',
+                                  fontSize: '0.8rem',
+                                  color: '#96989D',
+                                }}
+                              >
+                                <strong style={{ color: '#DCDDDE' }}>Online:</strong>{' '}
+                                {errorContext.systemInfo?.onLine !== undefined
+                                  ? errorContext.systemInfo.onLine
+                                    ? 'Yes'
+                                    : 'No'
+                                  : navigator.onLine
+                                    ? 'Yes'
+                                    : 'No'}
                               </Typography>
                             </Stack>
                           </Box>
@@ -620,9 +745,9 @@ export class ErrorBoundary extends Component<Props, State> {
             </Card>
           </Fade>
         </Box>
-      )
+      );
     }
 
-    return this.props.children
+    return this.props.children;
   }
 }

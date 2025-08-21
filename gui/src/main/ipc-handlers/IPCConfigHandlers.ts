@@ -2,6 +2,8 @@ import { ipcMain, WebContents } from 'electron';
 import { AppStateService, AppStateSchema } from '../config/AppStateService';
 import { WorkspaceConfigService, WorkspaceSchema } from '../config/WorkspaceConfigService';
 import { GroupConfigService, GroupSchema } from '../config/GroupConfigService';
+import { MainLogger } from '../logger';
+import type { MainProcessLogger } from '../../types/logger';
 
 // Type definitions for IPC handlers
 type WindowState = AppStateSchema['windowState'];
@@ -11,6 +13,8 @@ type BroadcastData = unknown; // Generic broadcast data type
 type DefaultStepContent = Record<string, unknown>;
 
 export class IPCConfigHandlers {
+  private logger: MainProcessLogger = MainLogger.createScopedLogger('ConfigIPC');
+
   constructor(
     private appStateService: AppStateService,
     private workspaceService: WorkspaceConfigService,
@@ -19,34 +23,51 @@ export class IPCConfigHandlers {
   ) {
     this.setupHandlers();
   }
-  
+
   private setupHandlers(): void {
     // ============================================================================
     // APP STATE HANDLERS
     // ============================================================================
-    
+
     ipcMain.handle('app:getState', () => {
-      return this.appStateService.getState();
+      try {
+        this.logger.debug('📖 Getting app state');
+        return this.appStateService.getState();
+      } catch (error) {
+        this.logger.error('Failed to get app state', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
     });
-    
+
     ipcMain.handle('app:setActiveWorkspace', (_, workspaceId: string | null) => {
-      this.appStateService.setActiveWorkspace(workspaceId);
-      this.broadcast('app:stateUpdated', this.appStateService.getState());
-      return true;
+      try {
+        this.logger.info('🔄 Setting active workspace', { workspaceId });
+        this.appStateService.setActiveWorkspace(workspaceId);
+        this.broadcast('app:stateUpdated', this.appStateService.getState());
+        return true;
+      } catch (error) {
+        this.logger.error('Failed to set active workspace', {
+          error: error instanceof Error ? error.message : String(error),
+          workspaceId,
+        });
+        throw error;
+      }
     });
-    
+
     ipcMain.handle('app:updateWindowState', (_, windowState: Partial<WindowState>) => {
       this.appStateService.updateWindowState(windowState);
       this.broadcast('app:windowStateUpdated', this.appStateService.getWindowState());
       return true;
     });
-    
+
     ipcMain.handle('app:clearRecentWorkspaces', () => {
       this.appStateService.clearRecentWorkspaces();
       this.broadcast('app:stateUpdated', this.appStateService.getState());
       return true;
     });
-    
+
     ipcMain.handle('app:validateAndCleanState', () => {
       // Use the workspace service to check if workspaces exist
       const workspaceExistsCallback = (id: string) => this.workspaceService.workspaceExists(id);
@@ -54,59 +75,76 @@ export class IPCConfigHandlers {
       this.broadcast('app:stateUpdated', this.appStateService.getState());
       return true;
     });
-    
+
     // ============================================================================
     // WORKSPACE HANDLERS
     // ============================================================================
-    
-    ipcMain.handle('workspace:create', (_, name: string, backgroundColor?: string, emoji?: string) => {
-      const { id, workspace } = this.workspaceService.createWorkspace(name, backgroundColor, emoji);
-      this.broadcast('workspace:created', { id, workspace });
-      
-      // Also update app state to set new workspace as active
-      this.appStateService.setActiveWorkspace(id);
-      this.broadcast('app:stateUpdated', this.appStateService.getState());
-      
-      return { id, workspace };
-    });
-    
+
+    ipcMain.handle(
+      'workspace:create',
+      (_, name: string, backgroundColor?: string, emoji?: string) => {
+        try {
+          this.logger.info('🚀 Creating new workspace', { name, backgroundColor, emoji });
+          const { id, workspace } = this.workspaceService.createWorkspace(
+            name,
+            backgroundColor,
+            emoji
+          );
+          this.broadcast('workspace:created', { id, workspace });
+
+          // Also update app state to set new workspace as active
+          this.appStateService.setActiveWorkspace(id);
+          this.broadcast('app:stateUpdated', this.appStateService.getState());
+
+          this.logger.info('✅ Workspace created successfully', { id, name });
+          return { id, workspace };
+        } catch (error) {
+          this.logger.error('Failed to create workspace', {
+            error: error instanceof Error ? error.message : String(error),
+            name,
+          });
+          throw error;
+        }
+      }
+    );
+
     ipcMain.handle('workspace:delete', (_, id: string) => {
       const stateBeforeDeletion = this.appStateService.getState();
       const wasActiveWorkspace = stateBeforeDeletion.activeWorkspaceId === id;
-      
+
       const success = this.workspaceService.deleteWorkspace(id);
       if (success) {
         this.broadcast('workspace:deleted', { id });
-        
+
         this.appStateService.removeFromRecent(id);
-        
+
         if (wasActiveWorkspace) {
           const remainingWorkspaces = this.workspaceService.listWorkspaces();
           if (remainingWorkspaces.length === 0) {
             this.appStateService.setActiveWorkspace(null);
           }
         }
-        
+
         this.broadcast('app:stateUpdated', this.appStateService.getState());
       }
       return success;
     });
-    
+
     ipcMain.handle('workspace:list', () => {
       return this.workspaceService.listWorkspaces();
     });
-    
+
     ipcMain.handle('workspace:get', (_, id: string) => {
       return this.workspaceService.getWorkspace(id);
     });
-    
+
     ipcMain.handle('workspace:update', (_, id: string, updates: WorkspaceUpdate) => {
       this.workspaceService.updateWorkspace(id, updates);
       const updatedWorkspace = this.workspaceService.getWorkspace(id);
       this.broadcast('workspace:updated', { id, workspace: updatedWorkspace });
       return updatedWorkspace;
     });
-    
+
     ipcMain.handle('workspace:rename', (_, id: string, newName: string) => {
       const success = this.workspaceService.renameWorkspace(id, newName);
       if (success) {
@@ -115,7 +153,7 @@ export class IPCConfigHandlers {
       }
       return success;
     });
-    
+
     ipcMain.handle('workspace:duplicate', (_, id: string, newName: string) => {
       const result = this.workspaceService.duplicateWorkspace(id, newName);
       if (result) {
@@ -123,46 +161,49 @@ export class IPCConfigHandlers {
       }
       return result;
     });
-    
+
     ipcMain.handle('workspace:exists', (_, id: string) => {
       return this.workspaceService.workspaceExists(id);
     });
-    
+
     // ============================================================================
     // STEP CONTENT HANDLERS
     // ============================================================================
-    
-    ipcMain.handle('step:updateContent', (_, workspaceId: string, stepName: string, content: StepContent) => {
-      this.workspaceService.updateStepContent(workspaceId, stepName, content);
-      const stepContent = this.workspaceService.getStepContent(workspaceId, stepName);
-      this.broadcast('step:contentUpdated', { 
-        workspaceId, 
-        stepName, 
-        content: stepContent 
-      });
-      return stepContent;
-    });
-    
+
+    ipcMain.handle(
+      'step:updateContent',
+      (_, workspaceId: string, stepName: string, content: StepContent) => {
+        this.workspaceService.updateStepContent(workspaceId, stepName, content);
+        const stepContent = this.workspaceService.getStepContent(workspaceId, stepName);
+        this.broadcast('step:contentUpdated', {
+          workspaceId,
+          stepName,
+          content: stepContent,
+        });
+        return stepContent;
+      }
+    );
+
     ipcMain.handle('step:getContent', (_, workspaceId: string, stepName: string) => {
       return this.workspaceService.getStepContent(workspaceId, stepName);
     });
-    
+
     ipcMain.handle('step:resetContent', (_, workspaceId: string, stepName: string) => {
       // Get default content based on step
       const defaultContent = this.getDefaultStepContent(stepName);
       this.workspaceService.updateStepContent(workspaceId, stepName, defaultContent);
-      this.broadcast('step:contentUpdated', { 
-        workspaceId, 
-        stepName, 
-        content: defaultContent 
+      this.broadcast('step:contentUpdated', {
+        workspaceId,
+        stepName,
+        content: defaultContent,
       });
       return defaultContent;
     });
-    
+
     // ============================================================================
     // GROUP MANAGEMENT HANDLERS
     // ============================================================================
-    
+
     ipcMain.handle('group:create', (_, group: Partial<GroupSchema>) => {
       try {
         const { id, group: createdGroup } = this.groupService.createGroup(
@@ -172,40 +213,46 @@ export class IPCConfigHandlers {
         this.broadcast('group:created', { id, group: createdGroup });
         return { id, group: createdGroup };
       } catch (error) {
-        console.error('Failed to create group:', error);
+        this.logger.error('Failed to create group', {
+          error: error instanceof Error ? error.message : String(error),
+          group,
+        });
         return null;
       }
     });
-    
+
     ipcMain.handle('group:delete', (_, groupId: string) => {
       try {
         // Get workspaces that belong to this group before deleting
         const workspacesInGroup = this.workspaceService.getWorkspacesByGroup(groupId);
-        
+
         // Remove all workspaces from the group
-        workspacesInGroup.forEach(ws => {
+        workspacesInGroup.forEach((ws) => {
           this.workspaceService.removeWorkspaceFromGroup(ws.id);
         });
-        
+
         // Delete the group
         const success = this.groupService.deleteGroup(groupId);
-        
+
         if (success) {
           this.broadcast('group:deleted', { groupId });
           // Broadcast workspace changes for each affected workspace
-          workspacesInGroup.forEach(ws => {
+          workspacesInGroup.forEach((ws) => {
             const updatedWorkspace = this.workspaceService.getWorkspace(ws.id);
             this.broadcast('workspace:updated', { id: ws.id, workspace: updatedWorkspace });
           });
         }
-        
+
         return success;
       } catch (error) {
-        console.error('Failed to delete group:', error);
+        this.logger.error('Failed to delete group', {
+          error: error instanceof Error ? error.message : String(error),
+          groupId,
+        });
         return false;
       }
     });
-    
+
     ipcMain.handle('group:update', (_, groupId: string, updates: Partial<GroupSchema>) => {
       try {
         const success = this.groupService.updateGroup(groupId, updates);
@@ -215,7 +262,11 @@ export class IPCConfigHandlers {
         }
         return success;
       } catch (error) {
-        console.error('Failed to update group:', error);
+        this.logger.error('Failed to update group', {
+          error: error instanceof Error ? error.message : String(error),
+          groupId,
+          updates,
+        });
         return false;
       }
     });
@@ -224,7 +275,9 @@ export class IPCConfigHandlers {
       try {
         return this.groupService.listGroups();
       } catch (error) {
-        console.error('Failed to list groups:', error);
+        this.logger.error('Failed to list groups', {
+          error: error instanceof Error ? error.message : String(error),
+        });
         return [];
       }
     });
@@ -233,24 +286,27 @@ export class IPCConfigHandlers {
       try {
         return this.groupService.getGroup(groupId);
       } catch (error) {
-        console.error('Failed to get group:', error);
+        this.logger.error('Failed to get group', {
+          error: error instanceof Error ? error.message : String(error),
+          groupId,
+        });
         return null;
       }
     });
-    
+
     ipcMain.handle('workspace:addToGroup', (_, workspaceId: string, groupId: string) => {
       try {
         // Verify group exists
         const group = this.groupService.getGroup(groupId);
         if (!group) {
-          console.error('Cannot add workspace to non-existent group:', groupId);
+          this.logger.error('Cannot add workspace to non-existent group', { groupId });
           return false;
         }
 
         // Get current workspace to check if it's already in a group
         const workspace = this.workspaceService.getWorkspace(workspaceId);
         if (!workspace) {
-          console.error('Cannot add non-existent workspace to group:', workspaceId);
+          this.logger.error('Cannot add non-existent workspace to group', { workspaceId });
           return false;
         }
 
@@ -261,30 +317,34 @@ export class IPCConfigHandlers {
 
         // Add workspace to new group
         const success = this.workspaceService.addWorkspaceToGroup(workspaceId, groupId);
-        
+
         if (success) {
           // Update workspace count in the group (only if it wasn't already in this group)
           if (workspace.groupId !== groupId) {
             this.groupService.updateWorkspaceCount(groupId, 1);
           }
-          
+
           // Get updated data
           const updatedWorkspace = this.workspaceService.getWorkspace(workspaceId);
           const updatedGroup = this.groupService.getGroup(groupId);
-          
+
           // Broadcast changes
           this.broadcast('workspace:updated', { id: workspaceId, workspace: updatedWorkspace });
           this.broadcast('group:updated', { groupId, group: updatedGroup });
           this.broadcast('workspace:groupChanged', { workspaceId, groupId, action: 'added' });
         }
-        
+
         return success;
       } catch (error) {
-        console.error('Failed to add workspace to group:', error);
+        this.logger.error('Failed to add workspace to group', {
+          error: error instanceof Error ? error.message : String(error),
+          workspaceId,
+          groupId,
+        });
         return false;
       }
     });
-    
+
     ipcMain.handle('workspace:removeFromGroup', (_, workspaceId: string) => {
       try {
         const workspace = this.workspaceService.getWorkspace(workspaceId);
@@ -294,83 +354,91 @@ export class IPCConfigHandlers {
 
         const oldGroupId = workspace.groupId;
         const success = this.workspaceService.removeWorkspaceFromGroup(workspaceId);
-        
+
         if (success) {
           // Update workspace count in the old group
           this.groupService.updateWorkspaceCount(oldGroupId, -1);
-          
+
           // Get updated data
           const updatedWorkspace = this.workspaceService.getWorkspace(workspaceId);
           const updatedGroup = this.groupService.getGroup(oldGroupId);
-          
+
           // Broadcast changes
           this.broadcast('workspace:updated', { id: workspaceId, workspace: updatedWorkspace });
           if (updatedGroup) {
             this.broadcast('group:updated', { groupId: oldGroupId, group: updatedGroup });
           }
-          this.broadcast('workspace:groupChanged', { workspaceId, groupId: null, action: 'removed' });
+          this.broadcast('workspace:groupChanged', {
+            workspaceId,
+            groupId: null,
+            action: 'removed',
+          });
         }
-        
+
         return success;
       } catch (error) {
-        console.error('Failed to remove workspace from group:', error);
+        this.logger.error('Failed to remove workspace from group', {
+          error: error instanceof Error ? error.message : String(error),
+          workspaceId,
+        });
         return false;
       }
     });
-    
+
+    this.logger.info('✅ Config IPC handlers initialized successfully');
   }
-  
+
   private broadcast(channel: string, data: BroadcastData): void {
     // Send to the main window's webContents
     if (this.webContents && !this.webContents.isDestroyed()) {
       this.webContents.send(channel, data);
     }
   }
-  
+
   private getDefaultStepContent(stepName: string): DefaultStepContent {
     const defaults: Record<string, DefaultStepContent> = {
       input: {
         selectedFiles: [],
         fileValidation: {},
-        dragDropState: false
+        dragDropState: false,
       },
       config: {
         modelSettings: {
           whisperModel: 'medium',
           enableGemini: false,
-          temperature: 0.1
+          temperature: 0.1,
         },
         apiKeys: {},
         advancedSettings: {
           chunkDuration: 30,
           numWorkers: 4,
           enableSpeakerDiarization: false,
-          enableMusicDetection: false
-        }
+          enableMusicDetection: false,
+        },
       },
       processing: {
         status: 'idle',
         progress: 0,
-        logs: []
+        logs: [],
       },
       review: {
         subtitles: [],
-        playbackPosition: 0
+        playbackPosition: 0,
       },
       export: {
         format: 'srt',
         exportSettings: {
           includeTimecodes: true,
           charset: 'utf-8',
-          translation: false
+          translation: false,
         },
-        exportHistory: []
-      }
+        exportHistory: [],
+      },
     };
-    
+
     return defaults[stepName] || {};
   }
-  
+
   // Cleanup method to remove all handlers
   public cleanup(): void {
     ipcMain.removeAllListeners('app:getState');
@@ -378,7 +446,7 @@ export class IPCConfigHandlers {
     ipcMain.removeAllListeners('app:validateAndCleanState');
     ipcMain.removeAllListeners('app:updateWindowState');
     ipcMain.removeAllListeners('app:clearRecentWorkspaces');
-    
+
     ipcMain.removeAllListeners('workspace:create');
     ipcMain.removeAllListeners('workspace:delete');
     ipcMain.removeAllListeners('workspace:list');
@@ -387,12 +455,11 @@ export class IPCConfigHandlers {
     ipcMain.removeAllListeners('workspace:rename');
     ipcMain.removeAllListeners('workspace:duplicate');
     ipcMain.removeAllListeners('workspace:exists');
-    
+
     ipcMain.removeAllListeners('step:updateContent');
     ipcMain.removeAllListeners('step:getContent');
     ipcMain.removeAllListeners('step:resetContent');
-    
-    
+
     // Remove group management handlers
     ipcMain.removeAllListeners('group:create');
     ipcMain.removeAllListeners('group:delete');
@@ -401,5 +468,7 @@ export class IPCConfigHandlers {
     ipcMain.removeAllListeners('group:get');
     ipcMain.removeAllListeners('workspace:addToGroup');
     ipcMain.removeAllListeners('workspace:removeFromGroup');
+
+    this.logger.info('Config IPC handlers cleaned up successfully');
   }
 }

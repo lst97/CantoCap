@@ -5,6 +5,8 @@ import { join, resolve, normalize } from 'path';
 import { createHash } from 'crypto';
 import { tmpdir } from 'os';
 import { existsSync, mkdirSync, statSync } from 'fs';
+import { MainLogger } from '../logger';
+import type { MainProcessLogger } from '../../types/logger';
 
 interface VideoMetadata {
   duration: number;
@@ -42,19 +44,31 @@ interface FFProbeData {
 export class MediaIPCHandlers {
   private thumbnailCache = new Map<string, string>();
   private metadataCache = new Map<string, VideoMetadata>();
+  private logger: MainProcessLogger = MainLogger.createScopedLogger('MediaIPC');
+  private appInstance: any; // CantoCap instance
 
-  constructor() {
+  constructor(appInstance: any) {
+    this.appInstance = appInstance;
     this.setupHandlers();
   }
 
   private setupHandlers(): void {
-    console.log('✅ Video processing handlers initialized');
+    this.logger.info('🎬 Initializing media processing handlers');
 
     // Get video metadata and thumbnail
     ipcMain.handle(
       'video:getMetadata',
       async (_, filePath: string): Promise<VideoProcessingResult> => {
-        return this.processVideo(filePath);
+        try {
+          this.logger.debug('📊 Processing video metadata request', { filePath });
+          return this.processVideo(filePath);
+        } catch (error) {
+          this.logger.error('Failed to get video metadata', {
+            error: error instanceof Error ? error.message : String(error),
+            filePath,
+          });
+          throw error;
+        }
       }
     );
 
@@ -69,72 +83,83 @@ export class MediaIPCHandlers {
       try {
         // Validate file path and check if file exists
         if (!this.isValidMediaPath(filePath)) {
-          console.error('Invalid media file path:', filePath);
+          this.logger.error('Invalid media file path', { filePath });
           return null;
         }
 
-        // Get the main app instance to register the media file
-        const { CantoCap } = await import('../index');
-        const appInstance = CantoCap.getInstance();
-        
-        if (!appInstance) {
-          console.error('App instance not available');
+        // Use the passed app instance to register the media file
+        if (!this.appInstance) {
+          this.logger.error('App instance not available');
           return null;
         }
 
         // Register the media file and get a secure URL
-        const mediaId = appInstance.registerMediaFile(filePath);
+        const mediaId = this.appInstance.registerMediaFile(filePath);
         const mediaUrl = `localmedia://${mediaId}`;
-        
-        console.log('🎬 Media URL generated:', { filePath, mediaId, mediaUrl });
+
+        this.logger.info('🎬 Media URL generated', { filePath, mediaId, mediaUrl });
         return mediaUrl;
       } catch (error) {
-        console.error('Error creating media URL:', error);
+        this.logger.error('Error creating media URL', {
+          error: error instanceof Error ? error.message : String(error),
+          filePath,
+        });
         return null;
       }
     });
 
     // Validate media file accessibility
-    ipcMain.handle('media:validateFile', async (_, filePath: string): Promise<{
-      isValid: boolean;
-      exists: boolean;
-      error?: string;
-    }> => {
-      try {
-        if (!filePath) {
-          return { isValid: false, exists: false, error: 'No file path provided' };
-        }
+    ipcMain.handle(
+      'media:validateFile',
+      async (
+        _,
+        filePath: string
+      ): Promise<{
+        isValid: boolean;
+        exists: boolean;
+        error?: string;
+      }> => {
+        try {
+          if (!filePath) {
+            return { isValid: false, exists: false, error: 'No file path provided' };
+          }
 
-        // Check if file exists
-        const exists = existsSync(filePath);
-        if (!exists) {
-          return { 
-            isValid: false, 
-            exists: false, 
-            error: 'File not found. The file may have been moved, renamed, or deleted.' 
+          // Check if file exists
+          const exists = existsSync(filePath);
+          if (!exists) {
+            return {
+              isValid: false,
+              exists: false,
+              error: 'File not found. The file may have been moved, renamed, or deleted.',
+            };
+          }
+
+          // Validate the media file
+          const isValid = this.isValidMediaPath(filePath);
+          if (!isValid) {
+            return {
+              isValid: false,
+              exists: true,
+              error: 'File format not supported or file is not accessible.',
+            };
+          }
+
+          return { isValid: true, exists: true };
+        } catch (error) {
+          this.logger.error('Error validating media file', {
+            error: error instanceof Error ? error.message : String(error),
+            filePath,
+          });
+          return {
+            isValid: false,
+            exists: false,
+            error: error instanceof Error ? error.message : 'Unknown validation error',
           };
         }
-
-        // Validate the media file
-        const isValid = this.isValidMediaPath(filePath);
-        if (!isValid) {
-          return { 
-            isValid: false, 
-            exists: true, 
-            error: 'File format not supported or file is not accessible.' 
-          };
-        }
-
-        return { isValid: true, exists: true };
-      } catch (error) {
-        console.error('Error validating media file:', error);
-        return { 
-          isValid: false, 
-          exists: false, 
-          error: error instanceof Error ? error.message : 'Unknown validation error' 
-        };
       }
-    });
+    );
+
+    this.logger.info('✅ Media IPC handlers initialized successfully');
   }
 
   private async processVideo(filePath: string): Promise<VideoProcessingResult> {
@@ -172,7 +197,10 @@ export class MediaIPCHandlers {
         thumbnail,
       };
     } catch (error) {
-      console.error('Error processing video:', error);
+      this.logger.error('Error processing video', {
+        error: error instanceof Error ? error.message : String(error),
+        filePath,
+      });
       return {
         metadata: null,
         thumbnail: null,
@@ -206,7 +234,7 @@ export class MediaIPCHandlers {
 
       ffprobe.on('close', (code) => {
         if (code !== 0) {
-          console.error('ffprobe failed:', errorOutput);
+          this.logger.error('ffprobe failed', { errorOutput, filePath });
           resolve(null);
           return;
         }
@@ -233,13 +261,17 @@ export class MediaIPCHandlers {
 
           resolve(metadata);
         } catch (error) {
-          console.error('Error parsing ffprobe output:', error);
+          this.logger.error('Error parsing ffprobe output', {
+            error: error instanceof Error ? error.message : String(error),
+          });
           resolve(null);
         }
       });
 
       ffprobe.on('error', (error) => {
-        console.error('ffprobe spawn error:', error);
+        this.logger.error('ffprobe spawn error', {
+          error: error instanceof Error ? error.message : String(error),
+        });
         resolve(null);
       });
     });
@@ -278,7 +310,7 @@ export class MediaIPCHandlers {
 
       ffmpeg.on('close', async (code) => {
         if (code !== 0) {
-          console.error('ffmpeg thumbnail generation failed:', errorOutput);
+          this.logger.error('ffmpeg thumbnail generation failed', { errorOutput, filePath });
           resolve(null);
           return;
         }
@@ -298,13 +330,18 @@ export class MediaIPCHandlers {
 
           resolve(base64Thumbnail);
         } catch (error) {
-          console.error('Error reading thumbnail:', error);
+          this.logger.error('Error reading thumbnail', {
+            error: error instanceof Error ? error.message : String(error),
+            filePath,
+          });
           resolve(null);
         }
       });
 
       ffmpeg.on('error', (error) => {
-        console.error('ffmpeg spawn error:', error);
+        this.logger.error('ffmpeg spawn error', {
+          error: error instanceof Error ? error.message : String(error),
+        });
         resolve(null);
       });
     });
@@ -324,12 +361,11 @@ export class MediaIPCHandlers {
     }
   }
 
-
   private isValidMediaPath(filePath: string): boolean {
     try {
       // Normalize and resolve the path to prevent path traversal attacks
       const normalizedPath = normalize(resolve(filePath));
-      
+
       // Check if file exists and is a regular file
       if (!existsSync(normalizedPath)) {
         return false;
@@ -345,7 +381,7 @@ export class MediaIPCHandlers {
       const validVideoExtensions = ['mp4', 'webm', 'ogg', 'avi', 'mov', 'mkv', 'flv', 'm4v', '3gp'];
       const validAudioExtensions = ['mp3', 'wav', 'ogg', 'aac', 'flac', 'm4a', 'wma'];
       const validExtensions = [...validVideoExtensions, ...validAudioExtensions];
-      
+
       if (!ext || !validExtensions.includes(ext)) {
         return false;
       }
@@ -357,7 +393,10 @@ export class MediaIPCHandlers {
 
       return true;
     } catch (error) {
-      console.error('Error validating media path:', error);
+      this.logger.error('Error validating media path', {
+        error: error instanceof Error ? error.message : String(error),
+        filePath,
+      });
       return false;
     }
   }
@@ -367,5 +406,7 @@ export class MediaIPCHandlers {
     ipcMain.removeAllListeners('video:clearCache');
     ipcMain.removeAllListeners('media:getUrl');
     ipcMain.removeAllListeners('media:validateFile');
+
+    this.logger.info('Media IPC handlers cleaned up successfully');
   }
 }

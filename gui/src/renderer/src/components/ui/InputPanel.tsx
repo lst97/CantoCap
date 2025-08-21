@@ -10,7 +10,11 @@ import {
 import { FileSelector } from '../forms/FileSelector';
 import { VideoPlayer } from './VideoPlayer';
 import { useInputStepContent, useStepActions } from '../../stores/useStepStore';
-import { VideoMetadata } from '../../stores/types/StoreTypes';
+import { useWorkflowActions } from '../../stores/useWorkflowStore';
+import { useSubtitleActions } from '../../stores/useSubtitleEditStore';
+import { useActiveWorkspaceId } from '../../stores/useAppStore';
+import { VideoMetadata, StepStatus, StepType } from '../../stores/types/StoreTypes';
+import { createComponentLogger } from '../../utils/logger';
 
 // Type definitions
 interface TimeRange {
@@ -22,6 +26,163 @@ interface WindowSize {
   width: number;
   height: number;
 }
+
+// Cleanup utility interfaces
+interface CleanupOptions {
+  clearInputFile?: boolean;
+  clearJsonFile?: boolean;
+}
+
+interface SubtitleActionsType {
+  clearWorkspace: () => void;
+}
+
+// Efficient cleanup utility for data removal operations
+const createDataCleanup = (
+  activeWorkspaceId: string | null,
+  updateStepContent: <T>(
+    step: StepType,
+    content: Partial<T>,
+    workspaceId?: string
+  ) => Promise<void>,
+  subtitleActions: SubtitleActionsType,
+  logger = createComponentLogger('InputPanel')
+) => {
+  // Extract subtitle workspace cleanup to separate function
+  const clearSubtitleData = async (workspaceId: string, actions: SubtitleActionsType) => {
+    try {
+      // Clear frontend subtitle store
+      actions.clearWorkspace();
+
+      // Clear backend workspace persistence
+      await window.cantocapAPI.subtitleWorkspaceDelete(workspaceId);
+
+      // Clear step sync data
+      await window.cantocapAPI.subtitleSyncToStep(workspaceId, []);
+
+      logger.debug('Subtitle workspace data cleared');
+    } catch (error) {
+      logger.warn('Failed to clear subtitle workspace', { error });
+    }
+  };
+
+  // Extract downstream step reset to separate function
+  const resetDownstreamSteps = async (
+    updateStepContent: <T>(
+      step: StepType,
+      content: Partial<T>,
+      workspaceId?: string
+    ) => Promise<void>
+  ) => {
+    const stepResets = [
+      [
+        'processing',
+        {
+          status: 'idle',
+          progress: 0,
+          currentPhase: undefined,
+          logs: [],
+          startTime: undefined,
+          endTime: undefined,
+          outputFile: undefined,
+          jsonSubtitleData: undefined,
+          convertedSubtitles: undefined,
+          statistics: undefined,
+          timeElapsed: undefined,
+          estimatedTimeRemaining: undefined,
+          hardwareInfo: undefined,
+        },
+      ],
+      [
+        'review',
+        {
+          subtitles: [],
+          jsonSubtitleData: undefined,
+          hasJsonData: false,
+          processingStatistics: undefined,
+          processingCompleted: false,
+          lastProcessedAt: undefined,
+          currentEdit: undefined,
+          playbackPosition: 0,
+          selectedSubtitleIndex: undefined,
+          searchQuery: undefined,
+          filteredSubtitles: [],
+          hasUnsavedChanges: false,
+          inputFile: undefined,
+        },
+      ],
+      [
+        'export',
+        {
+          exportHistory: [],
+          lastExported: undefined,
+          actionsState: {
+            isExporting: false,
+            exportProgress: 0,
+            exportError: undefined,
+          },
+          previewState: {
+            isPreviewReady: false,
+            previewContent: '',
+            lastPreviewGenerated: undefined,
+          },
+        },
+      ],
+    ];
+
+    try {
+      await Promise.all(
+        stepResets.map(([step, content]) => updateStepContent(step as StepType, content as any))
+      );
+      logger.debug('Downstream steps reset successfully');
+    } catch (error) {
+      logger.warn('Failed to reset some downstream steps', { error });
+    }
+  };
+
+  return async (options: CleanupOptions) => {
+    logger.debug('Starting data cleanup', { options });
+
+    try {
+      // Build step content updates
+      const stepUpdates: Record<string, unknown> = { lastModified: Date.now() };
+
+      if (options.clearInputFile) {
+        Object.assign(stepUpdates, {
+          inputFile: null,
+          selectedFile: null,
+          mediaMetadata: null,
+          videoDurationSeconds: null,
+        });
+      }
+
+      if (options.clearJsonFile) {
+        stepUpdates.importedJsonFile = null;
+      }
+
+      // Apply input step updates if any changes exist
+      if (Object.keys(stepUpdates).length > 1) {
+        await updateStepContent('input', stepUpdates);
+        logger.debug('Input step content cleared', { clearedFields: Object.keys(stepUpdates) });
+      }
+
+      // Clear subtitle workspace data
+      if (activeWorkspaceId && (options.clearInputFile || options.clearJsonFile)) {
+        await clearSubtitleData(activeWorkspaceId, subtitleActions);
+      }
+
+      // Reset downstream steps when clearing input file
+      if (options.clearInputFile) {
+        await resetDownstreamSteps(updateStepContent);
+      }
+
+      logger.info('Data cleanup completed successfully', { options });
+    } catch (error) {
+      logger.error('Data cleanup failed', { error, options });
+      throw error;
+    }
+  };
+};
 
 interface InputPanelProps {
   initialFile?: string | null;
@@ -38,6 +199,10 @@ export const InputPanel: React.FC<InputPanelProps> = React.memo(
     // Use step store as the single source of truth
     const inputStepContent = useInputStepContent();
     const stepActions = useStepActions();
+    const { setStepState, navigateToStep } = useWorkflowActions();
+    const subtitleActions = useSubtitleActions();
+    const activeWorkspaceId = useActiveWorkspaceId();
+    const logger = createComponentLogger('InputPanel');
 
     // Optimized config derivation with stable reference and memoization
     const config = useMemo(
@@ -66,7 +231,7 @@ export const InputPanel: React.FC<InputPanelProps> = React.memo(
           debugLogRef.current.lastInputFile !== config.inputFile);
 
       if (shouldLog) {
-        console.log('🔧 [VIDEO DEBUG] InputPanel State Change:', {
+        logger.debug('InputPanel State Change:', {
           timestamp: new Date().toISOString(),
           props: { initialFile, initialJsonFile },
           inputStepContent: {
@@ -90,6 +255,7 @@ export const InputPanel: React.FC<InputPanelProps> = React.memo(
       inputStepContent?.importedJsonFile,
       config.inputFile,
       config.importedJsonFile,
+      logger,
     ]);
     const [timeRange, setTimeRange] = useState<TimeRange | null>(null);
     const [isRangeValid, setIsRangeValid] = useState<boolean>(false);
@@ -100,6 +266,99 @@ export const InputPanel: React.FC<InputPanelProps> = React.memo(
     });
     const [mediaError, setMediaError] = useState<string | null>(null);
     const [showErrorSnackbar, setShowErrorSnackbar] = useState(false);
+
+    // Create data cleanup utility instance
+    const performDataCleanup = useMemo(
+      () =>
+        createDataCleanup(
+          activeWorkspaceId,
+          stepActions.updateStepContent,
+          {
+            clearWorkspace: subtitleActions.clearWorkspace,
+          },
+          logger
+        ),
+      [activeWorkspaceId, stepActions.updateStepContent, subtitleActions.clearWorkspace, logger]
+    );
+
+    // Cleanup handlers for FileSelector
+    const handleFileCleanup = useCallback(
+      async (options: CleanupOptions) => {
+        await performDataCleanup(options);
+      },
+      [performDataCleanup]
+    );
+
+    const handleFileRemovalRequest = useCallback(async () => {
+      // Handle complete file removal
+      await handleFileCleanup({
+        clearInputFile: true,
+        clearJsonFile: true,
+      });
+    }, [handleFileCleanup]);
+
+    const handleJsonRemovalRequest = useCallback(async () => {
+      // Handle JSON file removal only
+      await handleFileCleanup({
+        clearInputFile: false,
+        clearJsonFile: true,
+      });
+    }, [handleFileCleanup]);
+
+    // Workflow state management handlers
+    const handleFileSelected = useCallback(
+      async (filePath: string) => {
+        logger.info('File selected, updating workflow state', {
+          fileName: filePath.split('/').pop(),
+        });
+        try {
+          // Auto-complete step 1 and enable step 2 when media file is uploaded
+          await setStepState('input', StepStatus.COMPLETE); // Complete step 1
+          await setStepState('config', StepStatus.READY); // Make step 2 ready
+
+          // Call the original callback if provided
+          onFileSelect?.(filePath);
+
+          logger.info('Workflow state updated for file selection');
+        } catch (error) {
+          logger.error('Failed to update workflow state after file selection', { error });
+        }
+      },
+      [setStepState, onFileSelect, logger]
+    );
+
+    const handleJsonFileSelected = useCallback(
+      async (filePath: string | null) => {
+        if (filePath) {
+          logger.info('JSON file selected, updating workflow state for JSON import', {
+            fileName: filePath.split('/').pop(),
+          });
+          try {
+            // Update workflow states for JSON import - skip processing steps
+            await setStepState('input', StepStatus.COMPLETE); // Step 1 complete
+            await setStepState('config', StepStatus.SKIP); // Skip step 2
+            await setStepState('processing', StepStatus.SKIP); // Skip step 3
+            await setStepState('review', StepStatus.READY); // Step 4 ready
+
+            // Navigate to step 4 (review)
+            const reviewNavigationResult = await navigateToStep('review');
+            if (!reviewNavigationResult.success) {
+              logger.error('Failed to navigate to review step after JSON import', {
+                error: reviewNavigationResult.error,
+              });
+            } else {
+              logger.info('Successfully navigated to review step after JSON import');
+            }
+          } catch (error) {
+            logger.error('Failed to update workflow state after JSON import', { error });
+          }
+        }
+
+        // Call the original callback if provided
+        onJsonFileSelect?.(filePath);
+      },
+      [setStepState, navigateToStep, onJsonFileSelect, logger]
+    );
 
     const handleTimeRangeChange = useCallback(
       async (range: TimeRange | null) => {
@@ -112,14 +371,14 @@ export const InputPanel: React.FC<InputPanelProps> = React.memo(
             const selectedRange = {
               start: range.start,
               end: range.end,
-              duration: range.end - range.start
+              duration: range.end - range.start,
             };
             await stepActions.updateStepContent('input', {
               startTime: range.start,
               endTime: range.end,
               duration: range.end - range.start,
               selectedRange,
-              lastModified: Date.now()
+              lastModified: Date.now(),
             });
             onRangeSelect?.(range.start, range.end);
           } else {
@@ -128,60 +387,68 @@ export const InputPanel: React.FC<InputPanelProps> = React.memo(
               endTime: null,
               duration: 10.0,
               selectedRange: null,
-              lastModified: Date.now()
+              lastModified: Date.now(),
             });
           }
 
-          console.log('Time range updated via step store:', range);
+          logger.info('Time range updated via step store:', { range: range });
         } catch (err) {
-          console.error('Failed to update time range configuration:', err);
+          logger.error('Failed to update time range configuration:', { error: err });
         }
       },
-      [stepActions, onRangeSelect]
+      [stepActions, onRangeSelect, logger]
     );
 
     const handleVideoDurationChange = useCallback((duration: number) => {
       setVideoDuration(duration);
     }, []);
 
-    const handleMediaError = useCallback((error: {
-      errorCode: number;
-      errorMessage: string;
-      src: string;
-      originalSrc?: string;
-    }) => {
-      console.error('🚨 Media Error in InputPanel:', error);
-      
-      let userFriendlyMessage = 'Unable to load media file.';
-      
-      // Handle specific error cases
-      if (error.errorCode === 4) { // MEDIA_ERR_SRC_NOT_SUPPORTED
-        if (error.errorMessage?.includes('DEMUXER_ERROR_COULD_NOT_OPEN')) {
-          userFriendlyMessage = 'Media file not found. The file may have been moved, renamed, or deleted.';
-        } else {
-          userFriendlyMessage = 'Media format not supported or file is corrupted.';
+    const handleMediaError = useCallback(
+      (error: { errorCode: number; errorMessage: string; src: string; originalSrc?: string }) => {
+        logger.error('🚨 Media Error in InputPanel:', error);
+
+        let userFriendlyMessage = 'Unable to load media file.';
+
+        // Handle specific error cases
+        if (error.errorCode === 4) {
+          // MEDIA_ERR_SRC_NOT_SUPPORTED
+          if (error.errorMessage?.includes('DEMUXER_ERROR_COULD_NOT_OPEN')) {
+            userFriendlyMessage =
+              'Media file not found. The file may have been moved, renamed, or deleted.';
+          } else {
+            userFriendlyMessage = 'Media format not supported or file is corrupted.';
+          }
+        } else if (error.errorCode === 2) {
+          // MEDIA_ERR_NETWORK
+          userFriendlyMessage = 'Network error loading media file.';
+        } else if (error.errorCode === 3) {
+          // MEDIA_ERR_DECODE
+          userFriendlyMessage = 'Unable to decode media file. The file may be corrupted.';
+        } else if (error.errorCode === 1) {
+          // MEDIA_ERR_ABORTED
+          userFriendlyMessage = 'Media loading was aborted.';
         }
-      } else if (error.errorCode === 2) { // MEDIA_ERR_NETWORK
-        userFriendlyMessage = 'Network error loading media file.';
-      } else if (error.errorCode === 3) { // MEDIA_ERR_DECODE
-        userFriendlyMessage = 'Unable to decode media file. The file may be corrupted.';
-      } else if (error.errorCode === 1) { // MEDIA_ERR_ABORTED
-        userFriendlyMessage = 'Media loading was aborted.';
-      }
-      
-      setMediaError(userFriendlyMessage);
-      setShowErrorSnackbar(true);
-    }, []);
+
+        setMediaError(userFriendlyMessage);
+        setShowErrorSnackbar(true);
+      },
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      []
+    );
 
     // Sync local timeRange state with global config on mount and when config changes
     useEffect(() => {
-      if (config.startTime !== null && config.startTime !== undefined && 
-          config.endTime !== null && config.endTime !== undefined) {
+      if (
+        config.startTime !== null &&
+        config.startTime !== undefined &&
+        config.endTime !== null &&
+        config.endTime !== undefined
+      ) {
         const restoredRange = {
           start: config.startTime,
           end: config.endTime,
         };
-        console.log('Restoring time range from config:', restoredRange);
+        logger.info('Restoring time range from config:', restoredRange);
         setTimeRange(restoredRange);
         setIsRangeValid(
           Boolean(
@@ -192,7 +459,7 @@ export const InputPanel: React.FC<InputPanelProps> = React.memo(
         setTimeRange(null);
         setIsRangeValid(false);
       }
-    }, [config.startTime, config.endTime]);
+    }, [config.startTime, config.endTime, logger]);
 
     const handleFileRemoved = useCallback(async () => {
       // Reset video-related state when file is removed
@@ -206,12 +473,12 @@ export const InputPanel: React.FC<InputPanelProps> = React.memo(
           endTime: null,
           duration: 10.0,
           selectedRange: null,
-          lastModified: Date.now()
+          lastModified: Date.now(),
         });
       } catch (err) {
-        console.error('Failed to reset time range configuration:', err);
+        logger.error('Failed to reset time range configuration:', { error: err });
       }
-    }, [stepActions]);
+    }, [stepActions, logger]);
 
     // Helper function to determine if the range represents the full video (i.e., no real selection)
     const isFullRangeSelected = useCallback(
@@ -225,8 +492,12 @@ export const InputPanel: React.FC<InputPanelProps> = React.memo(
 
     // Load existing range from config on mount
     useEffect(() => {
-      if (config.startTime !== null && config.startTime !== undefined && 
-          config.endTime !== null && config.endTime !== undefined) {
+      if (
+        config.startTime !== null &&
+        config.startTime !== undefined &&
+        config.endTime !== null &&
+        config.endTime !== undefined
+      ) {
         const existingRange = {
           start: config.startTime,
           end: config.endTime,
@@ -262,14 +533,14 @@ export const InputPanel: React.FC<InputPanelProps> = React.memo(
             setShowErrorSnackbar(true);
           }
         } catch (error) {
-          console.error('Error validating media file:', error);
+          logger.error('Error validating media file:', { error });
           setMediaError('Unable to validate media file');
           setShowErrorSnackbar(true);
         }
       };
 
       validateMediaFile();
-    }, [config.inputFile]);
+    }, [config.inputFile, logger]);
 
     // Force recalculation when range state changes (affects status alert size)
     useEffect(() => {
@@ -326,20 +597,6 @@ export const InputPanel: React.FC<InputPanelProps> = React.memo(
       const maxHeight = Math.max(minHeight, availableHeight * usagePercentage);
       const calculatedHeight = Math.max(minHeight, Math.min(maxHeight, availableHeight));
 
-      // Enhanced debug log showing dynamic calculations
-      console.log('MediaPreview height calculation:', {
-        windowHeight: windowSize.height,
-        fixedUIElements,
-        statusAlertHeight,
-        hasTimeRange: !!timeRange,
-        isRangeValid,
-        reservedForUI,
-        availableHeight,
-        usagePercentage,
-        minHeight,
-        calculatedHeight,
-      });
-
       return calculatedHeight;
     }, [windowSize, timeRange, isRangeValid]);
 
@@ -378,8 +635,10 @@ export const InputPanel: React.FC<InputPanelProps> = React.memo(
                 onFileRemoved={handleFileRemoved}
                 initialFile={config.inputFile}
                 initialJsonFile={config.importedJsonFile}
-                onFileSelect={onFileSelect}
-                onJsonFileSelect={onJsonFileSelect}
+                onFileSelect={handleFileSelected}
+                onJsonFileSelect={handleJsonFileSelected}
+                onFileCleanupRequest={handleFileRemovalRequest}
+                onJsonCleanupRequest={handleJsonRemovalRequest}
               />
             </Box>
 
@@ -477,7 +736,7 @@ export const InputPanel: React.FC<InputPanelProps> = React.memo(
               ))}
           </Stack>
         </Box>
-        
+
         {/* Media Error Snackbar */}
         <Snackbar
           open={showErrorSnackbar}
@@ -487,8 +746,8 @@ export const InputPanel: React.FC<InputPanelProps> = React.memo(
         >
           <Alert
             onClose={() => setShowErrorSnackbar(false)}
-            severity="error"
-            variant="filled"
+            severity='error'
+            variant='filled'
             icon={<ErrorIcon />}
             sx={{ width: '100%' }}
           >

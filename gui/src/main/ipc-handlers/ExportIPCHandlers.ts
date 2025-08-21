@@ -1,5 +1,7 @@
 import { ipcMain, WebContents } from 'electron';
 import { ExportConfigService } from '../config/ExportConfigService';
+import { MainLogger } from '../logger';
+import type { MainProcessLogger } from '../../types/logger';
 import type {
   ExportWorkspacePreferences,
   ExportSessionState,
@@ -9,6 +11,7 @@ import type {
 
 export class ExportIPCHandlers {
   private exportConfigService: ExportConfigService;
+  private logger: MainProcessLogger = MainLogger.createScopedLogger('ExportIPC');
 
   constructor(private webContents: WebContents) {
     this.exportConfigService = new ExportConfigService();
@@ -24,10 +27,13 @@ export class ExportIPCHandlers {
       'export:loadPreferences',
       (_, workspaceId: string): ExportWorkspacePreferences | null => {
         try {
-          console.log(`📖 Loading export preferences for workspace: ${workspaceId}`);
+          this.logger.debug('📖 Loading export preferences', { workspaceId });
           return this.exportConfigService.loadExportPreferences(workspaceId);
         } catch (error) {
-          console.error('Failed to load export preferences:', error);
+          this.logger.error('Failed to load export preferences', {
+            error: error instanceof Error ? error.message : String(error),
+            workspaceId,
+          });
           throw error;
         }
       }
@@ -37,7 +43,7 @@ export class ExportIPCHandlers {
       'export:savePreferences',
       (_, workspaceId: string, preferences: Partial<ExportWorkspacePreferences>): void => {
         try {
-          console.log(`💾 Saving export preferences for workspace: ${workspaceId}`, preferences);
+          this.logger.debug('💾 Saving export preferences', { workspaceId, preferences });
           this.exportConfigService.saveExportPreferences(workspaceId, preferences);
 
           // Broadcast preferences update to renderer
@@ -46,7 +52,10 @@ export class ExportIPCHandlers {
             preferences: this.exportConfigService.loadExportPreferences(workspaceId),
           });
         } catch (error) {
-          console.error('Failed to save export preferences:', error);
+          this.logger.error('Failed to save export preferences', {
+            error: error instanceof Error ? error.message : String(error),
+            workspaceId,
+          });
           throw error;
         }
       }
@@ -54,13 +63,16 @@ export class ExportIPCHandlers {
 
     ipcMain.handle('export:clearPreferences', (_, workspaceId: string): void => {
       try {
-        console.log(`🗑️ Clearing export preferences for workspace: ${workspaceId}`);
+        this.logger.info('🗑️ Clearing export preferences', { workspaceId });
         this.exportConfigService.clearExportPreferences(workspaceId);
 
         // Broadcast preferences cleared to renderer
         this.broadcast('export:preferencesCleared', { workspaceId });
       } catch (error) {
-        console.error('Failed to clear export preferences:', error);
+        this.logger.error('Failed to clear export preferences', {
+          error: error instanceof Error ? error.message : String(error),
+          workspaceId,
+        });
         throw error;
       }
     });
@@ -71,10 +83,13 @@ export class ExportIPCHandlers {
 
     ipcMain.handle('export:loadSession', (_, workspaceId: string): ExportSessionState | null => {
       try {
-        console.log(`📖 Loading export session for workspace: ${workspaceId}`);
+        this.logger.debug('📖 Loading export session', { workspaceId });
         return this.exportConfigService.loadExportSession(workspaceId);
       } catch (error) {
-        console.error('Failed to load export session:', error);
+        this.logger.error('Failed to load export session', {
+          error: error instanceof Error ? error.message : String(error),
+          workspaceId,
+        });
         throw error;
       }
     });
@@ -83,7 +98,7 @@ export class ExportIPCHandlers {
       'export:saveSession',
       (_, workspaceId: string, session: Partial<ExportSessionState>): void => {
         try {
-          console.log(`💾 Saving export session for workspace: ${workspaceId}`, session);
+          this.logger.debug('💾 Saving export session', { workspaceId, session });
           this.exportConfigService.saveExportSession(workspaceId, session);
 
           // Broadcast session update to renderer
@@ -92,7 +107,10 @@ export class ExportIPCHandlers {
             session: this.exportConfigService.loadExportSession(workspaceId),
           });
         } catch (error) {
-          console.error('Failed to save export session:', error);
+          this.logger.error('Failed to save export session', {
+            error: error instanceof Error ? error.message : String(error),
+            workspaceId,
+          });
           throw error;
         }
       }
@@ -106,10 +124,13 @@ export class ExportIPCHandlers {
       'export:loadModifiedSubtitles',
       (_, workspaceId: string): ModifiedSubtitleData | null => {
         try {
-          console.log(`📖 Loading modified subtitles for workspace: ${workspaceId}`);
+          this.logger.debug('📖 Loading modified subtitles', { workspaceId });
           return this.exportConfigService.loadModifiedSubtitles(workspaceId);
         } catch (error) {
-          console.error('Failed to load modified subtitles:', error);
+          this.logger.error('Failed to load modified subtitles', {
+            error: error instanceof Error ? error.message : String(error),
+            workspaceId,
+          });
           throw error;
         }
       }
@@ -119,9 +140,10 @@ export class ExportIPCHandlers {
       'export:saveModifiedSubtitles',
       (_, workspaceId: string, data: ModifiedSubtitleData): void => {
         try {
-          console.log(
-            `💾 Saving modified subtitles for workspace: ${workspaceId} (${data.modifiedSubtitles.length} subtitles)`
-          );
+          this.logger.debug('💾 Saving modified subtitles', {
+            workspaceId,
+            subtitleCount: data.modifiedSubtitles.length,
+          });
           this.exportConfigService.saveModifiedSubtitles(workspaceId, data);
 
           // Broadcast modified subtitles update to renderer
@@ -130,7 +152,10 @@ export class ExportIPCHandlers {
             data: this.exportConfigService.loadModifiedSubtitles(workspaceId),
           });
         } catch (error) {
-          console.error('Failed to save modified subtitles:', error);
+          this.logger.error('Failed to save modified subtitles', {
+            error: error instanceof Error ? error.message : String(error),
+            workspaceId,
+          });
           throw error;
         }
       }
@@ -144,10 +169,13 @@ export class ExportIPCHandlers {
       'export:loadHistory',
       (_, workspaceId: string): WorkspaceExportHistory | null => {
         try {
-          console.log(`📖 Loading export history for workspace: ${workspaceId}`);
+          this.logger.debug('📖 Loading export history', { workspaceId });
           return this.exportConfigService.loadWorkspaceExportHistory(workspaceId);
         } catch (error) {
-          console.error('Failed to load export history:', error);
+          this.logger.error('Failed to load export history', {
+            error: error instanceof Error ? error.message : String(error),
+            workspaceId,
+          });
           throw error;
         }
       }
@@ -157,9 +185,10 @@ export class ExportIPCHandlers {
       'export:saveHistory',
       (_, workspaceId: string, history: WorkspaceExportHistory): void => {
         try {
-          console.log(
-            `💾 Saving export history for workspace: ${workspaceId} (${history.exports.length} exports)`
-          );
+          this.logger.debug('💾 Saving export history', {
+            workspaceId,
+            exportCount: history.exports.length,
+          });
           this.exportConfigService.saveWorkspaceExportHistory(workspaceId, history);
 
           // Broadcast history update to renderer
@@ -168,7 +197,10 @@ export class ExportIPCHandlers {
             history: this.exportConfigService.loadWorkspaceExportHistory(workspaceId),
           });
         } catch (error) {
-          console.error('Failed to save export history:', error);
+          this.logger.error('Failed to save export history', {
+            error: error instanceof Error ? error.message : String(error),
+            workspaceId,
+          });
           throw error;
         }
       }
@@ -182,7 +214,9 @@ export class ExportIPCHandlers {
       try {
         return this.exportConfigService.getAllWorkspaceIds();
       } catch (error) {
-        console.error('Failed to get all workspace IDs:', error);
+        this.logger.error('Failed to get all workspace IDs', {
+          error: error instanceof Error ? error.message : String(error),
+        });
         throw error;
       }
     });
@@ -191,25 +225,32 @@ export class ExportIPCHandlers {
       try {
         return this.exportConfigService.getStorageStats();
       } catch (error) {
-        console.error('Failed to get storage stats:', error);
+        this.logger.error('Failed to get storage stats', {
+          error: error instanceof Error ? error.message : String(error),
+        });
         throw error;
       }
     });
 
     ipcMain.handle('export:cleanupOldData', (_, activeWorkspaceIds: string[]): void => {
       try {
-        console.log(`🧹 Cleaning up export data for inactive workspaces`);
+        this.logger.info('🧹 Cleaning up export data for inactive workspaces', {
+          activeWorkspaceIds,
+        });
         this.exportConfigService.cleanupOldData(activeWorkspaceIds);
 
         // Broadcast cleanup completion
         this.broadcast('export:dataCleanupCompleted', { activeWorkspaceIds });
       } catch (error) {
-        console.error('Failed to cleanup old export data:', error);
+        this.logger.error('Failed to cleanup old export data', {
+          error: error instanceof Error ? error.message : String(error),
+          activeWorkspaceIds,
+        });
         throw error;
       }
     });
 
-    console.log('✅ Export IPC handlers initialized successfully');
+    this.logger.info('Export IPC handlers initialized successfully');
   }
 
   private broadcast(channel: string, data: unknown): void {
@@ -243,6 +284,6 @@ export class ExportIPCHandlers {
     ipcMain.removeAllListeners('export:getStorageStats');
     ipcMain.removeAllListeners('export:cleanupOldData');
 
-    console.log('✅ Export IPC handlers cleaned up');
+    this.logger.info('Export IPC handlers cleaned up successfully');
   }
 }

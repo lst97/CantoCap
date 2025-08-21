@@ -11,6 +11,8 @@ import {
   Card,
   CardMedia,
   CardContent,
+  Snackbar,
+  Alert,
 } from '@mui/material';
 import {
   CloudUpload as UploadIcon,
@@ -26,25 +28,10 @@ import {
   Delete as DeleteIcon,
 } from '@mui/icons-material';
 import { useInputStepContent, useStepActions } from '../../stores/useStepStore';
-import { useSubtitleActions } from '../../stores/useSubtitleEditStore';
-import { useWorkflowActions } from '../../stores/useWorkflowStore';
-import { useActiveWorkspaceId } from '../../stores/useAppStore';
-import { StepStatus, StepType } from '../../stores/types/StoreTypes';
+import { createComponentLogger } from '../../utils/logger';
 
-interface ImportedSubtitle {
-  id?: string;
-  start?: number;
-  startTime?: number;
-  end?: number;
-  endTime?: number;
-  text?: string;
-  caption?: string;
-  translation?: string;
-  speaker?: string | null;
-  confidence?: number;
-  isMusic?: boolean;
-  [key: string]: unknown; // Allow additional properties from backend
-}
+const logger = createComponentLogger('FileSelector');
+
 
 // Extended File interface for Electron drag-and-drop
 interface ExtendedFile extends File {
@@ -57,226 +44,24 @@ interface FileSelectorProps {
   initialJsonFile?: string | null;
   onFileSelect?: (file: string) => void;
   onJsonFileSelect?: (file: string | null) => void;
+  onFileCleanupRequest?: () => Promise<void>;
+  onJsonCleanupRequest?: () => Promise<void>;
 }
-
-// Comprehensive cleanup utility for file removal operations
-interface CleanupOptions {
-  clearInputFile?: boolean;
-  clearJsonFile?: boolean;
-  resetWorkflow?: boolean;
-  targetStep?: 'input' | 'config';
-  preserveMediaWorkflow?: boolean;
-}
-
-interface SubtitleActionsType {
-  clearWorkspace: () => void;
-}
-
-const createComprehensiveCleanup = (
-  activeWorkspaceId: string | null,
-  updateStepContent: <T>(
-    step: StepType,
-    content: Partial<T>,
-    workspaceId?: string
-  ) => Promise<void>,
-  setStepState: (step: StepType, status: StepStatus) => Promise<void>,
-  navigateToStep: (step: StepType) => Promise<{ success: boolean; error?: string }>,
-  useSubtitleActions: () => SubtitleActionsType
-) => {
-  return async (options: CleanupOptions) => {
-    console.log('🧹 Starting comprehensive cleanup with options:', options);
-
-    try {
-      // Phase 1: Clear step content based on options
-      const stepUpdates: Record<string, unknown> = { lastModified: Date.now() };
-
-      if (options.clearInputFile) {
-        stepUpdates.inputFile = null;
-        stepUpdates.selectedFile = null;
-      }
-
-      if (options.clearJsonFile) {
-        stepUpdates.importedJsonFile = null;
-      }
-
-      if (Object.keys(stepUpdates).length > 1) {
-        // More than just lastModified
-        await updateStepContent('input', stepUpdates);
-
-        // Note: Workflow navigation permissions will be updated automatically through state changes
-        console.log('✅ Step content cleared:', Object.keys(stepUpdates));
-      }
-
-      // Phase 2: Clear subtitle workspace and backend store
-      if (activeWorkspaceId && (options.clearInputFile || options.clearJsonFile)) {
-        console.log('🗄️ Clearing subtitle workspace and backend store');
-        try {
-          // Clear subtitle editing store (frontend)
-          const { clearWorkspace } = useSubtitleActions();
-          clearWorkspace();
-
-          // Clear backend subtitle workspace persistence
-          await window.cantocapAPI.subtitleWorkspaceDelete(activeWorkspaceId);
-
-          // Clear step sync data
-          await window.cantocapAPI.subtitleSyncToStep(activeWorkspaceId, []);
-
-          console.log('✅ Subtitle workspace and backend store cleared');
-        } catch (workspaceError) {
-          console.warn('⚠️ Failed to clear subtitle workspace:', workspaceError);
-        }
-      }
-
-      // Phase 2.5: Reset processing, review, and export step content when clearing input file
-      if (options.clearInputFile) {
-        console.log('🔄 Resetting processing, review, and export step content');
-        try {
-          // Reset processing step - clear completed status and all data
-          await updateStepContent('processing', {
-            status: 'idle',
-            progress: 0,
-            currentPhase: undefined,
-            logs: [],
-            startTime: undefined,
-            endTime: undefined,
-            outputFile: undefined,
-            jsonSubtitleData: undefined,
-            convertedSubtitles: undefined,
-            statistics: undefined,
-            timeElapsed: undefined,
-            estimatedTimeRemaining: undefined,
-            hardwareInfo: undefined,
-          });
-
-          // Reset review step - clear all subtitle data
-          await updateStepContent('review', {
-            subtitles: [],
-            jsonSubtitleData: undefined,
-            hasJsonData: false,
-            processingStatistics: undefined,
-            processingCompleted: false,
-            lastProcessedAt: undefined,
-            currentEdit: undefined,
-            playbackPosition: 0,
-            selectedSubtitleIndex: undefined,
-            searchQuery: undefined,
-            filteredSubtitles: [],
-            hasUnsavedChanges: false,
-            inputFile: undefined,
-          });
-
-          // Reset export step - clear export history and state
-          await updateStepContent('export', {
-            exportHistory: [],
-            lastExported: undefined,
-            actionsState: {
-              isExporting: false,
-              exportProgress: 0,
-              exportError: undefined,
-            },
-            previewState: {
-              isPreviewReady: false,
-              previewContent: '',
-              lastPreviewGenerated: undefined,
-            },
-          });
-
-          console.log('✅ Processing, review, and export step content reset');
-        } catch (stepResetError) {
-          console.warn('⚠️ Failed to reset step content:', stepResetError);
-        }
-      }
-
-      // Phase 3: Reset workflow state based on options
-      if (options.resetWorkflow) {
-        console.log('🔄 Resetting workflow state');
-        try {
-          if (options.preserveMediaWorkflow && !options.clearInputFile) {
-            // Media file exists, reset to allow re-processing from config
-            await setStepState('input', StepStatus.COMPLETE); // Keep input complete
-            await setStepState('config', StepStatus.READY); // Config ready
-            await setStepState('processing', StepStatus.BLOCK); // Processing blocked
-            await setStepState('review', StepStatus.BLOCK); // Review blocked
-            await setStepState('export', StepStatus.BLOCK); // Export blocked
-          } else {
-            // Full reset to initial state
-            await setStepState('input', StepStatus.READY); // Step 1 ready
-            await setStepState('config', StepStatus.BLOCK); // Step 2 blocked
-            await setStepState('processing', StepStatus.BLOCK); // Step 3 blocked
-            await setStepState('review', StepStatus.BLOCK); // Step 4 blocked
-            await setStepState('export', StepStatus.BLOCK); // Step 5 blocked
-          }
-
-          // Navigate to target step
-          const targetStep = options.targetStep || 'input';
-          const navigationResult = await navigateToStep(targetStep);
-          
-          if (navigationResult.success) {
-            console.log(`✅ Workflow state reset, navigated to ${targetStep}`);
-          } else {
-            console.error(`❌ Failed to navigate to ${targetStep}:`, navigationResult.error);
-          }
-        } catch (workflowError) {
-          console.error('❌ Failed to reset workflow state:', workflowError);
-        }
-      }
-
-      console.log('✅ Comprehensive cleanup completed successfully');
-    } catch (error) {
-      console.error('❌ Comprehensive cleanup failed:', error);
-      throw error;
-    }
-  };
-};
 
 export const FileSelector: React.FC<FileSelectorProps> = ({
   onFileRemoved,
-  initialFile,
-  initialJsonFile,
+  initialFile: _initialFile,
+  initialJsonFile: _initialJsonFile,
   onFileSelect,
   onJsonFileSelect,
+  onFileCleanupRequest,
+  onJsonCleanupRequest: _onJsonCleanupRequest,
 }) => {
   // Use centralized stores as the single source of truth for component state
   const inputStep = useInputStepContent();
   const { updateStepContent } = useStepActions();
 
-  // Subtitle editing and workflow management
-  const subtitleActions = useSubtitleActions();
-  const { importFromJson, exportToStep } = subtitleActions;
-  const { setStepState, navigateToStep } = useWorkflowActions();
-  const activeWorkspaceId = useActiveWorkspaceId();
-
-  // Optimized debug effect - only log on significant changes, not every render
-  useEffect(() => {
-    // Only log if there are actual differences or changes
-    const hasSignificantChanges =
-      initialFile !== (inputStep.inputFile || inputStep.selectedFile) ||
-      initialJsonFile !== inputStep.importedJsonFile;
-
-    if (hasSignificantChanges) {
-      console.log('🔧 [VIDEO DEBUG] FileSelector State Change:', {
-        timestamp: new Date().toISOString(),
-        props: { initialFile, initialJsonFile },
-        storeConfig: {
-          inputFile: inputStep.inputFile,
-          importedJsonFile: inputStep.importedJsonFile,
-        },
-        hasFileInStore: !!(inputStep.inputFile || inputStep.selectedFile),
-        propsVsStore: {
-          inputFileMatch: initialFile === (inputStep.inputFile || inputStep.selectedFile),
-          jsonFileMatch: initialJsonFile === inputStep.importedJsonFile,
-        },
-      });
-    }
-  }, [
-    initialFile,
-    initialJsonFile,
-    inputStep.inputFile,
-    inputStep.importedJsonFile,
-    inputStep.selectedFile,
-  ]);
-
-  // Modern workflow navigation using WorkflowStateManager directly
+  // Component state for UI interactions
   const [isDragOver, setIsDragOver] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isGeneratingMetadata, setIsGeneratingMetadata] = useState(false);
@@ -288,19 +73,18 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
   } | null>(null);
   const [metadataGenerationFailed, setMetadataGenerationFailed] = useState<boolean>(false);
   const [isImportingJson, setIsImportingJson] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Function to generate video thumbnail and metadata using main process
   const generateVideoMetadata = useCallback(
     async (filePath: string) => {
       setIsGeneratingMetadata(true);
       try {
-        console.log('🎬 Processing video metadata using main process for:', filePath);
-
         // Use the new IPC-based video processing
         const result = await window.cantocapAPI.getVideoMetadata(filePath);
 
         if (result.error) {
-          console.warn('Error processing video metadata:', result.error);
+          logger.warn('Video metadata generation failed', { error: result.error, filePath });
           setMetadataGenerationFailed(true);
           return;
         }
@@ -308,7 +92,6 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
         // Set thumbnail if available
         if (result.thumbnail) {
           setVideoThumbnail(result.thumbnail);
-          console.log('✅ Video thumbnail generated successfully');
         }
 
         // Set metadata if available
@@ -338,35 +121,17 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
 
           // Also update the step store with metadata, including raw numeric duration for timeout calculation
           try {
-            console.log('🔧 [DEBUG] FileSelector - Storing videoDurationSeconds:', {
-              'result.metadata.duration': result.metadata.duration,
-              'typeof duration': typeof result.metadata.duration,
-              isNumber: typeof result.metadata.duration === 'number',
-              isNaN: isNaN(result.metadata.duration),
-              value: result.metadata.duration,
-            });
-
             await updateStepContent('input', {
               mediaMetadata: formattedMetadata,
               videoDurationSeconds: result.metadata.duration, // Store raw duration in seconds for processing timeout
               lastModified: Date.now(),
             });
-
-            console.log(
-              '✅ FileSelector - Successfully stored video metadata including videoDurationSeconds'
-            );
           } catch (error) {
-            console.error('Failed to save video metadata to step store:', error);
+            logger.error('Failed to save video metadata to step store', { error, filePath });
           }
-
-          console.log('✅ Video metadata processed successfully:', {
-            duration: result.metadata.duration,
-            resolution: `${result.metadata.width}×${result.metadata.height}`,
-            format: result.metadata.format,
-          });
         }
       } catch (error) {
-        console.warn('Error in generateVideoMetadata:', error);
+        logger.error('Video metadata generation error', { error, filePath });
         setMetadataGenerationFailed(true);
       } finally {
         setIsGeneratingMetadata(false);
@@ -391,7 +156,6 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
       ) {
         const ext = inputStep.inputFile.split('.').pop()?.toLowerCase();
         if (videoExtensions.includes(ext || '')) {
-          console.log('Regenerating video metadata for:', inputStep.inputFile);
           await generateVideoMetadata(inputStep.inputFile);
         }
       }
@@ -411,6 +175,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
   ]);
 
   const handleFileSelect = useCallback(async () => {
+    logger.userAction('File selection dialog opened');
     try {
       const result = await window.cantocapAPI.openFileDialog({
         filters: [
@@ -428,6 +193,7 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
 
       if (!result.canceled && result.filePaths.length > 0) {
         const filePath = result.filePaths[0];
+        logger.userAction('File selected from dialog', { fileName: filePath.split('/').pop() });
 
         // Now show loading since user actually selected a file
         setIsLoading(true);
@@ -437,8 +203,6 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
         setVideoMetadata(null);
         setMetadataGenerationFailed(false);
 
-        console.log('📁 Saving video file with atomic operations');
-
         // Update the input step with the selected file
         try {
           await updateStepContent('input', {
@@ -446,28 +210,9 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
             selectedFile: filePath,
             lastModified: Date.now(),
           });
-          console.log('✅ File selection completed successfully');
         } catch (error) {
-          console.error('❌ File selection failed:', error);
+          logger.error('File selection failed', { error, filePath });
           throw error; // Re-throw to be caught by outer try-catch
-        }
-
-        // Save the input file - use event-driven system for immediate persistence
-        console.log('🔧 [VIDEO DEBUG] FileSelector: About to update config with selected file:', {
-          timestamp: new Date().toISOString(),
-          filePath,
-          hasCallback: !!onFileSelect,
-          currentConfigBefore: inputStep.inputFile,
-          willUseCallback: !!onFileSelect,
-        });
-
-        if (onFileSelect) {
-          console.log('✅ [VIDEO DEBUG] FileSelector: Using callback to update file');
-          onFileSelect(filePath);
-        } else {
-          console.log(
-            '✅ [VIDEO DEBUG] FileSelector: File already updated through centralized store'
-          );
         }
 
         // Output path handling would be moved to config step in complete rewrite
@@ -479,72 +224,40 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
           await generateVideoMetadata(filePath);
         }
 
-        // Auto-complete step 1 and enable step 2 when media file is uploaded
-        // This enables step 2 to become ready while keeping the user on step 1
-        await setStepState('input', StepStatus.COMPLETE); // Complete step 1
-        await setStepState('config', StepStatus.READY); // Make step 2 ready (not just navigable)
-
-        console.log(
-          '✅ Video selection and step updates completed - Step 1 completed, Step 2 ready'
-        );
+        // Notify parent component about file selection
+        if (onFileSelect) {
+          onFileSelect(filePath);
+        }
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      console.error(`Failed to select file: ${errorMsg}`);
+      logger.error('File selection process failed', { error: errorMsg });
     } finally {
       setIsLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [updateStepContent, generateVideoMetadata, onFileSelect, inputStep.inputFile]);
 
-  // Create cleanup utility instance
-  const performCleanup = useMemo(
-    () =>
-      createComprehensiveCleanup(
-        activeWorkspaceId,
-        updateStepContent,
-        setStepState,
-        navigateToStep,
-        () => ({ clearWorkspace: subtitleActions.clearWorkspace })
-      ),
-    [
-      activeWorkspaceId,
-      updateStepContent,
-      setStepState,
-      navigateToStep,
-      subtitleActions.clearWorkspace,
-    ]
-  );
-
   const handleClearFile = useCallback(async () => {
-    console.log(
-      '🗑️ Removing video file with comprehensive cleanup (video + JSON + workspace reset)'
-    );
-
+    logger.userAction('File removal initiated');
     try {
-      // Use comprehensive cleanup utility for complete media file removal
-      await performCleanup({
-        clearInputFile: true,
-        clearJsonFile: true,
-        resetWorkflow: true,
-        targetStep: 'input',
-        preserveMediaWorkflow: false,
-      });
-
       // Clear local component state
       setVideoThumbnail(null);
       setVideoMetadata(null);
       setIsGeneratingMetadata(false);
       setMetadataGenerationFailed(false);
 
+      // Use parent cleanup callback for data cleanup
+      if (onFileCleanupRequest) {
+        await onFileCleanupRequest();
+      }
+
       // Notify parent component that file was removed
       onFileRemoved?.();
-
-      console.log('✅ Comprehensive video file removal completed');
     } catch (error) {
-      console.error('Failed to clear file:', error);
+      logger.error('File cleanup failed', { error });
     }
-  }, [performCleanup, onFileRemoved]);
+  }, [onFileCleanupRequest, onFileRemoved]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -592,6 +305,10 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
         );
 
         if (isSupported) {
+          logger.userAction('File dropped for upload', {
+            fileName: file.name,
+            fileType: file.type,
+          });
           try {
             // Show loading now that we confirmed the file is supported
             setIsLoading(true);
@@ -600,8 +317,6 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
             setVideoThumbnail(null);
             setVideoMetadata(null);
             setMetadataGenerationFailed(false);
-
-            console.log('📁 Drag & drop: Saving video file and auto-saving to workspace');
 
             // Get the file path from Electron's File object
             const filePath = file.path;
@@ -619,18 +334,9 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
                 selectedFile: filePath,
                 lastModified: Date.now(),
               });
-              console.log('✅ Drag-and-drop file upload completed successfully');
             } catch (atomicError) {
-              console.error('❌ Drag-and-drop file upload failed:', atomicError);
+              logger.error('Drag-and-drop file upload failed', { error: atomicError, filePath });
               throw atomicError; // Re-throw to be caught by outer try-catch
-            }
-
-            // Notify parent component if callback is provided
-            if (onFileSelect) {
-              console.log(
-                '✅ [VIDEO DEBUG] FileSelector (drag-drop): Using callback to update file'
-              );
-              onFileSelect(filePath);
             }
 
             // Output path handling would be moved to config step in complete rewrite
@@ -642,30 +348,27 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
               await generateVideoMetadata(filePath);
             }
 
-            // Auto-complete step 1 and enable step 2 when media file is uploaded via drag & drop
-            // This enables step 2 to become ready while keeping the user on step 1
-            await setStepState('input', StepStatus.COMPLETE); // Complete step 1
-            await setStepState('config', StepStatus.READY); // Make step 2 ready (not just navigable)
-
-            console.log(
-              '✅ Drag & drop with step updates completed - Step 1 completed, Step 2 ready'
-            );
+            // Notify parent component about file selection via drag & drop
+            if (onFileSelect) {
+              onFileSelect(filePath);
+            }
           } catch (error) {
-            console.error('Error in drag and drop file handling:', error);
             const errorMsg =
               error instanceof Error
                 ? error.message
                 : 'Unknown error occurred while processing the dropped file';
-            console.error(errorMsg);
+            logger.error('Drag and drop file handling failed', { error: errorMsg });
           } finally {
             setIsLoading(false);
           }
         } else {
-          console.error('Unsupported file type. Please select a video or audio file.');
+          logger.warn('Unsupported file type attempted', {
+            fileName: file.name,
+            fileType: file.type,
+          });
         }
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [updateStepContent, generateVideoMetadata, onFileSelect, supportedTypes]
   );
 
@@ -696,16 +399,13 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
     return 'Media File';
   };
 
-  // Convert CantoCap JSON to Step 4 format (reserved for future use)
-
-  // Enhanced JSON-only import handler
+  // JSON file selector with immediate parsing and validation
   const handleJsonImport = useCallback(async () => {
-    const importStartTime = performance.now();
-    let importSuccess = false;
+    logger.userAction('JSON file selection initiated');
 
     try {
       setIsImportingJson(true);
-      console.log('🔄 Starting JSON subtitle import...');
+      logger.info('Opening JSON file dialog');
 
       const result = await window.cantocapAPI.openFileDialog({
         filters: [
@@ -718,260 +418,72 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
 
       if (!result.canceled && result.filePaths.length > 0) {
         const filePath = result.filePaths[0];
-        console.log('📁 Importing JSON file:', filePath);
+        logger.info('JSON file selected', { fileName: filePath.split('/').pop() });
 
-        // DEBUG: Read the raw JSON file to see what's actually in it
-        try {
-          const rawFileContent = await (
-            window as unknown as {
-              cantocapAPI: { readTextFile: (path: string) => Promise<string> };
-            }
-          ).cantocapAPI.readTextFile(filePath);
-          const parsedJson = JSON.parse(rawFileContent) as ImportedSubtitle[];
-          console.log('📄 Raw JSON file content (first 3 items):', {
-            totalItems: parsedJson.length,
-            firstFew: parsedJson.slice(0, 3).map((item: ImportedSubtitle) => ({
-              caption: item.caption,
-              text: item.text,
-              translation: item.translation,
-              hasTranslation: !!item.translation,
-              allKeys: Object.keys(item),
-            })),
-          });
-        } catch (err) {
-          console.warn('Could not read raw JSON for debugging:', err);
-        }
-
-        // Use backend import validation (more robust than frontend validation)
+        // Import and parse JSON file immediately
         const importResult = await window.cantocapAPI.subtitleImportJson(filePath);
-
+        
         if (!importResult.success) {
-          console.error('❌ JSON import validation failed:', importResult.error);
-          throw new Error(`Invalid JSON format: ${importResult.error}`);
+          // Show error immediately if JSON is invalid
+          const errorMsg = importResult.error || 'Failed to import JSON file';
+          logger.error('JSON import failed', { error: errorMsg, filePath });
+          throw new Error(errorMsg);
         }
 
-        console.log('✅ JSON import validation passed, processing subtitles...');
-
-        // Debug: Check what backend returned
-        console.log('🔍 Backend import result structure:', {
-          success: importResult.success,
-          subtitleCount: importResult.subtitles?.length || 0,
-          firstFewSubtitles:
-            importResult.subtitles?.slice(0, 3).map((sub) => ({
-              id: sub.id,
-              caption: sub.caption,
-              text: sub.text,
-              translation: sub.translation,
-              hasTranslation: !!sub.translation,
-              allKeys: Object.keys(sub),
-            })) || [],
+        // Import was successful, save both file path and parsed subtitles
+        logger.info('JSON file imported successfully', { 
+          fileName: filePath.split('/').pop(),
+          subtitleCount: importResult.subtitles?.length || 0
         });
 
-        if (!importResult.subtitles || importResult.subtitles.length === 0) {
-          throw new Error('No valid subtitles found in JSON file');
-        }
+        // Convert imported subtitles to standard format
+        const { validateJsonSubtitleStructure } = await import('../../utils/subtitleConverter');
+        const validated = validateJsonSubtitleStructure(importResult);
 
-        // Convert to internal format
-        const conversionStartTime = performance.now();
-        const convertedSubtitles = importResult.subtitles.map(
-          (sub: ImportedSubtitle, index: number) => {
-            // Debug logging for first few items
-            if (index < 3) {
-              console.log(`📊 FileSelector converting subtitle ${index}:`, {
-                originalSub: sub,
-                caption: sub.caption,
-                text: sub.text,
-                translation: sub.translation,
-                hasTranslation: !!sub.translation,
-              });
-            }
-
-            const startTime = sub.start ?? sub.startTime ?? 0;
-            const endTime = sub.end ?? sub.endTime ?? 0;
-            const converted = {
-              id: sub.id || `imported_${index}`,
-              index: index,
-              startTime: startTime,
-              endTime: endTime,
-              duration: endTime - startTime,
-              text: sub.text ?? sub.caption ?? '',
-              translation:
-                sub.translation && typeof sub.translation === 'string' ? sub.translation : '',
-              speaker: sub.speaker || null,
-              confidence: sub.confidence || 1,
-              isMusic: sub.isMusic || false,
-            };
-
-            if (index < 3) {
-              console.log(`✅ FileSelector converted subtitle ${index}:`, {
-                id: converted.id,
-                text: converted.text,
-                translation: converted.translation,
-                hasTranslation: !!converted.translation,
-              });
-            }
-
-            return converted;
-          }
-        );
-        const conversionTime = performance.now() - conversionStartTime;
-
-        console.log('✅ Subtitle processing completed:', {
-          importedCount: importResult.subtitles.length,
-          convertedCount: convertedSubtitles.length,
-          conversionTime: `${conversionTime.toFixed(2)}ms`,
-          filePath: filePath.split('/').pop(),
+        // Update input step with both file path and parsed subtitles
+        await updateStepContent('input', {
+          importedJsonFile: filePath,
+          importedSubtitles: validated.subtitles,
+          lastModified: Date.now(),
         });
 
-        // Import subtitles using the new workflow
-        try {
-          if (!activeWorkspaceId) {
-            throw new Error('No active workspace found');
-          }
+        logger.info('JSON subtitles saved to step store', {
+          subtitleCount: validated.subtitles.length
+        });
 
-          // CRITICAL FIX: Clear existing workspace data before importing new JSON
-          // This ensures the new JSON becomes the baseline for diff comparison
-          console.log('🧹 Clearing existing workspace data before JSON import');
-          try {
-            await window.cantocapAPI.subtitleWorkspaceDelete(activeWorkspaceId);
-            console.log('✅ Existing workspace data cleared');
-          } catch (clearError) {
-            console.log('ℹ️ No existing workspace data to clear:', clearError);
-          }
-
-          // Debug: Check what we're passing to importFromJson
-          console.log('🔥 FILESELECTOR: About to call importFromJson with data:', {
-            workspaceId: activeWorkspaceId,
-            filePath,
-            subtitleCount: convertedSubtitles.length,
-            subtitlesWithTranslations: convertedSubtitles.filter(
-              (s) => s.translation && s.translation.trim()
-            ).length,
-            firstFewConverted: convertedSubtitles.slice(0, 3).map((sub) => ({
-              id: sub.id,
-              text: sub.text,
-              translation: sub.translation,
-              hasTranslation: !!sub.translation,
-              translationType: typeof sub.translation,
-              translationLength: sub.translation ? sub.translation.length : 0,
-            })),
-          });
-
-          // Import JSON data into subtitle editing store
-          // Note: importFromJson handles creating fresh baseline data
-          await importFromJson(activeWorkspaceId, filePath, convertedSubtitles);
-
-          // Export to step store for step navigation
-          await exportToStep();
-
-          // Update input step with JSON file info
-          await updateStepContent('input', {
-            importedJsonFile: filePath,
-            lastModified: Date.now(),
-          });
-
-          // Note: Workflow navigation permissions will be updated automatically through state changes
-
-          // Calculate total duration from subtitles
-          const totalDuration = Math.max(...convertedSubtitles.map((sub) => sub.endTime));
-          if (totalDuration > 0) {
-            await updateStepContent('input', {
-              duration: totalDuration,
-            });
-          }
-
-          // Update workflow states for JSON import
-          await setStepState('input', StepStatus.COMPLETE); // Step 1 complete
-          await setStepState('config', StepStatus.SKIP); // Skip step 2
-          await setStepState('processing', StepStatus.SKIP); // Skip step 3
-          await setStepState('review', StepStatus.READY); // Step 4 ready
-
-          // Navigate to step 4 (review)
-          const reviewNavigationResult = await navigateToStep('review');
-          if (!reviewNavigationResult.success) {
-            console.error('❌ Failed to navigate to review step:', reviewNavigationResult.error);
-          }
-
-          // Notify parent component if callback is provided
-          if (onJsonFileSelect) {
-            onJsonFileSelect(filePath);
-          }
-
-          console.log('✅ JSON import completed:', {
-            subtitleCount: convertedSubtitles.length,
-            importedFile: filePath,
-            workspaceId: activeWorkspaceId,
-            navigatedToStep: 'review',
-          });
-        } catch (error) {
-          console.error('Failed to complete JSON import workflow:', error);
-          throw error;
+        // Notify parent component
+        if (onJsonFileSelect) {
+          onJsonFileSelect(filePath);
         }
-
-        console.log('✅ JSON subtitles imported successfully!');
-        console.log('✅ JSON import complete - ready for processing');
-
-        importSuccess = true;
-        console.log('✅ JSON import completed successfully');
       }
     } catch (error) {
-      console.error('❌ JSON import error:', error);
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      console.error(`Failed to import JSON: ${errorMsg}`);
-
-      // Enhanced error logging with context
-      console.error('💥 JSON import failed with context:', {
-        error: errorMsg,
-        stack: error instanceof Error ? error.stack : undefined,
-        importTime: performance.now() - importStartTime,
-      });
+      logger.error('JSON file selection failed', { error: errorMsg });
+      
+      // Show user-friendly error message using Material-UI Snackbar
+      setError(`Failed to import JSON file: ${errorMsg}`);
     } finally {
       setIsImportingJson(false);
-      const totalImportTime = performance.now() - importStartTime;
-      console.log('🔄 JSON import process finished', {
-        totalTime: `${totalImportTime.toFixed(2)}ms`,
-        success: importSuccess,
-        timestamp: new Date().toISOString(),
-      });
-
-      // Performance warning for slow imports
-      if (totalImportTime > 5000) {
-        // 5 seconds
-        console.warn(`⚠️ Slow JSON import detected: ${totalImportTime.toFixed(2)}ms`);
-        console.warn('JSON import completed but took longer than expected');
-      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [updateStepContent, onJsonFileSelect]);
 
-  // Handle JSON caption removal with comprehensive cleanup
+  // Handle JSON caption removal using parent callback
   const handleRemoveJsonCaption = useCallback(async () => {
-    console.log('🗑️ Removing imported JSON caption with comprehensive cleanup');
-
+    logger.userAction('JSON caption removal initiated');
     try {
-      // Determine cleanup strategy based on media file presence
-      const hasMediaFile = !!inputStep.inputFile;
-
-      // Use comprehensive cleanup utility for JSON removal
-      await performCleanup({
-        clearInputFile: false, // Don't clear media file
-        clearJsonFile: true, // Clear JSON file
-        resetWorkflow: true, // Reset workflow state
-        targetStep: hasMediaFile ? 'config' : 'input', // Navigate appropriately
-        preserveMediaWorkflow: hasMediaFile, // Preserve media workflow if media exists
-      });
+      // Use parent cleanup callback for JSON removal
+      if (_onJsonCleanupRequest) {
+        await _onJsonCleanupRequest();
+      }
 
       // Notify through callback if provided
       if (onJsonFileSelect) {
         onJsonFileSelect(null);
       }
-
-      console.log('Imported subtitle removed. You can now configure subtitle generation.');
-      console.log('✅ Comprehensive JSON caption removal completed');
     } catch (error) {
-      console.error('Failed to remove JSON caption:', error);
+      logger.error('Failed to remove JSON caption', { error });
     }
-  }, [performCleanup, inputStep.inputFile, onJsonFileSelect]);
+  }, [_onJsonCleanupRequest, onJsonFileSelect]);
 
   return (
     <Box>
@@ -1572,6 +1084,23 @@ export const FileSelector: React.FC<FileSelectorProps> = ({
           </Stack>
         )}
       </Paper>
+
+      {/* Error Snackbar for JSON import errors */}
+      <Snackbar
+        open={!!error}
+        autoHideDuration={6000}
+        onClose={() => setError(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          onClose={() => setError(null)}
+          severity="error"
+          variant="filled"
+          sx={{ width: '100%' }}
+        >
+          {error}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

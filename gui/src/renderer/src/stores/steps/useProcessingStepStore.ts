@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { ProcessingStepData, ElectronWindow, StepStatus, ProcessingStatistics } from '../types/StoreTypes';
 import type { CantocapSubtitleData, SubtitleStatistics } from '../../../../types/SubtitleTypes';
+import { createStoreLogger } from '../../utils/logger';
 
 interface ProcessingStepState {
   data: ProcessingStepData;
@@ -65,6 +66,8 @@ const convertToProcessingStatistics = (statistics: ProcessingStatistics | Subtit
   return undefined;
 };
 
+const logger = createStoreLogger('Processing');
+
 export const useProcessingStepStore = create<ProcessingStepState>((set, _get) => ({
   data: defaultProcessingStepData,
   
@@ -78,7 +81,10 @@ export const useProcessingStepStore = create<ProcessingStepState>((set, _get) =>
         
         if ((currentStatus === 'completed' || currentStatus === 'error') && 
             newStatus === 'running') {
-          console.log(`⚠️ PROCESSING STORE: Prevented status regression from '${currentStatus}' to 'running'`);
+          logger.warn('Prevented status regression', {
+            from: currentStatus,
+            to: 'running'
+          });
           // Allow other updates but preserve the completion status
           const { status, ...otherContent } = content;
           return {
@@ -96,13 +102,13 @@ export const useProcessingStepStore = create<ProcessingStepState>((set, _get) =>
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               (acc as any)[key] = (content as any)[key];
             } else {
-              console.log(`⚠️ PROCESSING STORE: Blocked update to '${key}' on completed processing`);
+              logger.warn('Blocked update on completed processing', { key });
             }
             return acc;
           }, {} as Partial<ProcessingStepData>);
           
           if (Object.keys(filteredContent).length === 0) {
-            console.log(`⚠️ PROCESSING STORE: Blocked entire update on completed processing`);
+            logger.warn('Blocked entire update on completed processing');
             return state; // No changes
           }
           
@@ -119,7 +125,7 @@ export const useProcessingStepStore = create<ProcessingStepState>((set, _get) =>
 
     // Start processing and update status
     startProcessing: (initialData?: Partial<ProcessingStepData>) => {
-      console.log('🚀 PROCESSING STORE: Starting processing and updating status to running');
+      logger.info('Starting processing and updating status to running');
       set(state => ({
         data: {
           ...state.data,
@@ -147,7 +153,7 @@ export const useProcessingStepStore = create<ProcessingStepState>((set, _get) =>
       outputFile?: string;
       inputFile?: string;
     }) => {
-      console.log('📡 PROCESSING STORE: Received IPC event update:', eventData);
+      logger.debug('Received IPC event update', { eventData });
       set(state => {
         const newLogs = [...state.data.logs];
         
@@ -196,7 +202,7 @@ export const useProcessingStepStore = create<ProcessingStepState>((set, _get) =>
     },
 
     resetProcessingStep: () => {
-      console.log('🔄 PROCESSING STORE: Resetting processing step to defaults for workspace isolation');
+      logger.info('Resetting processing step to defaults for workspace isolation');
       
       set(state => {
         const currentState = state;
@@ -221,7 +227,7 @@ export const useProcessingStepStore = create<ProcessingStepState>((set, _get) =>
           })
         };
         
-        console.log('✅ PROCESSING STORE: Reset completed, preserved completed data:', {
+        logger.debug('Processing step reset completed', {
           preservedJsonData: !!newData.jsonSubtitleData,
           preservedOriginalData: !!newData.originalJsonData
         });
@@ -312,22 +318,24 @@ export const useProcessingStepStore = create<ProcessingStepState>((set, _get) =>
         
         // Set Step 3 (processing) to BLOCK status to disable it
         await workflowActions.setStepState('processing', StepStatus.BLOCK);
-        console.log('✅ Processing step disabled (BLOCK status)');
+        logger.debug('Processing step disabled (BLOCK status)');
         
         // Set Step 2 (config) back to READY status
         await workflowActions.setStepState('config', StepStatus.READY);
-        console.log('✅ Config step set back to READY');
+        logger.debug('Config step set back to READY');
         
         // Ensure Step 1 remains accessible
         await workflowActions.setStepState('input', StepStatus.COMPLETE);
-        console.log('✅ Input step maintained as COMPLETE');
+        logger.debug('Input step maintained as COMPLETE');
         
         // Navigate back to Step 2 (config)
         await workflowActions.navigateToStep('config');
-        console.log('✅ Navigated back to Step 2 (Config)');
+        logger.debug('Navigated back to Step 2 (Config)');
         
       } catch (error) {
-        console.error('Failed to cancel transcription:', error);
+        logger.error('Failed to cancel transcription', {
+          error: error instanceof Error ? error.message : String(error)
+        });
         const errorMessage = error instanceof Error ? error.message : 'Failed to cancel transcription';
         
         set(state => ({

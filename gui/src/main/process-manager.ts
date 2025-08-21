@@ -4,9 +4,12 @@ import { existsSync } from 'fs';
 import { app } from 'electron';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { MainLogger } from './logger';
+import type { MainProcessLogger } from '../types/logger';
 import type { AppConfig, ProcessingConfig, ProcessingEvent, ProcessingError } from '../types';
 
 const execAsync = promisify(exec);
+const logger: MainProcessLogger = MainLogger.createScopedLogger('ProcessManager');
 
 type ProcessCallback = (eventType: string, data: unknown) => void;
 type ModernProcessCallback = (event: ProcessingEvent) => void;
@@ -66,68 +69,67 @@ export class ProcessManager {
   }
 
   public async findFFmpegExecutable(): Promise<string> {
-    console.log('🔍 [DEBUG] Starting FFmpeg executable search...');
-    console.log(`🔍 [DEBUG] Platform: ${process.platform}`);
-    
+    logger.debug('🔍 Starting FFmpeg executable search', { platform: process.platform });
+
     // First try to find FFmpeg in system PATH
     const candidates = ['ffmpeg'];
-    
+
     for (const candidate of candidates) {
       try {
         const command = process.platform === 'win32' ? 'where' : 'which';
-        console.log(`🔍 [DEBUG] Executing: ${command} ${candidate}`);
-        
+        logger.debug('🔍 Executing command', { command: `${command} ${candidate}` });
+
         const { stdout } = await execAsync(`${command} ${candidate}`);
         const ffmpegPath = stdout.trim().split('\n')[0]; // Get first result
-        
-        console.log(`🔍 [DEBUG] Command output: "${stdout.trim()}"`);
-        console.log(`🔍 [DEBUG] Parsed path: "${ffmpegPath}"`);
-        
+
+        logger.debug('🔍 Command output', { output: stdout.trim() });
+        logger.debug('🔍 Parsed FFmpeg path', { path: ffmpegPath });
+
         if (ffmpegPath && existsSync(ffmpegPath)) {
-          console.log(`✅ [DEBUG] Found FFmpeg at PATH: ${ffmpegPath}`);
+          logger.info('✅ Found FFmpeg in system PATH', { path: ffmpegPath });
           return ffmpegPath;
         } else {
-          console.warn(`⚠️ [DEBUG] Path exists check failed for: ${ffmpegPath}`);
+          logger.warn('⚠️ FFmpeg path exists check failed', { path: ffmpegPath });
         }
       } catch (error) {
-        console.warn(`❌ [DEBUG] FFmpeg not found with ${candidate}:`, error);
+        logger.debug('❌ FFmpeg not found with command', {
+          candidate,
+          error: error instanceof Error ? error.message : String(error),
+        });
         continue;
       }
     }
 
     // Fallback to common installation paths
-    console.log('🔍 [DEBUG] Checking common installation paths...');
-    const commonPaths = process.platform === 'win32'
-      ? [
-          'C:\\ffmpeg\\bin\\ffmpeg.exe',
-          'C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe',
-          'C:\\Program Files (x86)\\ffmpeg\\bin\\ffmpeg.exe'
-        ]
-      : process.platform === 'darwin'
-      ? [
-          '/usr/local/bin/ffmpeg',
-          '/opt/homebrew/bin/ffmpeg',
-          '/usr/bin/ffmpeg'
-        ]
-      : [
-          '/usr/bin/ffmpeg',
-          '/usr/local/bin/ffmpeg',
-          '/snap/bin/ffmpeg'
-        ];
+    logger.debug('🔍 Checking common installation paths');
+    const commonPaths =
+      process.platform === 'win32'
+        ? [
+            'C:\\ffmpeg\\bin\\ffmpeg.exe',
+            'C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe',
+            'C:\\Program Files (x86)\\ffmpeg\\bin\\ffmpeg.exe',
+          ]
+        : process.platform === 'darwin'
+          ? ['/usr/local/bin/ffmpeg', '/opt/homebrew/bin/ffmpeg', '/usr/bin/ffmpeg']
+          : ['/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg', '/snap/bin/ffmpeg'];
 
-    console.log(`🔍 [DEBUG] Checking ${commonPaths.length} common paths...`);
-    
+    logger.debug('🔍 Checking common paths', { count: commonPaths.length });
+
     for (const path of commonPaths) {
-      console.log(`🔍 [DEBUG] Checking path: ${path}`);
+      logger.debug('🔍 Checking path', { path });
       if (existsSync(path)) {
-        console.log(`✅ [DEBUG] Found FFmpeg at common path: ${path}`);
+        logger.info('✅ Found FFmpeg at common path', { path });
         return path;
       }
     }
 
     // If still not found, return 'ffmpeg' and let the engine handle the error
-    console.warn('❌ [DEBUG] FFmpeg executable not found in PATH or common locations');
-    console.warn('❌ [DEBUG] Returning fallback "ffmpeg" - this will likely cause engine validation error');
+    logger.warn('❌ FFmpeg executable not found', {
+      message: 'Not found in PATH or common locations',
+    });
+    logger.warn('❌ Returning fallback ffmpeg command', {
+      warning: 'This will likely cause engine validation error',
+    });
     return 'ffmpeg';
   }
 
@@ -153,7 +155,9 @@ export class ProcessManager {
       await this.testPythonExecutable(venvPython);
       return venvPython;
     } catch (error) {
-      console.warn('Virtual environment Python test failed:', error);
+      logger.debug('Virtual environment Python test failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
       return null;
     }
   }
@@ -258,9 +262,12 @@ export class ProcessManager {
             const minutes = parseInt(parts[0]);
             const seconds = parseInt(parts[1]);
             numericDuration = minutes * 60 + seconds;
-            console.log(`✅ ProcessManager: Converted string duration "${mediaDuration}" to ${numericDuration}s`);
+            logger.debug('✅ Converted string duration to numeric', {
+              original: mediaDuration,
+              converted: numericDuration,
+            });
           } else {
-            console.error('❌ ProcessManager: Invalid duration string format:', mediaDuration);
+            logger.error('❌ Invalid duration string format', { mediaDuration });
           }
         } else if (typeof mediaDuration === 'number') {
           numericDuration = mediaDuration;
@@ -270,23 +277,6 @@ export class ProcessManager {
       // Calculate dynamic timeout based on media duration and complexity
       const dynamicTimeoutMs = this.calculateProcessingTimeout(config, numericDuration);
       const timeoutDisplay = this.formatTimeoutDuration(dynamicTimeoutMs);
-
-      // DEBUG: Log timeout calculation details
-      console.log('🕒 [DEBUG] Timeout Calculation Details:');
-      console.log(`🕒 [DEBUG] - config.mediaDuration (raw): ${config.mediaDuration} (${typeof config.mediaDuration})`);
-      console.log(`🕒 [DEBUG] - numericDuration (converted): ${numericDuration}`);
-      console.log(`🕒 [DEBUG] - dynamicTimeoutMs: ${dynamicTimeoutMs}`);
-      console.log(`🕒 [DEBUG] - timeoutDisplay: ${timeoutDisplay}`);
-      console.log(`🕒 [DEBUG] - BASE_TIMEOUT_MS: ${this.BASE_TIMEOUT_MS}`);
-
-      callback({
-        type: 'log-message',
-        data: {
-          message: numericDuration
-            ? `Estimated processing timeout: ${timeoutDisplay} (based on ${Math.floor(numericDuration / 60)}m${Math.floor(numericDuration % 60)}s media)`
-            : `Processing timeout: ${timeoutDisplay} (using fallback calculation)`,
-        },
-      });
 
       // Setup dynamic timeout for the process
       this.processTimeout = setTimeout(() => {
@@ -655,13 +645,13 @@ export class ProcessManager {
     }
 
     // FFmpeg path is now required - should already be resolved by convertToLegacyConfig
-    console.log(`🔧 [DEBUG] buildCliArguments - config.ffmpegPath: "${config.ffmpegPath}"`);
+    logger.debug('🔧 Building CLI arguments', { ffmpegPath: config.ffmpegPath });
     if (config.ffmpegPath) {
-      console.log(`🔧 [DEBUG] Adding --ffmpeg-path argument: "${config.ffmpegPath}"`);
+      logger.debug('🔧 Adding ffmpeg-path argument', { path: config.ffmpegPath });
       args.push('--ffmpeg-path', config.ffmpegPath);
     } else {
       // Fallback - should not happen if convertToLegacyConfig was called
-      console.warn('⚠️ [DEBUG] config.ffmpegPath is undefined/null - using fallback "ffmpeg"');
+      logger.warn('⚠️ FFmpeg path undefined/null - using fallback', { fallback: 'ffmpeg' });
       args.push('--ffmpeg-path', 'ffmpeg');
     }
 
@@ -701,7 +691,7 @@ export class ProcessManager {
     if (config.mediaDuration && config.mediaDuration > 0) {
       // Base processing estimate based on Whisper model size (more conservative than timeout)
       let processingFactor = 0.5; // Default for medium models
-      
+
       if (config.modelSettings.whisperModel.includes('small')) {
         processingFactor = 0.3; // Small models are faster
       } else if (config.modelSettings.whisperModel.includes('large')) {
@@ -761,7 +751,10 @@ export class ProcessManager {
           callback('ipc-message', parsedData);
         } else {
           // Legacy format - convert to new format
-          const convertedMessage = this.convertLegacyMessage(parsedData as Record<string, unknown>, stream);
+          const convertedMessage = this.convertLegacyMessage(
+            parsedData as Record<string, unknown>,
+            stream
+          );
           callback('ipc-message', convertedMessage);
         }
       } catch {
@@ -772,7 +765,10 @@ export class ProcessManager {
     }
   }
 
-  private createEnhancedMessage(content: string, stream: 'stdout' | 'stderr'): {
+  private createEnhancedMessage(
+    content: string,
+    stream: 'stdout' | 'stderr'
+  ): {
     id: string;
     timestamp: string;
     level: string;
@@ -801,7 +797,10 @@ export class ProcessManager {
     };
   }
 
-  private convertLegacyMessage(parsedData: Record<string, unknown>, _stream: string): {
+  private convertLegacyMessage(
+    parsedData: Record<string, unknown>,
+    _stream: string
+  ): {
     id: string;
     timestamp: string;
     level: string;
@@ -817,12 +816,21 @@ export class ProcessManager {
     if (parsedData.type === 'error') {
       level = 'error';
       category = 'system';
-    } else if (typeof parsedData.data === 'object' && parsedData.data && 'level' in parsedData.data && typeof parsedData.data.level === 'string') {
+    } else if (
+      typeof parsedData.data === 'object' &&
+      parsedData.data &&
+      'level' in parsedData.data &&
+      typeof parsedData.data.level === 'string'
+    ) {
       level = parsedData.data.level;
     }
 
-    const timestamp = typeof parsedData.timestamp === 'string' ? parsedData.timestamp : new Date().toISOString();
-    const data = typeof parsedData.data === 'object' && parsedData.data ? parsedData.data as Record<string, unknown> : {};
+    const timestamp =
+      typeof parsedData.timestamp === 'string' ? parsedData.timestamp : new Date().toISOString();
+    const data =
+      typeof parsedData.data === 'object' && parsedData.data
+        ? (parsedData.data as Record<string, unknown>)
+        : {};
     const message = typeof data.message === 'string' ? data.message : '';
     const error = typeof data.error === 'string' ? data.error : '';
     const content = message || error || JSON.stringify(data);
@@ -849,7 +857,7 @@ export class ProcessManager {
     if (mediaDurationSeconds && mediaDurationSeconds > 0) {
       // Base timeout multiplier based on Whisper model size
       let modelMultiplier = 8; // Default for medium models
-      
+
       if (config.modelSettings.whisperModel.includes('small')) {
         modelMultiplier = 4; // Small models: 4x media duration
       } else if (config.modelSettings.whisperModel.includes('large')) {
@@ -863,7 +871,7 @@ export class ProcessManager {
 
       // Additional complexity factors (add extra time, not multipliers)
       let additionalTimeMs = 0;
-      
+
       if (config.features.speakers) {
         additionalTimeMs += mediaDurationSeconds * 1000 * 0.5; // +0.5x for speaker diarization
       }
@@ -883,7 +891,7 @@ export class ProcessManager {
     } else {
       // Fallback: adjust base timeout based on model and features when no duration available
       let multiplier = 4.0; // Base multiplier for medium models
-      
+
       if (config.modelSettings.whisperModel.includes('small')) {
         multiplier = 2.0; // Small models are faster
       } else if (config.modelSettings.whisperModel.includes('large')) {
@@ -918,19 +926,18 @@ export class ProcessManager {
 
   // Helper method to convert modern config to legacy format
   private async convertToLegacyConfig(config: ProcessingConfig): Promise<AppConfig> {
-    console.log('🔧 [DEBUG] convertToLegacyConfig called');
-    console.log(`🔧 [DEBUG] Input config.ffmpegPath: "${config.ffmpegPath}"`);
-    
+    logger.debug('🔧 Converting to legacy config', { inputFfmpegPath: config.ffmpegPath });
+
     // Resolve FFmpeg path if not provided or if it's just 'ffmpeg'
     let ffmpegPath = config.ffmpegPath;
-    console.log(`🔧 [DEBUG] Initial ffmpegPath value: "${ffmpegPath}"`);
-    
+    logger.debug('🔧 Initial ffmpegPath value', { ffmpegPath });
+
     if (!ffmpegPath || ffmpegPath === 'ffmpeg') {
-      console.log('🔧 [DEBUG] FFmpeg path needs resolution - calling findFFmpegExecutable()');
+      logger.debug('🔧 FFmpeg path needs resolution - calling findFFmpegExecutable()');
       ffmpegPath = await this.findFFmpegExecutable();
-      console.log(`🔧 [DEBUG] Resolved ffmpegPath to: "${ffmpegPath}"`);
+      logger.debug('🔧 Resolved ffmpegPath', { resolvedPath: ffmpegPath });
     } else {
-      console.log('🔧 [DEBUG] Using provided ffmpegPath without resolution');
+      logger.debug('🔧 Using provided ffmpegPath without resolution');
     }
 
     const legacyConfig = {
@@ -953,7 +960,7 @@ export class ProcessManager {
       verbose: config.verbose,
     };
 
-    console.log(`🔧 [DEBUG] Final legacy config ffmpegPath: "${legacyConfig.ffmpegPath}"`);
+    logger.debug('🔧 Final legacy config', { ffmpegPath: legacyConfig.ffmpegPath });
     return legacyConfig;
   }
 
@@ -1193,8 +1200,8 @@ export class ProcessManager {
 
         // Check for ProcessingEvent format (from engine)
         if (parsedData.type && parsedData.data) {
-          console.log('📡 ProcessManager: Received ProcessingEvent from engine:', parsedData.type);
-          
+          logger.debug('📡 Received ProcessingEvent from engine', { eventType: parsedData.type });
+
           // Handle ProcessingEvent format directly
           if (parsedData.type === 'complete') {
             // Store completion data for the completion event
@@ -1205,7 +1212,7 @@ export class ProcessManager {
               this.currentOutputFile = parsedData.data.outputFile || parsedData.data.outputFilePath;
             }
           }
-          
+
           // Forward ProcessingEvent directly to callback
           callback(parsedData);
         }

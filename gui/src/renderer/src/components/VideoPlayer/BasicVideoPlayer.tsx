@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Box, IconButton, Slider, Tooltip } from '@mui/material';
+import { createComponentLogger } from '../../utils/logger';
 import {
   PlayArrow as PlayIcon,
   Pause as PauseIcon,
@@ -57,6 +58,7 @@ export const BasicVideoPlayer: React.FC<BasicVideoPlayerProps> = React.memo(
     autoReturnToStart = false,
     isJumpTriggered = false,
   }) => {
+    const logger = createComponentLogger('BasicVideoPlayer');
     const videoRef = useRef<HTMLVideoElement>(null);
     const [isPlaying, setIsPlaying] = useState(false);
     const [hasExternalControl, setHasExternalControl] = useState(false);
@@ -398,7 +400,7 @@ export const BasicVideoPlayer: React.FC<BasicVideoPlayerProps> = React.memo(
                                  'UNKNOWN'
               };
               
-              console.error('🎬 Media onError event:', errorDetails);
+              logger.error('🎬 Media onError event', errorDetails);
               
               // Propagate error to parent component
               onError?.({

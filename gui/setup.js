@@ -1,58 +1,60 @@
 #!/usr/bin/env node
 
-const { execSync } = require('child_process');
-const fs = require('fs');
-const os = require('os');
+import { execSync } from 'child_process';
+import { existsSync, mkdirSync } from 'fs';
+import { platform } from 'os';
+import { MainLogger } from './src/main/logger';
 
-console.log('🎬 CantoCap Desktop GUI Setup\n');
+const logger = MainLogger.createScopedLogger('Setup');
+logger.info('🎬 CantoCap Desktop GUI Setup\n');
 
 // Check Node.js version
 function checkNodeVersion() {
   const version = process.version;
   const major = parseInt(version.slice(1).split('.')[0]);
-  
-  console.log(`📦 Node.js version: ${version}`);
-  
+
+  logger.info(`📦 Node.js version: ${version}`);
+
   if (major < 18) {
     console.error('❌ Node.js 18 or higher is required');
-    console.log('   Please install from: https://nodejs.org/');
+    logger.info('   Please install from: https://nodejs.org/');
     process.exit(1);
   }
-  
-  console.log('✅ Node.js version compatible\n');
+
+  logger.info('✅ Node.js version compatible\n');
 }
 
 // Check if pnpm is installed
 function checkPnpm() {
   try {
     execSync('pnpm --version', { stdio: 'pipe' });
-    console.log('✅ pnpm is installed');
+    logger.info('✅ pnpm is installed');
   } catch (error) { // eslint-disable-line no-unused-vars
-    console.log('📦 Installing pnpm...');
+    logger.info('📦 Installing pnpm...');
     try {
       execSync('npm install -g pnpm', { stdio: 'inherit' });
-      console.log('✅ pnpm installed successfully');
+      logger.info('✅ pnpm installed successfully');
     } catch (installError) { // eslint-disable-line no-unused-vars
       console.error('❌ Failed to install pnpm');
-      console.log('   Please run: npm install -g pnpm');
+      logger.info('   Please run: npm install -g pnpm');
       process.exit(1);
     }
   }
-  console.log('');
+  logger.info('');
 }
 
 // Check Python installation
 function checkPython() {
   const pythonCommands = ['python3.12', 'python3', 'python'];
   let pythonFound = false;
-  
-  console.log('🐍 Checking Python installation...');
-  
+
+  logger.info('🐍 Checking Python installation...');
+
   for (const cmd of pythonCommands) {
     try {
       const result = execSync(`${cmd} --version`, { stdio: 'pipe' }).toString();
       if (result.includes('Python 3.')) {
-        console.log(`✅ Found ${result.trim()} at ${cmd}`);
+        logger.info(`✅ Found ${result.trim()} at ${cmd}`);
         pythonFound = true;
         break;
       }
@@ -60,49 +62,49 @@ function checkPython() {
       // Command not found, try next
     }
   }
-  
+
   if (!pythonFound) {
-    console.log('⚠️  Python 3.12+ not found');
-    console.log('   Please install from: https://www.python.org/downloads/release/python-31210/');
+    logger.info('⚠️  Python 3.12+ not found');
+    logger.info('   Please install from: https://www.python.org/downloads/release/python-31210/');
   }
-  console.log('');
+  logger.info('');
 }
 
 // Check FFmpeg installation
 function checkFFmpeg() {
-  console.log('🎥 Checking FFmpeg installation...');
-  
+  logger.info('🎥 Checking FFmpeg installation...');
+
   try {
     const result = execSync('ffmpeg -version', { stdio: 'pipe' }).toString();
     const version = result.split('\n')[0];
-    console.log(`✅ Found ${version}`);
+    logger.info(`✅ Found ${version}`);
   } catch (error) { // eslint-disable-line no-unused-vars
-    console.log('⚠️  FFmpeg not found');
-    console.log('   Installation instructions:');
-    
-    switch (os.platform()) {
+    logger.info('⚠️  FFmpeg not found');
+    logger.info('   Installation instructions:');
+
+    switch (platform()) {
       case 'win32':
-        console.log('   Windows: winget install FFmpeg');
-        console.log('   Or download from: https://www.gyan.dev/ffmpeg/builds/');
+        logger.info('   Windows: winget install FFmpeg');
+        logger.info('   Or download from: https://www.gyan.dev/ffmpeg/builds/');
         break;
       case 'darwin':
-        console.log('   macOS: brew install ffmpeg');
+        logger.info('   macOS: brew install ffmpeg');
         break;
       case 'linux':
-        console.log('   Linux: sudo apt install ffmpeg');
+        logger.info('   Linux: sudo apt install ffmpeg');
         break;
     }
   }
-  console.log('');
+  logger.info('');
 }
 
 // Install dependencies
 function installDependencies() {
-  console.log('📦 Installing dependencies...');
-  
+  logger.info('📦 Installing dependencies...');
+
   try {
     execSync('pnpm install', { stdio: 'inherit' });
-    console.log('✅ Dependencies installed successfully\n');
+    logger.info('✅ Dependencies installed successfully\n');
   } catch (error) { // eslint-disable-line no-unused-vars
     console.error('❌ Failed to install dependencies');
     process.exit(1);
@@ -111,22 +113,22 @@ function installDependencies() {
 
 // Create necessary directories
 function createDirectories() {
-  console.log('📁 Creating directories...');
-  
+  logger.info('📁 Creating directories...');
+
   const dirs = [
     'resources',
     'build',
     'dist'
   ];
-  
+
   dirs.forEach(dir => {
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-      console.log(`   Created: ${dir}/`);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+      logger.info(`   Created: ${dir}/`);
     }
   });
-  
-  console.log('✅ Directories ready\n');
+
+  logger.info('✅ Directories ready\n');
 }
 
 // Main setup function
@@ -138,15 +140,15 @@ async function setup() {
     checkFFmpeg();
     installDependencies();
     createDirectories();
-    
-    console.log('🎉 Setup completed successfully!');
-    console.log('\n📚 Next steps:');
-    console.log('   pnpm dev       # Start development server');
-    console.log('   pnpm build     # Build for production');
-    console.log('   pnpm dist      # Create installer');
-    console.log('\n💡 Make sure Python 3.12 and FFmpeg are installed for full functionality');
-  } catch (error) { // eslint-disable-line no-unused-vars
-    console.error('❌ Setup failed:', _error.message);
+
+    logger.info('🎉 Setup completed successfully!');
+    logger.info('\n📚 Next steps:');
+    logger.info('   pnpm dev       # Start development server');
+    logger.info('   pnpm build     # Build for production');
+    logger.info('   pnpm dist      # Create installer');
+    logger.info('\n💡 Make sure Python 3.12 and FFmpeg are installed for full functionality');
+  } catch (error) {
+    console.error('❌ Setup failed:', error.message);
     process.exit(1);
   }
 }

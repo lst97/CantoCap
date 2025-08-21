@@ -3,8 +3,10 @@ import type {
   ExportWorkspacePreferences,
   ExportSessionState,
   ModifiedSubtitleData,
-  WorkspaceExportHistory
+  WorkspaceExportHistory,
 } from '../../renderer/src/stores/types/StoreTypes';
+import { MainLogger } from '../logger';
+import { MainProcessLogger } from '@/types/logger';
 
 // Schema for export preferences data
 export interface ExportPreferencesSchema {
@@ -79,6 +81,7 @@ export interface WorkspaceExportHistorySchema {
 
 export class ExportConfigService {
   private store: Store<Record<string, unknown>>;
+  private logger: MainProcessLogger = MainLogger.createScopedLogger('ExportConfigService');
 
   constructor() {
     this.store = new Store<Record<string, unknown>>({
@@ -87,27 +90,27 @@ export class ExportConfigService {
         // Export preferences per workspace
         exportPreferences: {
           type: 'object',
-          default: {}
+          default: {},
         },
         // Export sessions per workspace
         exportSessions: {
           type: 'object',
-          default: {}
+          default: {},
         },
         // Modified subtitles per workspace
         modifiedSubtitles: {
           type: 'object',
-          default: {}
+          default: {},
         },
         // Export history per workspace
         exportHistory: {
           type: 'object',
-          default: {}
-        }
-      }
+          default: {},
+        },
+      },
     });
 
-    console.log('✅ Export Config Service initialized');
+    this.logger.info('✅ Export Config Service initialized');
   }
 
   // ============================================================================
@@ -121,9 +124,9 @@ export class ExportConfigService {
     try {
       const key = `exportPreferences.${workspaceId}`;
       const preferences = this.store.get(key) as ExportPreferencesSchema | undefined;
-      
+
       if (!preferences) {
-        console.log(`📖 No export preferences found for workspace: ${workspaceId}`);
+        this.logger.info(`📖 No export preferences found for workspace: ${workspaceId}`);
         return null;
       }
 
@@ -140,15 +143,17 @@ export class ExportConfigService {
           charset: preferences.exportSettings?.charset || 'utf-8',
           translation: preferences.exportSettings?.translation ?? false,
           lineBreaks: preferences.exportSettings?.lineBreaks || 'auto',
-          maxLineLength: preferences.exportSettings?.maxLineLength
+          maxLineLength: preferences.exportSettings?.maxLineLength,
         },
         lastUsedSettings: preferences.lastUsedSettings || {
           format: 'srt',
-          timestamp: Date.now()
-        }
+          timestamp: Date.now(),
+        },
       };
 
-      console.log(`📖 Loaded export preferences for workspace: ${workspaceId}`, result);
+      this.logger.info(`📖 Loaded export preferences for workspace: ${workspaceId}`, {
+        result,
+      });
       return result;
     } catch (error) {
       console.error('Failed to load export preferences:', error);
@@ -159,10 +164,13 @@ export class ExportConfigService {
   /**
    * Save export preferences for a workspace
    */
-  saveExportPreferences(workspaceId: string, preferences: Partial<ExportWorkspacePreferences>): void {
+  saveExportPreferences(
+    workspaceId: string,
+    preferences: Partial<ExportWorkspacePreferences>
+  ): void {
     try {
       const key = `exportPreferences.${workspaceId}`;
-      
+
       // Get existing preferences or create default
       const existing = this.store.get(key) as ExportPreferencesSchema | undefined;
       const updated: ExportPreferencesSchema = {
@@ -172,12 +180,14 @@ export class ExportConfigService {
         // Ensure we don't lose existing settings when partially updating
         exportSettings: {
           ...(existing?.exportSettings || {}),
-          ...(preferences.exportSettings || {})
-        }
+          ...(preferences.exportSettings || {}),
+        },
       };
 
       this.store.set(key, updated);
-      console.log(`💾 Saved export preferences for workspace: ${workspaceId}`, updated);
+      this.logger.info(`💾 Saved export preferences for workspace: ${workspaceId}`, {
+        updated,
+      });
     } catch (error) {
       console.error('Failed to save export preferences:', error);
       throw error;
@@ -191,7 +201,7 @@ export class ExportConfigService {
     try {
       const key = `exportPreferences.${workspaceId}`;
       this.store.delete(key);
-      console.log(`🗑️ Cleared export preferences for workspace: ${workspaceId}`);
+      this.logger.info(`🗑️ Cleared export preferences for workspace: ${workspaceId}`);
     } catch (error) {
       console.error('Failed to clear export preferences:', error);
       throw error;
@@ -209,9 +219,9 @@ export class ExportConfigService {
     try {
       const key = `exportSessions.${workspaceId}`;
       const session = this.store.get(key) as ExportSessionSchema | undefined;
-      
+
       if (!session) {
-        console.log(`📖 No export session found for workspace: ${workspaceId}`);
+        this.logger.info(`📖 No export session found for workspace: ${workspaceId}`);
         return null;
       }
 
@@ -225,27 +235,29 @@ export class ExportConfigService {
           selectedLanguages: session.userSelections?.selectedLanguages || ['original'],
           includeMetadata: session.userSelections?.includeMetadata ?? false,
           showTimestamps: session.userSelections?.showTimestamps ?? false,
-          customOutputPath: session.userSelections?.customOutputPath
+          customOutputPath: session.userSelections?.customOutputPath,
         },
         uiState: {
           previewState: {
             fullscreenOpen: session.uiState?.previewState?.fullscreenOpen ?? false,
             copySnackbar: session.uiState?.previewState?.copySnackbar ?? false,
-            showLineNumbers: session.uiState?.previewState?.showLineNumbers ?? true
+            showLineNumbers: session.uiState?.previewState?.showLineNumbers ?? true,
           },
           actionsState: {
             showMultiFormatDialog: session.uiState?.actionsState?.showMultiFormatDialog ?? false,
             selectedFormats: session.uiState?.actionsState?.selectedFormats || [],
-            snackbarOpen: session.uiState?.actionsState?.snackbarOpen ?? false
+            snackbarOpen: session.uiState?.actionsState?.snackbarOpen ?? false,
           },
           highlightConfig: {
             language: session.uiState?.highlightConfig?.language || 'text',
-            showLineNumbers: session.uiState?.highlightConfig?.showLineNumbers ?? true
-          }
-        }
+            showLineNumbers: session.uiState?.highlightConfig?.showLineNumbers ?? true,
+          },
+        },
       };
 
-      console.log(`📖 Loaded export session for workspace: ${workspaceId}`, result);
+      this.logger.info(`📖 Loaded export session for workspace: ${workspaceId}`, {
+        result,
+      });
       return result;
     } catch (error) {
       console.error('Failed to load export session:', error);
@@ -259,7 +271,7 @@ export class ExportConfigService {
   saveExportSession(workspaceId: string, session: Partial<ExportSessionState>): void {
     try {
       const key = `exportSessions.${workspaceId}`;
-      
+
       // Get existing session or create default
       const existing = this.store.get(key) as ExportSessionSchema | undefined;
       const updated: ExportSessionSchema = {
@@ -272,27 +284,29 @@ export class ExportConfigService {
           ...(session.uiState || {}),
           previewState: {
             ...(existing?.uiState?.previewState || {}),
-            ...(session.uiState?.previewState || {})
+            ...(session.uiState?.previewState || {}),
           },
           actionsState: {
             ...(existing?.uiState?.actionsState || {}),
-            ...(session.uiState?.actionsState || {})
+            ...(session.uiState?.actionsState || {}),
           },
           highlightConfig: {
             ...(existing?.uiState?.highlightConfig || {}),
-            ...(session.uiState?.highlightConfig || {})
-          }
+            ...(session.uiState?.highlightConfig || {}),
+          },
         },
         // Deep merge user selections
         userSelections: {
           ...(existing?.userSelections || {}),
-          ...(session.userSelections || {})
+          ...(session.userSelections || {}),
         },
-        lastUpdated: Date.now()
+        lastUpdated: Date.now(),
       };
 
       this.store.set(key, updated);
-      console.log(`💾 Saved export session for workspace: ${workspaceId}`, updated);
+      this.logger.info(`💾 Saved export session for workspace: ${workspaceId}`, {
+        updated,
+      });
     } catch (error) {
       console.error('Failed to save export session:', error);
       throw error;
@@ -310,9 +324,9 @@ export class ExportConfigService {
     try {
       const key = `modifiedSubtitles.${workspaceId}`;
       const data = this.store.get(key) as ModifiedSubtitleSchema | undefined;
-      
+
       if (!data) {
-        console.log(`📖 No modified subtitles found for workspace: ${workspaceId}`);
+        this.logger.info(`📖 No modified subtitles found for workspace: ${workspaceId}`);
         return null;
       }
 
@@ -323,10 +337,15 @@ export class ExportConfigService {
         modifiedSubtitles: data.modifiedSubtitles,
         hasChanges: data.hasChanges,
         metadata: data.metadata,
-        lastModified: data.lastModified.toString()
+        lastModified: data.lastModified.toString(),
       };
 
-      console.log(`📖 Loaded modified subtitles for workspace: ${workspaceId} (${result.modifiedSubtitles.length} subtitles)`);
+      this.logger.info(
+        `📖 Loaded modified subtitles for workspace: ${workspaceId} (${result.modifiedSubtitles.length} subtitles)`,
+        {
+          result,
+        }
+      );
       return result;
     } catch (error) {
       console.error('Failed to load modified subtitles:', error);
@@ -340,18 +359,20 @@ export class ExportConfigService {
   saveModifiedSubtitles(workspaceId: string, data: ModifiedSubtitleData): void {
     try {
       const key = `modifiedSubtitles.${workspaceId}`;
-      
+
       const toSave: ModifiedSubtitleSchema = {
         workspaceId,
         originalSubtitles: data.originalSubtitles,
         modifiedSubtitles: data.modifiedSubtitles,
         hasChanges: data.hasChanges,
         metadata: data.metadata,
-        lastModified: Date.now()
+        lastModified: Date.now(),
       };
 
       this.store.set(key, toSave);
-      console.log(`💾 Saved modified subtitles for workspace: ${workspaceId} (${data.modifiedSubtitles.length} subtitles)`);
+      this.logger.info(
+        `💾 Saved modified subtitles for workspace: ${workspaceId} (${data.modifiedSubtitles.length} subtitles)`
+      );
     } catch (error) {
       console.error('Failed to save modified subtitles:', error);
       throw error;
@@ -369,9 +390,9 @@ export class ExportConfigService {
     try {
       const key = `exportHistory.${workspaceId}`;
       const history = this.store.get(key) as WorkspaceExportHistorySchema | undefined;
-      
+
       if (!history) {
-        console.log(`📖 No export history found for workspace: ${workspaceId}`);
+        this.logger.info(`📖 No export history found for workspace: ${workspaceId}`);
         return null;
       }
 
@@ -381,10 +402,12 @@ export class ExportConfigService {
         exports: history.exports || [],
         preferences: history.preferences,
         sessionState: history.sessionState,
-        lastUpdated: history.lastUpdated
+        lastUpdated: history.lastUpdated,
       };
 
-      console.log(`📖 Loaded export history for workspace: ${workspaceId} (${result.exports.length} exports)`);
+      this.logger.info(
+        `📖 Loaded export history for workspace: ${workspaceId} (${result.exports.length} exports)`
+      );
       return result;
     } catch (error) {
       console.error('Failed to load workspace export history:', error);
@@ -398,17 +421,19 @@ export class ExportConfigService {
   saveWorkspaceExportHistory(workspaceId: string, history: WorkspaceExportHistory): void {
     try {
       const key = `exportHistory.${workspaceId}`;
-      
+
       const toSave: WorkspaceExportHistorySchema = {
         workspaceId,
         exports: history.exports || [],
         preferences: history.preferences,
         sessionState: history.sessionState,
-        lastUpdated: history.lastUpdated
+        lastUpdated: history.lastUpdated,
       };
 
       this.store.set(key, toSave);
-      console.log(`💾 Saved export history for workspace: ${workspaceId} (${toSave.exports.length} exports)`);
+      this.logger.info(
+        `💾 Saved export history for workspace: ${workspaceId} (${toSave.exports.length} exports)`
+      );
     } catch (error) {
       console.error('Failed to save workspace export history:', error);
       throw error;
@@ -428,12 +453,14 @@ export class ExportConfigService {
       const workspaceIds = new Set<string>();
 
       // Extract workspace IDs from all sections
-      ['exportPreferences', 'exportSessions', 'modifiedSubtitles', 'exportHistory'].forEach(section => {
-        const sectionData = allData[section] as Record<string, unknown> | undefined;
-        if (sectionData) {
-          Object.keys(sectionData).forEach(key => workspaceIds.add(key));
+      ['exportPreferences', 'exportSessions', 'modifiedSubtitles', 'exportHistory'].forEach(
+        (section) => {
+          const sectionData = allData[section] as Record<string, unknown> | undefined;
+          if (sectionData) {
+            Object.keys(sectionData).forEach((key) => workspaceIds.add(key));
+          }
         }
-      });
+      );
 
       return Array.from(workspaceIds);
     } catch (error) {
@@ -448,23 +475,25 @@ export class ExportConfigService {
   cleanupOldData(activeWorkspaceIds: string[]): void {
     try {
       const allWorkspaceIds = this.getAllWorkspaceIds();
-      const toDelete = allWorkspaceIds.filter(id => !activeWorkspaceIds.includes(id));
+      const toDelete = allWorkspaceIds.filter((id) => !activeWorkspaceIds.includes(id));
 
       if (toDelete.length === 0) {
-        console.log('✅ No export data cleanup needed');
+        this.logger.info('✅ No export data cleanup needed');
         return;
       }
 
-      console.log(`🧹 Cleaning up export data for ${toDelete.length} old workspaces:`, toDelete);
+      this.logger.info(`🧹 Cleaning up export data for ${toDelete.length} old workspaces:`, {
+        toDelete,
+      });
 
-      toDelete.forEach(workspaceId => {
+      toDelete.forEach((workspaceId) => {
         this.clearExportPreferences(workspaceId);
         this.store.delete(`exportSessions.${workspaceId}`);
         this.store.delete(`modifiedSubtitles.${workspaceId}`);
         this.store.delete(`exportHistory.${workspaceId}`);
       });
 
-      console.log('✅ Export data cleanup completed');
+      this.logger.info('✅ Export data cleanup completed');
     } catch (error) {
       console.error('Failed to cleanup old export data:', error);
     }
@@ -473,7 +502,7 @@ export class ExportConfigService {
   /**
    * Get storage statistics
    */
-  getStorageStats(): { 
+  getStorageStats(): {
     totalWorkspaces: number;
     totalPreferences: number;
     totalSessions: number;
@@ -482,7 +511,7 @@ export class ExportConfigService {
   } {
     try {
       const allData = this.store.store;
-      
+
       const preferences = allData.exportPreferences as Record<string, unknown> | undefined;
       const sessions = allData.exportSessions as Record<string, unknown> | undefined;
       const subtitles = allData.modifiedSubtitles as Record<string, unknown> | undefined;
@@ -493,7 +522,7 @@ export class ExportConfigService {
         totalPreferences: Object.keys(preferences || {}).length,
         totalSessions: Object.keys(sessions || {}).length,
         totalSubtitleData: Object.keys(subtitles || {}).length,
-        totalHistoryEntries: Object.keys(history || {}).length
+        totalHistoryEntries: Object.keys(history || {}).length,
       };
     } catch (error) {
       console.error('Failed to get storage stats:', error);
@@ -502,7 +531,7 @@ export class ExportConfigService {
         totalPreferences: 0,
         totalSessions: 0,
         totalSubtitleData: 0,
-        totalHistoryEntries: 0
+        totalHistoryEntries: 0,
       };
     }
   }

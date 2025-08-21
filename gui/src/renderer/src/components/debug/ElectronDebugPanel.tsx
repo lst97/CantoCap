@@ -17,6 +17,7 @@ import { StepStatus, StepType, StepStatusType } from '../../stores/types/StoreTy
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useStepsWithStates, useCurrentStep } from '../../stores/useWorkflowStore';
 import { ElectronWindow } from '@/types';
+import { createComponentLogger } from '../../utils/logger';
 
 // Extended Performance interface for memory information
 interface PerformanceWithMemory extends Performance {
@@ -91,6 +92,7 @@ export const ElectronDebugPanel: React.FC<DebugPanelProps> = ({
   onClose,
   position = 'bottom',
 }) => {
+  const logger = createComponentLogger('ElectronDebugPanel');
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [performanceMetrics, setPerformanceMetrics] = useState<PerformanceMetrics | null>(null);
   const [ipcCalls, setIpcCalls] = useState<IPCCall[]>([]);
@@ -166,7 +168,9 @@ export const ElectronDebugPanel: React.FC<DebugPanelProps> = ({
         memoryUsage: memoryUsageMB,
       });
     } catch (error) {
-      console.error('Failed to collect system info:', error);
+      logger.error('Failed to collect system info:', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }, []);
 
@@ -222,11 +226,13 @@ export const ElectronDebugPanel: React.FC<DebugPanelProps> = ({
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
-      console.log('Debug report generated and downloaded');
+      logger.info('Debug report generated and downloaded');
     } catch (error) {
-      console.error('Failed to generate debug report:', error);
+      logger.error('Failed to generate debug report:', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
-  }, [systemInfo, performanceMetrics, ipcCalls, stateChanges, currentStep, steps]);
+  }, [systemInfo, performanceMetrics, ipcCalls, stateChanges, currentStep, steps, logger]);
 
   // Open DevTools
   const openDevTools = useCallback(async (): Promise<void> => {
@@ -236,8 +242,11 @@ export const ElectronDebugPanel: React.FC<DebugPanelProps> = ({
         await electronWindow.cantocapAPI.openDevTools();
       }
     } catch (error) {
-      console.error('Failed to open DevTools:', error);
+      logger.error('Failed to open DevTools:', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Test IPC connection
@@ -253,7 +262,7 @@ export const ElectronDebugPanel: React.FC<DebugPanelProps> = ({
       }
 
       const duration = performance.now() - startTime;
-      console.log(`IPC Test: ${success ? 'SUCCESS' : 'FAILED'} (${duration.toFixed(2)}ms)`);
+      logger.info(`IPC Test: ${success ? 'SUCCESS' : 'FAILED'} (${duration.toFixed(2)}ms)`);
 
       // Add this test to IPC calls list
       const newCall: IPCCall = {
@@ -268,7 +277,9 @@ export const ElectronDebugPanel: React.FC<DebugPanelProps> = ({
       // Refresh data to show the test result
       await collectSystemInfo();
     } catch (error) {
-      console.error('IPC Test failed:', error);
+      logger.error('IPC Test failed:', {
+        error: error instanceof Error ? error.message : String(error),
+      });
       const errorCall: IPCCall = {
         operation: 'getPlatform',
         timestamp: Date.now(),
@@ -277,7 +288,7 @@ export const ElectronDebugPanel: React.FC<DebugPanelProps> = ({
       };
       setIpcCalls((prev) => [...prev.slice(-19), errorCall]);
     }
-  }, [collectSystemInfo]);
+  }, [collectSystemInfo, logger]);
 
   // Format timestamp
   const formatTimestamp = useCallback((timestamp: number): string => {

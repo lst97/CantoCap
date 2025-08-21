@@ -6,17 +6,20 @@ import { ErrorBoundary } from './components/common/ErrorBoundary';
 import theme from './theme/theme';
 import './styles/globals.css';
 import { JSX } from 'react/jsx-runtime';
+import { createComponentLogger } from './utils/logger';
 
 // Import new Zustand stores
-import { useAppActions, useActiveWorkspaceId } from './stores/useAppStore';
-import { useWorkspaceActions, useWorkspaceExists } from './stores/useWorkspaceStore';
+import { useAppActions } from './stores/useAppStore';
+import { useWorkspaceActions } from './stores/useWorkspaceStore';
 import { useWorkflowActions } from './stores/useWorkflowStore';
 
 // Import validation utilities
 import { validateWorkspaceId, safeWorkspaceOperation } from './utils/workspaceValidation';
 
 function App(): JSX.Element {
-  console.log('🔄 App component rendering...');
+  const logger = createComponentLogger('App');
+
+  logger.component('App', 'mount');
 
   const [isInitializing, setIsInitializing] = useState(true);
   const [isWorkspaceReady, setIsWorkspaceReady] = useState(false);
@@ -32,17 +35,13 @@ function App(): JSX.Element {
   const appActions = useAppActions();
   const workspaceActions = useWorkspaceActions();
   const workflowActions = useWorkflowActions();
-  
-  // Get workspace state for restoration (used for React hooks requirement)
-  const activeWorkspaceId = useActiveWorkspaceId();
-  const _workspaceExists = useWorkspaceExists(activeWorkspaceId); // Used for React state consistency
 
-  console.log(
-    '🔄 App component render, isInitializing:',
+  // Get workspace state for restoration (used for React hooks requirement)
+
+  logger.debug('App component render state', {
     isInitializing,
-    'isWorkspaceReady:',
-    isWorkspaceReady
-  );
+    isWorkspaceReady,
+  });
 
   // Main initialization effect - runs only once on mount
   useEffect(() => {
@@ -52,7 +51,7 @@ function App(): JSX.Element {
     }
 
     hasMountedRef.current = true;
-    console.log('🔄 App useEffect starting initialization...');
+    logger.info('🔄 Starting application initialization');
 
     // Helper function to restore the active workspace
     const restoreActiveWorkspace = async () => {
@@ -60,33 +59,36 @@ function App(): JSX.Element {
         // Get the current app state (should have activeWorkspaceId loaded)
         const { useAppStore } = await import('./stores/useAppStore');
         const currentActiveWorkspaceId = useAppStore.getState().activeWorkspaceId;
-        
-        console.log('🔄 Checking for active workspace to restore:', currentActiveWorkspaceId);
-        
+
+        logger.debug('Checking for active workspace to restore', { currentActiveWorkspaceId });
+
         if (currentActiveWorkspaceId) {
           // Validate workspace ID format first
           const validation = validateWorkspaceId(currentActiveWorkspaceId);
           if (!validation.isValid) {
-            console.warn('⚠️ Active workspace ID is invalid:', validation.errors);
+            logger.warn('Active workspace ID is invalid', { errors: validation.errors });
             await window.electron.ipcRenderer.invoke('app:setActiveWorkspace', null);
             return;
           }
-          
+
           // Check if the workspace still exists
-          const exists = await window.electron.ipcRenderer.invoke('workspace:exists', currentActiveWorkspaceId);
-          
+          const exists = await window.electron.ipcRenderer.invoke(
+            'workspace:exists',
+            currentActiveWorkspaceId
+          );
+
           if (exists) {
-            console.log('🔄 Restoring active workspace:', currentActiveWorkspaceId);
+            logger.info('Restoring active workspace', { workspaceId: currentActiveWorkspaceId });
             // Use workspaceActions to switch to the restored workspace
             await workspaceActions.switchWorkspace(currentActiveWorkspaceId);
-            console.log('✅ Active workspace restored successfully');
+            logger.info('Active workspace restored successfully');
           } else {
-            console.warn('⚠️ Previously active workspace no longer exists, clearing active workspace');
+            logger.warn('Previously active workspace no longer exists, clearing active workspace');
             // Clear the invalid active workspace
             await window.electron.ipcRenderer.invoke('app:setActiveWorkspace', null);
           }
         } else {
-          console.log('ℹ️ No previous active workspace to restore');
+          logger.info('No previous active workspace to restore');
         }
       }, 'restore active workspace');
     };
@@ -95,30 +97,30 @@ function App(): JSX.Element {
       try {
         isRestoringRef.current = true;
 
-        console.log('🚀 Initializing application stores...');
+        logger.info('🚀 Initializing application stores');
 
         // Load app state first and wait for completion
-        console.log('🔄 Loading app state from electron store...');
+        logger.debug('Loading app state from electron store');
         await appActions.loadAppState();
-        
+
         // Verify app state is actually loaded
         const { useAppStore } = await import('./stores/useAppStore');
         const loadedState = useAppStore.getState();
-        console.log('📁 App state loaded from main process:', {
+        logger.info('App state loaded from main process', {
           activeWorkspaceId: loadedState.activeWorkspaceId,
           recentWorkspaces: loadedState.recentWorkspaces,
-          windowState: loadedState.windowState
+          windowState: loadedState.windowState,
         });
 
         // Load available workspaces
-        console.log('🔄 Loading workspaces from electron store...');
+        logger.debug('Loading workspaces from electron store');
         await workspaceActions.loadWorkspaces();
-        console.log('📁 Workspaces loaded from main process');
-        
+        logger.info('Workspaces loaded from main process');
+
         // Skip validation during initial app startup to avoid clearing valid activeWorkspaceId
         // The activeWorkspaceId will be validated when actually switching workspaces
-        console.log('ℹ️ Skipping app state validation during startup to preserve activeWorkspaceId');
-        
+        logger.debug('Skipping app state validation during startup to preserve activeWorkspaceId');
+
         // Signal that workspace store is now safe to use
         setIsWorkspaceInitialized(true);
 
@@ -128,28 +130,34 @@ function App(): JSX.Element {
         // Load workflow state for the active workspace (if any)
         const { useAppStore: useAppStoreForWorkflowInit } = await import('./stores/useAppStore');
         const currentActiveWorkspaceId = useAppStoreForWorkflowInit.getState().activeWorkspaceId;
-        
+
         if (currentActiveWorkspaceId) {
-          console.log('🔄 Loading workflow state for active workspace:', currentActiveWorkspaceId);
+          logger.debug('Loading workflow state for active workspace', {
+            workspaceId: currentActiveWorkspaceId,
+          });
           await workflowActions.loadWorkflowState(currentActiveWorkspaceId);
-          console.log('✅ Workflow state loaded for workspace:', currentActiveWorkspaceId);
+          logger.info('Workflow state loaded for workspace', {
+            workspaceId: currentActiveWorkspaceId,
+          });
         } else {
           // Only reset workflow if no active workspace
           await workflowActions.resetWorkflow();
-          console.log('🔄 Workflow state initialized (no active workspace)');
+          logger.debug('Workflow state initialized (no active workspace)');
         }
 
-        console.log('✅ Application initialization completed');
+        logger.info('✅ Application initialization completed');
         initializationCompleteRef.current = true;
         setIsInitializing(false);
 
         // Set workspace as ready immediately after initialization
-        console.log('✅ Setting workspace as ready');
+        logger.info('Setting workspace as ready');
         setIsWorkspaceReady(true);
       } catch (error) {
-        console.error('❌ App initialization failed:', error);
+        logger.error('App initialization failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
         const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error(`Initialization failed: ${errorMessage}`);
+        logger.error('Initialization failed', { errorMessage });
         // Ensure loading screen is cleared even on failure
         setIsInitializing(false);
         setIsWorkspaceReady(true); // Allow app to continue even with errors
@@ -159,7 +167,7 @@ function App(): JSX.Element {
     };
 
     runInitialization();
-  }, []); // Remove action dependencies to prevent circular renders
+  }, [appActions, workspaceActions, workflowActions, logger]); // Include all dependencies
 
   // Global settings dialog state
   const handleCloseGlobalSettings = () => {

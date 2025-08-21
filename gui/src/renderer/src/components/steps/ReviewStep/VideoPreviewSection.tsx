@@ -1,28 +1,23 @@
-import React, { useState, useEffect, useRef } from "react";
-import {
-  Box,
-  Typography,
-  Paper,
-  IconButton,
-  Chip,
-} from "@mui/material";
+import React, { useState, useEffect, useRef } from 'react';
+import { Box, Typography, Paper, IconButton, Chip } from '@mui/material';
 import {
   PlayArrow as PlayIcon,
   Pause as PauseIcon,
   VolumeUp as VolumeIcon,
-} from "@mui/icons-material";
-import { BasicVideoPlayer } from "../../VideoPlayer/BasicVideoPlayer";
-import { 
+} from '@mui/icons-material';
+import { BasicVideoPlayer } from '../../VideoPlayer/BasicVideoPlayer';
+import {
   useVideoState,
   useSelectedSubtitle,
   useSubtitleActions,
-  useSubtitles
-} from "../../../stores/useSubtitleEditStore";
-import { useInputFile } from "../../../stores/useStepStore";
-import { Subtitle } from "../../../stores/types/StoreTypes";
-import { ActionButton } from "./styles";
-import { formatTime } from "./utils";
-import { ElectronWindow } from "../../../../../types";
+  useSubtitles,
+} from '../../../stores/useSubtitleEditStore';
+import { useInputFile } from '../../../stores/useStepStore';
+import { Subtitle } from '../../../stores/types/StoreTypes';
+import { ActionButton } from './styles';
+import { formatTime } from './utils';
+import { ElectronWindow } from '../../../../../types';
+import { createComponentLogger } from '@/renderer/src/utils/logger';
 
 // Supported media formats in typical browsers/Electron
 const SUPPORTED_MEDIA_FORMATS = [
@@ -38,30 +33,32 @@ const SUPPORTED_MEDIA_FORMATS = [
   { ext: 'wav', mimeType: 'audio/wav', codecs: [] },
   { ext: 'aac', mimeType: 'audio/aac', codecs: [] },
   { ext: 'flac', mimeType: 'audio/flac', codecs: [] },
-  { ext: 'm4a', mimeType: 'audio/mp4', codecs: [] }
+  { ext: 'm4a', mimeType: 'audio/mp4', codecs: [] },
 ];
 
 const validateMediaFile = (filePath: string) => {
   if (!filePath) return { isValid: false, reason: 'No file path provided' };
-  
+
   const ext = filePath.split('.').pop()?.toLowerCase();
-  const supportedFormat = SUPPORTED_MEDIA_FORMATS.find(f => f.ext === ext);
-  
+  const supportedFormat = SUPPORTED_MEDIA_FORMATS.find((f) => f.ext === ext);
+
   if (!supportedFormat) {
-    return { 
-      isValid: false, 
-      reason: `Unsupported format: .${ext}. Supported: ${SUPPORTED_MEDIA_FORMATS.map(f => f.ext).join(', ')}` 
+    return {
+      isValid: false,
+      reason: `Unsupported format: .${ext}. Supported: ${SUPPORTED_MEDIA_FORMATS.map((f) => f.ext).join(', ')}`,
     };
   }
-  
+
   return { isValid: true, format: supportedFormat };
 };
 
 export const VideoPreviewSection: React.FC = () => {
+  const logger = React.useMemo(() => createComponentLogger('VideoPreviewSection'), []);
   const subtitles = useSubtitles();
   const selectedSubtitle = useSelectedSubtitle();
   const { currentTime, isVideoPlaying, videoPath } = useVideoState();
-  const { setCurrentTime, setVideoPlaying, jumpToSubtitle, setVideoDuration } = useSubtitleActions();
+  const { setCurrentTime, setVideoPlaying, jumpToSubtitle, setVideoDuration } =
+    useSubtitleActions();
   const inputFile = useInputFile();
   const [duration, setDuration] = useState(0);
   const lastUpdateRef = useRef<number>(0);
@@ -71,7 +68,7 @@ export const VideoPreviewSection: React.FC = () => {
   const rawMediaPath = inputFile || videoPath || '';
   const [mediaUrl, setMediaUrl] = React.useState<string | null>(null);
   const [isLoadingMedia, setIsLoadingMedia] = React.useState(false);
-  
+
   // Convert local file path to media URL for secure playback
   React.useEffect(() => {
     const convertMediaSource = async () => {
@@ -82,7 +79,13 @@ export const VideoPreviewSection: React.FC = () => {
       }
 
       // Check if it's already a localmedia://, file://, data:// or web URL
-      if (rawMediaPath.startsWith('localmedia://') || rawMediaPath.startsWith('file://') || rawMediaPath.startsWith('data:') || rawMediaPath.startsWith('http://') || rawMediaPath.startsWith('https://')) {
+      if (
+        rawMediaPath.startsWith('localmedia://') ||
+        rawMediaPath.startsWith('file://') ||
+        rawMediaPath.startsWith('data:') ||
+        rawMediaPath.startsWith('http://') ||
+        rawMediaPath.startsWith('https://')
+      ) {
         setMediaUrl(rawMediaPath);
         setIsLoadingMedia(false);
         return;
@@ -91,11 +94,16 @@ export const VideoPreviewSection: React.FC = () => {
       // Convert local file path to media URL
       setIsLoadingMedia(true);
       try {
-        const mediaUrl = await (window as unknown as ElectronWindow).cantocapAPI.getMediaUrl(rawMediaPath);
+        const mediaUrl = await (window as unknown as ElectronWindow).cantocapAPI.getMediaUrl(
+          rawMediaPath
+        );
         setMediaUrl(mediaUrl);
-        console.log('🎬 VideoPreviewSection: Successfully converted to media URL:', { rawMediaPath, mediaUrl });
+        logger.info('🎬 VideoPreviewSection: Successfully converted to media URL:', {
+          rawMediaPath,
+          mediaUrl,
+        });
       } catch (error) {
-        console.error('🎬 VideoPreviewSection: Failed to convert media to URL:', error);
+        logger.error('🎬 VideoPreviewSection: Failed to convert media to URL:', { error: error });
         setMediaUrl(null);
       } finally {
         setIsLoadingMedia(false);
@@ -104,12 +112,12 @@ export const VideoPreviewSection: React.FC = () => {
 
     convertMediaSource();
   }, [rawMediaPath]);
-  
+
   // Enhanced debug logging for media source resolution
   React.useEffect(() => {
     const validation = validateMediaFile(rawMediaPath);
-    
-    console.log('🎬 VideoPreviewSection media source:', {
+
+    logger.info('🎬 VideoPreviewSection media source:', {
       inputFile,
       videoPath,
       rawMediaPath,
@@ -117,17 +125,14 @@ export const VideoPreviewSection: React.FC = () => {
       isLoadingMedia,
       usingInputFile: !!inputFile,
       isEmpty: !rawMediaPath,
-      validation
+      validation,
     });
-    
+
     if (!validation.isValid && rawMediaPath) {
       console.warn('🎬 Media format issue:', validation.reason);
     }
   }, [inputFile, videoPath, rawMediaPath, mediaUrl, isLoadingMedia]);
 
-  // Use media URL for video source
-  const resolvedVideoPath = mediaUrl;
-  
   const isPlaying = isVideoPlaying;
 
   const handleTimeUpdate = (time: number) => {
@@ -154,13 +159,16 @@ export const VideoPreviewSection: React.FC = () => {
     if (selectedSubtitle?.id) {
       setIsJumpTriggered(true);
       jumpToSubtitle(selectedSubtitle.id);
-      
+
       // Reset the trigger flag after the subtitle duration plus some buffer time
       // This ensures the video player has enough time to detect the boundary
       const subtitleDuration = selectedSubtitle.endTime - selectedSubtitle.startTime;
-      setTimeout(() => {
-        setIsJumpTriggered(false);
-      }, subtitleDuration * 1000 + 2000); // subtitle duration + 2 second buffer
+      setTimeout(
+        () => {
+          setIsJumpTriggered(false);
+        },
+        subtitleDuration * 1000 + 2000
+      ); // subtitle duration + 2 second buffer
     }
   };
 
@@ -169,8 +177,7 @@ export const VideoPreviewSection: React.FC = () => {
 
     return (
       subtitles.find(
-        (subtitle) =>
-          currentTime >= subtitle.startTime && currentTime <= subtitle.endTime
+        (subtitle) => currentTime >= subtitle.startTime && currentTime <= subtitle.endTime
       ) || null
     );
   };
@@ -180,26 +187,26 @@ export const VideoPreviewSection: React.FC = () => {
   return (
     <Box
       sx={{
-        height: "100%",
-        display: "flex",
-        flexDirection: "column",
-        position: "relative",
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        position: 'relative',
         zIndex: 1,
       }}
     >
       {/* Compact header */}
       <Typography
-        variant="h6"
+        variant='h6'
         sx={{
           mb: 1,
-          display: "flex",
-          alignItems: "center",
+          display: 'flex',
+          alignItems: 'center',
           gap: 1,
-          color: "white",
-          fontSize: "1.1rem",
+          color: 'white',
+          fontSize: '1.1rem',
         }}
       >
-        <VolumeIcon color="primary" />
+        <VolumeIcon color='primary' />
         Media Preview
       </Typography>
 
@@ -207,45 +214,45 @@ export const VideoPreviewSection: React.FC = () => {
       {isLoadingMedia ? (
         <Box
           sx={{
-            height: "calc(100% - 190px)", // Same height as video player
-            width: "100%",
-            backgroundColor: "rgba(0, 0, 0, 0.8)",
+            height: 'calc(100% - 190px)', // Same height as video player
+            width: '100%',
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
             borderRadius: 1,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
             mb: 1,
             flexShrink: 0,
             gap: 2,
           }}
         >
-          <Typography variant="h6" color="text.secondary">
+          <Typography variant='h6' color='text.secondary'>
             Loading media...
           </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+          <Typography variant='body2' color='text.secondary' sx={{ fontStyle: 'italic' }}>
             Preparing media for playback
           </Typography>
         </Box>
       ) : mediaUrl ? (
         <Box
           sx={{
-            height: "calc(100% - 190px)", // Adjusted height: total minus header(40px), controls(40px), and subtitle preview(110px)
-            width: "100%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
+            height: 'calc(100% - 190px)', // Adjusted height: total minus header(40px), controls(40px), and subtitle preview(110px)
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
             mb: 1,
             flexShrink: 0, // Prevent shrinking
           }}
         >
           <Box
             sx={{
-              width: "100%",
-              height: "100%",
-              maxWidth: "100%",
-              maxHeight: "100%",
-              position: "relative",
+              width: '100%',
+              height: '100%',
+              maxWidth: '100%',
+              maxHeight: '100%',
+              position: 'relative',
             }}
           >
             <BasicVideoPlayer
@@ -256,11 +263,15 @@ export const VideoPreviewSection: React.FC = () => {
               isPlaying={isPlaying}
               onPlay={() => setVideoPlaying(true)}
               onPause={() => setVideoPlaying(false)}
-              selectedSubtitle={selectedSubtitle ? {
-                id: selectedSubtitle.id,
-                startTime: selectedSubtitle.startTime,
-                endTime: selectedSubtitle.endTime,
-              } : undefined}
+              selectedSubtitle={
+                selectedSubtitle
+                  ? {
+                      id: selectedSubtitle.id,
+                      startTime: selectedSubtitle.startTime,
+                      endTime: selectedSubtitle.endTime,
+                    }
+                  : undefined
+              }
               autoReturnToStart={true}
               isJumpTriggered={isJumpTriggered}
             />
@@ -269,49 +280,49 @@ export const VideoPreviewSection: React.FC = () => {
       ) : (
         <Box
           sx={{
-            height: "calc(100% - 190px)", // Same adjusted height as video player
-            width: "100%",
-            backgroundColor: "rgba(0, 0, 0, 0.8)",
+            height: 'calc(100% - 190px)', // Same adjusted height as video player
+            width: '100%',
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
             borderRadius: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
             mb: 1,
             flexShrink: 0, // Prevent shrinking
           }}
         >
-          <Typography variant="h6" color="text.secondary">
+          <Typography variant='h6' color='text.secondary'>
             No media loaded
           </Typography>
         </Box>
       )}
 
       {/* Compact video controls */}
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
         <IconButton
-          color="primary"
-          size="small"
+          color='primary'
+          size='small'
           onClick={() => setVideoPlaying(!isPlaying)}
           disabled={!mediaUrl}
         >
           {isPlaying ? <PauseIcon /> : <PlayIcon />}
         </IconButton>
         <Typography
-          variant="body2"
+          variant='body2'
           sx={{
             flex: 1,
-            fontFamily: "monospace",
-            color: "white",
-            fontSize: "0.8rem",
+            fontFamily: 'monospace',
+            color: 'white',
+            fontSize: '0.8rem',
           }}
         >
           {formatTime(currentTime)} / {formatTime(duration)}
         </Typography>
         <ActionButton
-          size="small"
+          size='small'
           onClick={jumpToSelected}
           disabled={!selectedSubtitle}
-          sx={{ fontSize: "0.75rem", py: 0.5, px: 1 }}
+          sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}
         >
           Jump to Selected
         </ActionButton>
@@ -321,16 +332,16 @@ export const VideoPreviewSection: React.FC = () => {
       <Paper
         sx={{
           p: 2,
-          backgroundColor: "rgba(0, 0, 0, 0.3)",
+          backgroundColor: 'rgba(0, 0, 0, 0.3)',
           borderRadius: 1,
-          textAlign: "center",
-          height: "110px", // Increased height for better text display and timestamp
+          textAlign: 'center',
+          height: '110px', // Increased height for better text display and timestamp
           flexShrink: 0, // Don't shrink this container
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "center",
-          overflow: "hidden", // Hide overflow if text is too long
-          position: "relative", // For timestamp positioning
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          overflow: 'hidden', // Hide overflow if text is too long
+          position: 'relative', // For timestamp positioning
         }}
       >
         {currentSubtitle ? (
@@ -338,21 +349,21 @@ export const VideoPreviewSection: React.FC = () => {
             {/* Timestamp in top-left fixed position */}
             <Box
               sx={{
-                position: "absolute",
+                position: 'absolute',
                 top: 8,
                 left: 8,
-                display: "flex",
-                alignItems: "center",
+                display: 'flex',
+                alignItems: 'center',
                 gap: 1,
                 zIndex: 1,
               }}
             >
               <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ 
-                  fontSize: "0.7rem",
-                  backgroundColor: "rgba(0, 0, 0, 0.6)",
+                variant='caption'
+                color='text.secondary'
+                sx={{
+                  fontSize: '0.7rem',
+                  backgroundColor: 'rgba(0, 0, 0, 0.6)',
                   px: 1,
                   py: 0.25,
                   borderRadius: 1,
@@ -363,15 +374,15 @@ export const VideoPreviewSection: React.FC = () => {
               {currentSubtitle.confidence && (
                 <Chip
                   label={`${currentSubtitle.confidence}%`}
-                  size="small"
+                  size='small'
                   color={
                     currentSubtitle.confidence > 90
-                      ? "success"
+                      ? 'success'
                       : currentSubtitle.confidence > 80
-                      ? "warning"
-                      : "error"
+                        ? 'warning'
+                        : 'error'
                   }
-                  sx={{ height: "18px", fontSize: "0.6rem" }}
+                  sx={{ height: '18px', fontSize: '0.6rem' }}
                 />
               )}
             </Box>
@@ -381,16 +392,20 @@ export const VideoPreviewSection: React.FC = () => {
               {/* Main caption text */}
               {currentSubtitle.text && currentSubtitle.text.trim() ? (
                 <Typography
-                  variant="h6"
+                  variant='h6'
                   sx={{
                     fontWeight: 600,
-                    fontSize: "1.1rem",
+                    fontSize: '1.1rem',
                     lineHeight: 1.3,
-                    color: "white",
-                    textAlign: "center",
-                    whiteSpace: "pre-line",
-                    mb: currentSubtitle.translation && currentSubtitle.translation.trim() && 
-                        currentSubtitle.translation !== currentSubtitle.text ? 0.5 : 0,
+                    color: 'white',
+                    textAlign: 'center',
+                    whiteSpace: 'pre-line',
+                    mb:
+                      currentSubtitle.translation &&
+                      currentSubtitle.translation.trim() &&
+                      currentSubtitle.translation !== currentSubtitle.text
+                        ? 0.5
+                        : 0,
                   }}
                 >
                   {currentSubtitle.text}
@@ -398,11 +413,11 @@ export const VideoPreviewSection: React.FC = () => {
               ) : (
                 // Fallback when original text is missing - this should rarely happen now
                 <Typography
-                  variant="body2"
+                  variant='body2'
                   sx={{
-                    fontStyle: "italic",
-                    color: "rgba(255, 255, 255, 0.6)",
-                    textAlign: "center",
+                    fontStyle: 'italic',
+                    color: 'rgba(255, 255, 255, 0.6)',
+                    textAlign: 'center',
                     mb: currentSubtitle.translation ? 0.5 : 0,
                   }}
                 >
@@ -411,31 +426,31 @@ export const VideoPreviewSection: React.FC = () => {
               )}
 
               {/* Translation text if available and different from caption */}
-              {currentSubtitle.translation && 
-               currentSubtitle.translation.trim() && 
-               currentSubtitle.translation !== currentSubtitle.text && (
-                <Typography
-                  variant="body2"
-                  sx={{
-                    fontWeight: 400,
-                    fontSize: "0.9rem",
-                    lineHeight: 1.3,
-                    color: "rgba(255, 255, 255, 0.8)",
-                    textAlign: "center",
-                    whiteSpace: "pre-line",
-                    fontStyle: "italic",
-                  }}
-                >
-                  {currentSubtitle.translation}
-                </Typography>
-              )}
+              {currentSubtitle.translation &&
+                currentSubtitle.translation.trim() &&
+                currentSubtitle.translation !== currentSubtitle.text && (
+                  <Typography
+                    variant='body2'
+                    sx={{
+                      fontWeight: 400,
+                      fontSize: '0.9rem',
+                      lineHeight: 1.3,
+                      color: 'rgba(255, 255, 255, 0.8)',
+                      textAlign: 'center',
+                      whiteSpace: 'pre-line',
+                      fontStyle: 'italic',
+                    }}
+                  >
+                    {currentSubtitle.translation}
+                  </Typography>
+                )}
             </Box>
           </>
         ) : (
           <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ fontStyle: "italic", fontSize: "0.75rem" }}
+            variant='caption'
+            color='text.secondary'
+            sx={{ fontStyle: 'italic', fontSize: '0.75rem' }}
           >
             No subtitle at current time
           </Typography>

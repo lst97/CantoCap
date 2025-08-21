@@ -2,6 +2,10 @@
  * Workspace validation utilities for ensuring data integrity
  */
 
+import { createComponentLogger } from './logger';
+
+const logger = createComponentLogger('WorkspaceValidation');
+
 export interface ValidationResult {
   isValid: boolean;
   errors: string[];
@@ -159,15 +163,18 @@ export async function safeWorkspaceOperation<T>(
   fallbackValue?: T
 ): Promise<T | undefined> {
   try {
-    console.log(`🔄 Executing workspace operation: ${operationName}`);
+    logger.debug('Executing workspace operation', { operationName });
     const result = await operation();
-    console.log(`✅ Workspace operation completed: ${operationName}`);
+    logger.debug('Workspace operation completed', { operationName });
     return result;
   } catch (error) {
-    console.error(`❌ Workspace operation failed: ${operationName}`, error);
+    logger.error('Workspace operation failed', {
+      operationName,
+      error: error instanceof Error ? error.message : String(error)
+    });
     
     if (fallbackValue !== undefined) {
-      console.log(`🔄 Using fallback value for: ${operationName}`);
+      logger.info('Using fallback value for operation', { operationName });
       return fallbackValue;
     }
     

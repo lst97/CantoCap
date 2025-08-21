@@ -4,6 +4,7 @@ import {
   CantocapSubtitleData, 
   convertSubtitleDataToGuiSubtitles 
 } from '../../../../types/SubtitleTypes';
+import { createStoreLogger } from '../../utils/logger';
 
 interface ReviewStepState {
   data: ReviewStepData;
@@ -48,6 +49,8 @@ const defaultReviewStepData: ReviewStepData = {
   lastProcessedAt: undefined
 };
 
+const logger = createStoreLogger('Review');
+
 export const useReviewStepStore: UseBoundStore<StoreApi<ReviewStepState>> = create<ReviewStepState>((set, _get) => ({
   data: defaultReviewStepData,
   
@@ -59,7 +62,7 @@ export const useReviewStepStore: UseBoundStore<StoreApi<ReviewStepState>> = crea
     },
 
     resetReviewStep: () => {
-      console.log('🔄 REVIEW STORE: Resetting review step to defaults for workspace isolation');
+      logger.info('Resetting review step to defaults for workspace isolation');
       set({ 
         data: { 
           ...defaultReviewStepData,
@@ -79,7 +82,7 @@ export const useReviewStepStore: UseBoundStore<StoreApi<ReviewStepState>> = crea
           lastProcessedAt: undefined
         } 
       });
-      console.log('✅ REVIEW STORE: Reset completed');
+      logger.debug('Review step reset completed');
     },
 
     setSubtitles: (subtitles: Subtitle[]) => {
@@ -269,7 +272,7 @@ export const useReviewStepStore: UseBoundStore<StoreApi<ReviewStepState>> = crea
     loadSubtitlesFromJson: () => {
       set(state => {
         if (!state.data.jsonSubtitleData) {
-          console.warn('No JSON subtitle data available to load');
+          logger.warn('No JSON subtitle data available to load');
           return state;
         }
 
@@ -278,7 +281,9 @@ export const useReviewStepStore: UseBoundStore<StoreApi<ReviewStepState>> = crea
             state.data.jsonSubtitleData.subtitles
           );
           
-          console.log(`Loaded ${convertedSubtitles.length} subtitles from JSON data`);
+          logger.debug('Loaded subtitles from JSON data', {
+            subtitleCount: convertedSubtitles.length
+          });
           
           return {
             data: {
@@ -292,7 +297,9 @@ export const useReviewStepStore: UseBoundStore<StoreApi<ReviewStepState>> = crea
             }
           };
         } catch (error) {
-          console.error('Failed to load subtitles from JSON data:', error);
+          logger.error('Failed to load subtitles from JSON data', {
+            error: error instanceof Error ? error.message : String(error)
+          });
           return state;
         }
       });

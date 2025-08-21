@@ -35,8 +35,10 @@ import { useWorkflowActions } from '../../../stores/useWorkflowStore';
 import { StepStatus } from '../../../stores/types/StoreTypes';
 import { ReviewCard, ActionButton } from './styles';
 import { formatTime, parseTime } from './utils';
+import { createComponentLogger } from '../../../utils/logger';
 
 export const SubtitleEditor: React.FC = () => {
+  const logger = createComponentLogger('SubtitleEditor');
   const subtitles = useSubtitles();
   const selectedSubtitle = useSelectedSubtitle();
   const { undoStack, redoStack } = useEditHistory();
@@ -161,7 +163,7 @@ export const SubtitleEditor: React.FC = () => {
         // Save after deletion
         await saveToWorkspace();
       } catch (error) {
-        console.error('Failed to delete subtitle:', error);
+        logger.error('Failed to delete subtitle:', { error: error });
       }
     }
   };
@@ -171,13 +173,13 @@ export const SubtitleEditor: React.FC = () => {
 
     // Prevent rapid successive clicks and concurrent exports
     if (exportInProgressRef.current || isExporting) {
-      console.log('🚫 Export already in progress, ignoring request');
+      logger.warning('🚫 Export already in progress, ignoring request');
       return;
     }
 
     // Debounce rapid clicks (prevent calls within 1 second)
     if (now - lastExportAttemptRef.current < 1000) {
-      console.log('🚫 Export throttled - too rapid successive clicks');
+      logger.warning('🚫 Export throttled - too rapid successive clicks');
       return;
     }
 
@@ -187,14 +189,14 @@ export const SubtitleEditor: React.FC = () => {
       setIsExporting(true);
       lastExportAttemptRef.current = now;
 
-      console.log('🚀 Starting export navigation sequence');
+      logger.info('🚀 Starting export navigation sequence');
 
       // First, mark the review step as complete to unlock the export step
-      console.log('📝 Marking review step as complete...');
+      logger.info('📝 Marking review step as complete...');
       await setStepState('review', StepStatus.COMPLETE);
 
       // Mark export step as ready
-      console.log('📝 Setting export step to ready...');
+      logger.info('📝 Setting export step to ready...');
       await setStepState('export', StepStatus.READY);
 
       // Navigate to export step using proper navigation hook
@@ -206,7 +208,7 @@ export const SubtitleEditor: React.FC = () => {
         );
       }
 
-      console.log('✅ Export navigation sequence completed successfully');
+      logger.info('✅ Export navigation sequence completed successfully');
     } catch (error) {
       console.error('❌ Export navigation failed:', error);
       // Reset states on error to allow retry
@@ -219,7 +221,7 @@ export const SubtitleEditor: React.FC = () => {
         setIsExporting(false);
       }, 500);
     }
-  }, [isExporting, navigateToStep, setStepState]);
+  }, [isExporting, navigateToStep, setStepState, logger]);
 
   const handleSplit = async () => {
     if (editingSubtitle) {

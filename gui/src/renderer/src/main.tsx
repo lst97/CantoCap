@@ -2,21 +2,24 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './styles/App.css';
+import { createComponentLogger } from './utils/logger';
+
+const logger = createComponentLogger('Main');
 
 // Debug logging for React mounting
-console.log('🔄 Starting React application mount...');
+logger.info('🔄 Starting React application mount...');
 
 const root = document.getElementById('root');
 if (!root) {
-  console.error('❌ Root element not found');
+  logger.error('❌ Root element not found');
   throw new Error('Root element not found');
 }
 
-console.log('✅ Root element found, creating React root...');
+logger.info('✅ Root element found, creating React root...');
 
 // First try a minimal React component to isolate the issue
 function MinimalTest() {
-  console.log('✅ MinimalTest component rendering');
+  logger.info('✅ MinimalTest component rendering');
   return React.createElement(
     'div',
     {
@@ -33,22 +36,24 @@ function MinimalTest() {
 }
 
 try {
-  console.log('🔄 Creating React root...');
+  logger.info('🔄 Creating React root...');
   const reactRoot = ReactDOM.createRoot(root);
-  console.log('✅ React root created successfully');
+  logger.info('✅ React root created successfully');
 
-  console.log('🔄 Testing minimal React component first...');
+  logger.info('🔄 Testing minimal React component first...');
   reactRoot.render(React.createElement(MinimalTest));
-  console.log('✅ Minimal React component rendered');
+  logger.info('✅ Minimal React component rendered');
 
   // Wait 2 seconds then try full App
   setTimeout(() => {
-    console.log('🔄 Now attempting full App component render...');
+    logger.info('🔄 Now attempting full App component render...');
     try {
       reactRoot.render(React.createElement(React.StrictMode, null, React.createElement(App)));
-      console.log('✅ Full App component render initiated');
+      logger.info('✅ Full App component render initiated');
     } catch (appError) {
-      console.error('❌ Error rendering full App component:', appError);
+      logger.error('❌ Error rendering full App component:', {
+        error: appError instanceof Error ? appError.message : String(appError),
+      });
 
       // Show App error but keep minimal component visible
       root.innerHTML += `
@@ -62,7 +67,9 @@ try {
     }
   }, 2000);
 } catch (error) {
-  console.error('❌ Fatal error during React root creation:', error);
+  logger.error('❌ Fatal error during React root creation:', {
+    error: error instanceof Error ? error.message : String(error),
+  });
 
   // Fallback error display
   root.innerHTML = `

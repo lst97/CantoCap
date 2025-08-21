@@ -51,8 +51,8 @@ export const ExportPreview: React.FC = () => {
     subtitles.length, 
     exportStep.selectedLanguages,
     exportStep.includeMetadata,
-    exportStep.showTimestamps,
-    generatePreviewContent
+    exportStep.showTimestamps
+    // Note: Removed generatePreviewContent from deps to prevent infinite loop
   ]);
 
   // Format file size helper

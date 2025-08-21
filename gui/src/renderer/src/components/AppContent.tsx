@@ -11,6 +11,7 @@ import { DebugMenu } from './common/DebugMenu';
 import { GlobalSettingsDialog } from './dialogs/GlobalSettingsDialog';
 import { WorkspacePanel, EmptyWorkspaceState } from './workspace';
 import { useWorkspaceCount, useCreateWorkspace } from '../stores/useWorkspaceStore';
+import { createComponentLogger } from '../utils/logger';
 
 interface AppContentProps {
   globalSettingsOpen: boolean;
@@ -21,30 +22,40 @@ interface AppContentProps {
 export const AppContent: React.FC<AppContentProps> = memo(
   ({ globalSettingsOpen, handleCloseGlobalSettings, isWorkspaceInitialized = false }) => {
     const isInitialized = useRef(false);
-    
+
+    const logger = createComponentLogger('AppContent');
+
+    logger.component('AppContent', 'mount');
+
     // Only use the passed prop to determine if workspace is ready
     // This prevents the race condition entirely by relying on App component's initialization
     const isWorkspaceStoreReady = isWorkspaceInitialized;
-    
+
     // Get workspace count to determine if we should show empty state
     const workspaceCount = useWorkspaceCount();
     const createWorkspace = useCreateWorkspace();
 
     // Handler for creating workspace from empty state
-    const handleCreateWorkspace = useCallback(async (name: string) => {
-      try {
-        await createWorkspace(name);
-      } catch (error) {
-        console.error('Failed to create workspace:', error);
-      }
-    }, [createWorkspace]);
+    const handleCreateWorkspace = useCallback(
+      async (name: string) => {
+        try {
+          await createWorkspace(name);
+        } catch (error) {
+          logger.error('Failed to create workspace:', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      },
+      [createWorkspace, logger]
+    );
 
     // Only log once during initialization to reduce console noise
     useEffect(() => {
       if (!isInitialized.current) {
-        console.log('✅ App content workflow integration initialized');
+        logger.info('✅ App content workflow integration initialized');
         isInitialized.current = true;
       }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     return (
@@ -84,23 +95,30 @@ export const AppContent: React.FC<AppContentProps> = memo(
               {isWorkspaceStoreReady ? (
                 <StepNavigation />
               ) : (
-                <Box sx={{ width: 280, backgroundColor: 'rgba(0, 0, 0, 0.1)', borderRight: 1, borderColor: 'divider' }} />
+                <Box
+                  sx={{
+                    width: 280,
+                    backgroundColor: 'rgba(0, 0, 0, 0.1)',
+                    borderRight: 1,
+                    borderColor: 'divider',
+                  }}
+                />
               )}
 
               {/* Main content area */}
               {isWorkspaceStoreReady ? (
                 <MainContentArea />
               ) : (
-                <Box 
-                  sx={{ 
-                    flex: 1, 
-                    display: 'flex', 
-                    alignItems: 'center', 
+                <Box
+                  sx={{
+                    flex: 1,
+                    display: 'flex',
+                    alignItems: 'center',
                     justifyContent: 'center',
-                    backgroundColor: 'background.default'
+                    backgroundColor: 'background.default',
                   }}
                 >
-                  <Typography variant="h6" color="text.secondary">
+                  <Typography variant='h6' color='text.secondary'>
                     Initializing workspace...
                   </Typography>
                 </Box>

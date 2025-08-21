@@ -24,6 +24,9 @@ import {
   validateFCPXML,
   type FCPXMLMetadata 
 } from '../../components/steps/ExportStep/fcpxmlHelpers';
+import { createStoreLogger } from '../../utils/logger';
+
+const logger = createStoreLogger('Export');
 
 interface ExportStepState {
   data: ExportStepData;
@@ -128,7 +131,7 @@ export const useExportStepStore = create<ExportStepState>((set, get) => ({
     },
 
     resetExportStep: () => {
-      console.log('🔄 EXPORT STORE: Resetting export step to defaults for workspace isolation');
+      logger.info('Resetting export step to defaults for workspace isolation');
       set({ 
         data: { 
           ...defaultExportStepData,
@@ -163,7 +166,7 @@ export const useExportStepStore = create<ExportStepState>((set, get) => ({
           lastGenerated: undefined
         } 
       });
-      console.log('✅ EXPORT STORE: Reset completed');
+      logger.debug('Export step reset completed');
     },
 
     updateExportFormat: async (format: string) => {
@@ -188,10 +191,13 @@ export const useExportStepStore = create<ExportStepState>((set, get) => ({
           await get().actions.saveExportPreferences(activeWorkspaceId, {
             preferredFormat: format
           });
-          console.log(`💾 Saved export format preference: ${format} for workspace: ${activeWorkspaceId}`);
+          logger.debug('Saved export format preference', { format, workspaceId: activeWorkspaceId });
         }
       } catch (error) {
-        console.warn('Could not save export format preference:', error);
+        logger.warn('Could not save export format preference', {
+          format,
+          error: error instanceof Error ? error.message : String(error)
+        });
         // Don't throw - allow format change to continue even if saving fails
       }
     },
@@ -313,10 +319,16 @@ export const useExportStepStore = create<ExportStepState>((set, get) => ({
           };
           
           await get().actions.saveWorkspaceExportHistory(activeWorkspaceId, updatedHistory);
-          console.log(`💾 Saved export history record: ${record.outputPath} for workspace: ${activeWorkspaceId}`);
+          logger.debug('Saved export history record', {
+            outputPath: record.outputPath,
+            workspaceId: activeWorkspaceId
+          });
         }
       } catch (error) {
-        console.warn('Could not save export history record:', error);
+        logger.warn('Could not save export history record', {
+          outputPath: record.outputPath,
+          error: error instanceof Error ? error.message : String(error)
+        });
         // Don't throw - allow record addition to continue even if saving fails
       }
     },
@@ -510,7 +522,9 @@ export const useExportStepStore = create<ExportStepState>((set, get) => ({
               const { useConfigStepStore } = await import('./useConfigStepStore');
               configData = useConfigStepStore.getState().data;
             } catch (error) {
-              console.warn('Could not get config data for JSON export metadata:', error);
+              logger.warn('Could not get config data for JSON export metadata', {
+                error: error instanceof Error ? error.message : String(error)
+              });
               configData = null;
             }
 
@@ -590,7 +604,9 @@ export const useExportStepStore = create<ExportStepState>((set, get) => ({
                 videoMetadata.projectName = fileName;
               }
             } catch (error) {
-              console.warn('Could not get input metadata for FCPXML export:', error);
+              logger.warn('Could not get input metadata for FCPXML export', {
+                error: error instanceof Error ? error.message : String(error)
+              });
             }
 
             // Generate FCPXML content
@@ -605,7 +621,9 @@ export const useExportStepStore = create<ExportStepState>((set, get) => ({
             // Validate generated FCPXML
             const validation = validateFCPXML(content);
             if (!validation.isValid) {
-              console.warn('Generated FCPXML has validation issues:', validation.errors);
+              logger.warn('Generated FCPXML has validation issues', {
+                errors: validation.errors
+              });
               // Only add validation warnings for critical structural issues
               const criticalErrors = validation.errors.filter(error => 
                 error.includes('Missing') && (
@@ -620,7 +638,9 @@ export const useExportStepStore = create<ExportStepState>((set, get) => ({
                 content = `<!-- FCPXML Generated with validation warnings -->\n${content}\n\n<!-- Critical validation issues:\n${criticalErrors.join('\n')}\n-->`;
               } else {
                 // For non-critical validation issues, just log them but don't modify the XML
-                console.log('FCPXML generated successfully with minor validation notes:', validation.errors);
+                logger.debug('FCPXML generated successfully with minor validation notes', {
+                  validationNotes: validation.errors
+                });
               }
             }
             break;
@@ -638,7 +658,9 @@ export const useExportStepStore = create<ExportStepState>((set, get) => ({
         }));
 
       } catch (error) {
-        console.error('Failed to generate preview:', error);
+        logger.error('Failed to generate preview', {
+          error: error instanceof Error ? error.message : String(error)
+        });
         set(prevState => ({
           data: {
             ...prevState.data,
@@ -652,18 +674,21 @@ export const useExportStepStore = create<ExportStepState>((set, get) => ({
     // Enhanced persistence actions implementation (similar to step 2's pattern)
     loadExportPreferences: async (workspaceId: string) => {
       try {
-        console.log(`Loading export preferences for workspace: ${workspaceId}`);
+        logger.debug('Loading export preferences', { workspaceId });
         const preferences = await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('export:loadPreferences', workspaceId) as ExportWorkspacePreferences | null;
         return preferences || null;
       } catch (error) {
-        console.error('Failed to load export preferences:', error);
+        logger.error('Failed to load export preferences', {
+          workspaceId,
+          error: error instanceof Error ? error.message : String(error)
+        });
         return null;
       }
     },
 
     saveExportPreferences: async (workspaceId: string, preferences: Partial<ExportWorkspacePreferences>) => {
       try {
-        console.log(`Saving export preferences for workspace: ${workspaceId}`, preferences);
+        logger.debug('Saving export preferences', { workspaceId });
         
         // Save via IPC
         await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('export:savePreferences', workspaceId, preferences);
@@ -699,24 +724,30 @@ export const useExportStepStore = create<ExportStepState>((set, get) => ({
           }));
         }
       } catch (error) {
-        console.error('Failed to save export preferences:', error);
+        logger.error('Failed to save export preferences', {
+          workspaceId,
+          error: error instanceof Error ? error.message : String(error)
+        });
       }
     },
 
     loadExportSession: async (workspaceId: string) => {
       try {
-        console.log(`Loading export session for workspace: ${workspaceId}`);
+        logger.debug('Loading export session', { workspaceId });
         const session = await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('export:loadSession', workspaceId) as ExportSessionState | null;
         return session || null;
       } catch (error) {
-        console.error('Failed to load export session:', error);
+        logger.error('Failed to load export session', {
+          workspaceId,
+          error: error instanceof Error ? error.message : String(error)
+        });
         return null;
       }
     },
 
     saveExportSession: async (workspaceId: string, session: Partial<ExportSessionState>) => {
       try {
-        console.log(`Saving export session for workspace: ${workspaceId}`, session);
+        logger.debug('Saving export session', { workspaceId });
         
         // Save via IPC
         await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('export:saveSession', workspaceId, session);
@@ -757,13 +788,16 @@ export const useExportStepStore = create<ExportStepState>((set, get) => ({
           }));
         }
       } catch (error) {
-        console.error('Failed to save export session:', error);
+        logger.error('Failed to save export session', {
+          workspaceId,
+          error: error instanceof Error ? error.message : String(error)
+        });
       }
     },
 
     clearExportPreferences: async (workspaceId: string) => {
       try {
-        console.log(`Clearing export preferences for workspace: ${workspaceId}`);
+        logger.debug('Clearing export preferences', { workspaceId });
         
         // Clear via IPC
         await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('export:clearPreferences', workspaceId);
@@ -777,44 +811,56 @@ export const useExportStepStore = create<ExportStepState>((set, get) => ({
           }
         }));
       } catch (error) {
-        console.error('Failed to clear export preferences:', error);
+        logger.error('Failed to clear export preferences', {
+          workspaceId,
+          error: error instanceof Error ? error.message : String(error)
+        });
       }
     },
 
     loadModifiedSubtitles: async (workspaceId: string) => {
       try {
-        console.log(`Loading modified subtitles for workspace: ${workspaceId}`);
+        logger.debug('Loading modified subtitles', { workspaceId });
         const data = await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('export:loadModifiedSubtitles', workspaceId) as ModifiedSubtitleData | null;
         return data || null;
       } catch (error) {
-        console.error('Failed to load modified subtitles:', error);
+        logger.error('Failed to load modified subtitles', {
+          workspaceId,
+          error: error instanceof Error ? error.message : String(error)
+        });
         return null;
       }
     },
 
     saveModifiedSubtitles: async (workspaceId: string, data: ModifiedSubtitleData) => {
       try {
-        console.log(`Saving modified subtitles for workspace: ${workspaceId}`, data);
+        logger.debug('Saving modified subtitles', { workspaceId });
         await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('export:saveModifiedSubtitles', workspaceId, data);
       } catch (error) {
-        console.error('Failed to save modified subtitles:', error);
+        logger.error('Failed to save modified subtitles', {
+          workspaceId,
+          error: error instanceof Error ? error.message : String(error)
+        });
       }
     },
 
     loadWorkspaceExportHistory: async (workspaceId: string) => {
       try {
-        console.log(`Loading export history for workspace: ${workspaceId}`);
+        logger.debug('Loading export history', { workspaceId });
         const history = await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('export:loadHistory', workspaceId) as WorkspaceExportHistory | null;
         return history || null;
       } catch (error) {
-        console.error('Failed to load workspace export history:', error);
+        logger.error('Failed to load workspace export history', {
+          workspaceId,
+          error: error instanceof Error ? error.message : String(error)
+        });
         return null;
       }
     },
 
     saveWorkspaceExportHistory: async (workspaceId: string, history: WorkspaceExportHistory) => {
       try {
-        console.log(`Saving export history for workspace: ${workspaceId}`, history);
+        logger.debug('Saving export history', { workspaceId });
         
         // Save via IPC
         await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke('export:saveHistory', workspaceId, history);
@@ -828,14 +874,17 @@ export const useExportStepStore = create<ExportStepState>((set, get) => ({
           }
         }));
       } catch (error) {
-        console.error('Failed to save workspace export history:', error);
+        logger.error('Failed to save workspace export history', {
+          workspaceId,
+          error: error instanceof Error ? error.message : String(error)
+        });
       }
     },
 
     // Load all workspace-specific export persistence data
     loadWorkspacePersistenceData: async (workspaceId: string) => {
       try {
-        console.log(`🔄 Loading all export persistence data for workspace: ${workspaceId}`);
+        logger.info('Loading all export persistence data', { workspaceId });
         
         // Load export preferences (format selection, language options, etc.)
         const preferences = await get().actions.loadExportPreferences(workspaceId);
@@ -856,7 +905,7 @@ export const useExportStepStore = create<ExportStepState>((set, get) => ({
               lastModified: Date.now()
             }
           }));
-          console.log(`✅ Applied export preferences for workspace: ${workspaceId}`, preferences);
+          logger.debug('Applied export preferences', { workspaceId });
         }
 
         // Load export history
@@ -869,7 +918,10 @@ export const useExportStepStore = create<ExportStepState>((set, get) => ({
               lastModified: Date.now()
             }
           }));
-          console.log(`✅ Loaded export history for workspace: ${workspaceId} (${history.exports.length} entries)`);
+          logger.debug('Loaded export history', {
+            workspaceId,
+            entriesCount: history.exports.length
+          });
         }
 
         // Load export session state (UI state, temporary preferences)
@@ -898,12 +950,15 @@ export const useExportStepStore = create<ExportStepState>((set, get) => ({
               lastModified: Date.now()
             }
           }));
-          console.log(`✅ Applied export session state for workspace: ${workspaceId}`, sessionState);
+          logger.debug('Applied export session state', { workspaceId });
         }
 
-        console.log(`✅ Successfully loaded all export persistence data for workspace: ${workspaceId}`);
+        logger.debug('Successfully loaded all export persistence data', { workspaceId });
       } catch (error) {
-        console.error('Failed to load workspace persistence data:', error);
+        logger.error('Failed to load workspace persistence data', {
+          workspaceId,
+          error: error instanceof Error ? error.message : String(error)
+        });
         // Don't throw - allow workspace switching to continue even if persistence loading fails
       }
     }

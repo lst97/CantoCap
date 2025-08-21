@@ -58,7 +58,8 @@
       "Bash(npm run dev:*)",
       "Bash(pnpm lint:*)",
       "Bash(pnpm eslint:*)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(tsc:*)"
     ],
     "deny": []
   }

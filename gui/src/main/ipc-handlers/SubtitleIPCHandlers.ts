@@ -1,5 +1,7 @@
 import { ipcMain } from 'electron';
 import Store from 'electron-store';
+import { MainLogger } from '../logger';
+import type { MainProcessLogger } from '../../types/logger';
 
 // ============================================================================
 // SUBTITLE PERSISTENCE TYPES
@@ -47,6 +49,7 @@ interface WorkspaceSubtitleData {
 
 export class SubtitleIPCHandlers {
   private subtitleStore: Store;
+  private logger: MainProcessLogger = MainLogger.createScopedLogger('SubtitleIPC');
 
   constructor() {
     this.subtitleStore = new Store({
@@ -68,14 +71,14 @@ export class SubtitleIPCHandlers {
         const data = this.subtitleStore.get(key, null) as WorkspaceSubtitleData | null;
         
         if (data) {
-          console.log(`✅ Loaded subtitle data for workspace ${workspaceId}: ${data.currentSubtitles.length} subtitles`);
+          this.logger.info('Loaded subtitle data for workspace', { workspaceId, subtitleCount: data.currentSubtitles.length });
         } else {
-          console.log(`ℹ️ No subtitle data found for workspace ${workspaceId}`);
+          this.logger.debug('No subtitle data found for workspace', { workspaceId });
         }
         
         return data;
       } catch (error) {
-        console.error(`❌ Failed to load subtitle data for workspace ${workspaceId}:`, error);
+        this.logger.error('Failed to load subtitle data for workspace', { error: error instanceof Error ? error.message : String(error), workspaceId });
         return null;
       }
     });
@@ -97,10 +100,10 @@ export class SubtitleIPCHandlers {
 
         this.subtitleStore.set(key, saveData);
         
-        console.log(`✅ Saved subtitle data for workspace ${workspaceId}: ${data.currentSubtitles.length} subtitles`);
+        this.logger.info('Saved subtitle data for workspace', { workspaceId, subtitleCount: data.currentSubtitles.length });
         return { success: true };
       } catch (error) {
-        console.error(`❌ Failed to save subtitle data for workspace ${workspaceId}:`, error);
+        this.logger.error('Failed to save subtitle data for workspace', { error: error instanceof Error ? error.message : String(error), workspaceId });
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         return { success: false, error: errorMessage };
       }
@@ -111,10 +114,10 @@ export class SubtitleIPCHandlers {
       try {
         const key = `subtitles.${workspaceId}`;
         const exists = this.subtitleStore.has(key);
-        console.log(`ℹ️ Workspace ${workspaceId} exists: ${exists}`);
+        this.logger.debug('Workspace existence check', { workspaceId, exists });
         return exists;
       } catch (error) {
-        console.error(`❌ Failed to check workspace existence ${workspaceId}:`, error);
+        this.logger.error('Failed to check workspace existence', { error: error instanceof Error ? error.message : String(error), workspaceId });
         return false;
       }
     });
@@ -126,10 +129,10 @@ export class SubtitleIPCHandlers {
         if (this.subtitleStore.has(key)) {
           this.subtitleStore.delete(key);
         }
-        console.log(`✅ Deleted workspace ${workspaceId}`);
+        this.logger.info('Deleted workspace', { workspaceId });
         return { success: true };
       } catch (error) {
-        console.error(`❌ Failed to delete workspace ${workspaceId}:`, error);
+        this.logger.error('Failed to delete workspace', { error: error instanceof Error ? error.message : String(error), workspaceId });
         return { success: false };
       }
     });
@@ -214,10 +217,10 @@ export class SubtitleIPCHandlers {
           }
         }
 
-        console.log(`✅ Successfully imported and validated JSON with ${subtitlesToProcess.length} subtitles from ${filePath}`);
+        this.logger.info('Successfully imported and validated JSON', { subtitleCount: subtitlesToProcess.length, filePath });
         return { success: true, subtitles: subtitlesToProcess };
       } catch (error) {
-        console.error('Failed to import JSON:', error);
+        this.logger.error('Failed to import JSON', { error: error instanceof Error ? error.message : String(error), filePath });
         
         if (error instanceof SyntaxError) {
           return { success: false, error: 'Invalid JSON file: Please check the file format and syntax' };
@@ -255,7 +258,7 @@ export class SubtitleIPCHandlers {
         
         return { isValid: errors.length === 0, errors: errors.length > 0 ? errors : undefined };
       } catch (error) {
-        console.error('Failed to validate format:', error);
+        this.logger.error('Failed to validate format', { error: error instanceof Error ? error.message : String(error) });
         return { isValid: false, errors: ['Validation failed due to internal error'] };
       }
     });
@@ -276,10 +279,10 @@ export class SubtitleIPCHandlers {
         };
 
         this.subtitleStore.set(stepKey, stepData);
-        console.log(`✅ Synced ${subtitles.length} subtitles to step for workspace ${workspaceId}`);
+        this.logger.info('Synced subtitles to step for workspace', { workspaceId, subtitleCount: subtitles.length });
         return { success: true };
       } catch (error) {
-        console.error('Failed to sync to step:', error);
+        this.logger.error('Failed to sync to step', { error: error instanceof Error ? error.message : String(error) });
         return { success: false };
       }
     });
@@ -291,14 +294,14 @@ export class SubtitleIPCHandlers {
         const stepData = this.subtitleStore.get(stepKey, null) as { subtitles?: unknown[] } | null;
         
         if (stepData && stepData.subtitles) {
-          console.log(`✅ Retrieved ${stepData.subtitles.length} subtitles from step for workspace ${workspaceId}`);
+          this.logger.info('Retrieved subtitles from step for workspace', { workspaceId, subtitleCount: stepData.subtitles.length });
           return { subtitles: stepData.subtitles };
         }
         
-        console.log(`ℹ️ No step data found for workspace ${workspaceId}`);
+        this.logger.debug('No step data found for workspace', { workspaceId });
         return {};
       } catch (error) {
-        console.error('Failed to sync from step:', error);
+        this.logger.error('Failed to sync from step', { error: error instanceof Error ? error.message : String(error) });
         return {};
       }
     });
@@ -309,9 +312,9 @@ export class SubtitleIPCHandlers {
         const key = `subtitles.${workspaceId}`;
         this.subtitleStore.delete(key);
         
-        console.log(`✅ Cleared subtitle data for workspace ${workspaceId}`);
+        this.logger.info('Cleared subtitle data for workspace', { workspaceId });
       } catch (error) {
-        console.error(`❌ Failed to clear subtitle data for workspace ${workspaceId}:`, error);
+        this.logger.error('Failed to clear subtitle data for workspace', { error: error instanceof Error ? error.message : String(error), workspaceId });
         throw new Error(`Failed to clear subtitle data: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     });
@@ -330,10 +333,10 @@ export class SubtitleIPCHandlers {
           }
         });
 
-        console.log(`ℹ️ Found subtitle data for ${workspaceIds.length} workspaces`);
+        this.logger.info('Found subtitle data for workspaces', { workspaceCount: workspaceIds.length });
         return workspaceIds;
       } catch (error) {
-        console.error('❌ Failed to list subtitle workspaces:', error);
+        this.logger.error('Failed to list subtitle workspaces', { error: error instanceof Error ? error.message : String(error) });
         return [];
       }
     });
@@ -356,7 +359,7 @@ export class SubtitleIPCHandlers {
         
         return null;
       } catch (error) {
-        console.error(`❌ Failed to get subtitle metadata for workspace ${workspaceId}:`, error);
+        this.logger.error('Failed to get subtitle metadata for workspace', { error: error instanceof Error ? error.message : String(error), workspaceId });
         return null;
       }
     });
@@ -384,10 +387,10 @@ export class SubtitleIPCHandlers {
           }
         });
 
-        console.log(`✅ Cleaned up ${cleanedCount} orphaned subtitle data entries`);
+        this.logger.info('Cleaned up orphaned subtitle data entries', { cleanedCount });
         return cleanedCount;
       } catch (error) {
-        console.error('❌ Failed to cleanup orphaned subtitle data:', error);
+        this.logger.error('Failed to cleanup orphaned subtitle data', { error: error instanceof Error ? error.message : String(error) });
         return 0;
       }
     });
@@ -411,7 +414,7 @@ export class SubtitleIPCHandlers {
           error: 'No subtitle data found for workspace'
         };
       } catch (error) {
-        console.error(`❌ Failed to export subtitle data for workspace ${workspaceId}:`, error);
+        this.logger.error('Failed to export subtitle data for workspace', { error: error instanceof Error ? error.message : String(error), workspaceId });
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Unknown error'
@@ -436,13 +439,13 @@ export class SubtitleIPCHandlers {
         const key = `subtitles.${workspaceId}`;
         this.subtitleStore.set(key, data);
         
-        console.log(`✅ Imported subtitle data for workspace ${workspaceId}: ${data.currentSubtitles.length} subtitles`);
+        this.logger.info('Imported subtitle data for workspace', { workspaceId, subtitleCount: data.currentSubtitles.length });
         return {
           success: true,
           subtitleCount: data.currentSubtitles.length
         };
       } catch (error) {
-        console.error(`❌ Failed to import subtitle data for workspace ${workspaceId}:`, error);
+        this.logger.error('Failed to import subtitle data for workspace', { error: error instanceof Error ? error.message : String(error), workspaceId });
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Invalid JSON data'
@@ -450,7 +453,7 @@ export class SubtitleIPCHandlers {
       }
     });
 
-    console.log('✅ Subtitle IPC handlers initialized');
+    this.logger.info('Subtitle IPC handlers initialized successfully');
   }
 
   // Cleanup method to remove all handlers
@@ -473,7 +476,7 @@ export class SubtitleIPCHandlers {
     ipcMain.removeAllListeners('subtitle:export-workspace-data');
     ipcMain.removeAllListeners('subtitle:import-workspace-data');
     
-    console.log('✅ Subtitle IPC handlers cleaned up');
+    this.logger.info('Subtitle IPC handlers cleaned up successfully');
   }
 
 
@@ -498,7 +501,7 @@ export class SubtitleIPCHandlers {
 
       return stats;
     } catch (error) {
-      console.error('Failed to get store stats:', error);
+      this.logger.error('Failed to get store stats', { error: error instanceof Error ? error.message : String(error) });
       return { error: 'Failed to get statistics' };
     }
   }

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState } from 'react';
 import {
   Box,
   Typography,
@@ -12,7 +12,7 @@ import {
   AccordionDetails,
   Tooltip,
   Fade,
-} from "@mui/material";
+} from '@mui/material';
 import {
   Error as ErrorIcon,
   RestartAlt as RestartIcon,
@@ -24,18 +24,25 @@ import {
   Engineering as EngineIcon,
   Terminal as ConsoleIcon,
   PowerSettingsNew as PowerIcon,
-} from "@mui/icons-material";
-import { 
+} from '@mui/icons-material';
+import {
   useProcessingStepContent,
   useStepActions,
-  useStepError 
-} from "../../../stores/useStepStore";
-import { useWorkflowActions } from "../../../stores/useWorkflowStore";
-import { ErrorCategory } from "../../../types/error";
-import { errorHandler } from "../../../utils/errorHandler";
-import { ErrorCard, InfoSection } from "./styles";
+  useStepError,
+} from '../../../stores/useStepStore';
+import { useWorkflowActions } from '../../../stores/useWorkflowStore';
+import { ErrorCategory } from '../../../types/error';
+import { errorHandler } from '../../../utils/errorHandler';
+import { ErrorCard, InfoSection } from './styles';
+import { createComponentLogger } from '@/renderer/src/utils/logger';
+
+// Extend Navigator interface to include non-standard properties
+interface ExtendedNavigator extends Navigator {
+  deviceMemory?: number;
+}
 
 export const ProcessingError: React.FC = () => {
+  const logger = createComponentLogger('ProcessingError');
   const processing = useProcessingStepContent();
   const { resetStepContent } = useStepActions();
   const error = useStepError();
@@ -45,23 +52,28 @@ export const ProcessingError: React.FC = () => {
   const [recoveryAttempts, setRecoveryAttempts] = useState(0);
 
   // Calculate elapsed time for display
-  const timeElapsed = processing.startTime && processing.endTime 
-    ? Math.floor((new Date(processing.endTime).getTime() - new Date(processing.startTime).getTime()) / 1000)
-    : processing.timeElapsed || 0;
+  const timeElapsed =
+    processing.startTime && processing.endTime
+      ? Math.floor(
+          (new Date(processing.endTime).getTime() - new Date(processing.startTime).getTime()) / 1000
+        )
+      : processing.timeElapsed || 0;
 
   // Use logs from processing step
   const recentMessages = processing.logs?.slice(-20) || [];
-  const errorMessages = recentMessages.filter((msg) => 
+  const errorMessages = recentMessages.filter((msg) =>
     typeof msg === 'string' ? msg.toLowerCase().includes('error') : false
   );
-  
+
   // Get last activity from logs
-  const lastActivity = processing.logs && processing.logs.length > 0 
-    ? processing.logs[processing.logs.length - 1] 
-    : null;
+  const lastActivity =
+    processing.logs && processing.logs.length > 0
+      ? processing.logs[processing.logs.length - 1]
+      : null;
 
   // Get error message from step error or processing logs
-  const errorMessage = error || (errorMessages.length > 0 ? errorMessages[errorMessages.length - 1] : null);
+  const errorMessage =
+    error || (errorMessages.length > 0 ? errorMessages[errorMessages.length - 1] : null);
 
   if (!errorMessage) return null;
 
@@ -70,28 +82,25 @@ export const ProcessingError: React.FC = () => {
     const msg = errorMsg.toLowerCase();
 
     // Check for specific error types in debug messages
-    if (
-      msg.includes("exit_error") ||
-      (msg.includes("exit") && msg.includes("code"))
-    ) {
+    if (msg.includes('exit_error') || (msg.includes('exit') && msg.includes('code'))) {
       return ErrorCategory.ENGINE_EXIT;
     }
-    if (msg.includes("startup_error")) {
+    if (msg.includes('startup_error')) {
       return ErrorCategory.ENGINE_STARTUP;
     }
-    if (msg.includes("runtime_error")) {
+    if (msg.includes('runtime_error')) {
       return ErrorCategory.ENGINE_RUNTIME;
     }
-    if (msg.includes("spawn_error")) {
+    if (msg.includes('spawn_error')) {
       return ErrorCategory.ENGINE_SPAWN;
     }
-    if (msg.includes("setup_error")) {
+    if (msg.includes('setup_error')) {
       return ErrorCategory.ENGINE_SETUP;
     }
-    if (msg.includes("process_error")) {
+    if (msg.includes('process_error')) {
       return ErrorCategory.ENGINE_IPC;
     }
-    if (msg.includes("python") || msg.includes("cantocap")) {
+    if (msg.includes('python') || msg.includes('cantocap')) {
       return ErrorCategory.ENGINE_RUNTIME;
     }
     return ErrorCategory.PROCESSING;
@@ -107,71 +116,71 @@ export const ProcessingError: React.FC = () => {
       { primary: string; secondary: string; accent: string }
     > = {
       [ErrorCategory.ENGINE_IPC]: {
-        primary: "#7C3AED",
-        secondary: "#A855F7",
-        accent: "#C4B5FD",
+        primary: '#7C3AED',
+        secondary: '#A855F7',
+        accent: '#C4B5FD',
       }, // Purple - IPC
       [ErrorCategory.ENGINE_STARTUP]: {
-        primary: "#ED4245",
-        secondary: "#EF4444",
-        accent: "#FCA5A5",
+        primary: '#ED4245',
+        secondary: '#EF4444',
+        accent: '#FCA5A5',
       }, // Discord Red - Critical
       [ErrorCategory.ENGINE_RUNTIME]: {
-        primary: "#F59E0B",
-        secondary: "#EAB308",
-        accent: "#FCD34D",
+        primary: '#F59E0B',
+        secondary: '#EAB308',
+        accent: '#FCD34D',
       }, // Primary Amber - Runtime
       [ErrorCategory.ENGINE_EXIT]: {
-        primary: "#ED4245",
-        secondary: "#DC2626",
-        accent: "#F87171",
+        primary: '#ED4245',
+        secondary: '#DC2626',
+        accent: '#F87171',
       }, // Discord Red - Exit
       [ErrorCategory.ENGINE_SPAWN]: {
-        primary: "#EA580C",
-        secondary: "#F97316",
-        accent: "#FDBA74",
+        primary: '#EA580C',
+        secondary: '#F97316',
+        accent: '#FDBA74',
       }, // Orange - Spawn
       [ErrorCategory.ENGINE_SETUP]: {
-        primary: "#7DD3FC",
-        secondary: "#3B82F6",
-        accent: "#93C5FD",
+        primary: '#7DD3FC',
+        secondary: '#3B82F6',
+        accent: '#93C5FD',
       }, // Light Blue - Setup
       [ErrorCategory.PROCESSING]: {
-        primary: "#F59E0B",
-        secondary: "#EAB308",
-        accent: "#FCD34D",
+        primary: '#F59E0B',
+        secondary: '#EAB308',
+        accent: '#FCD34D',
       }, // Primary Amber
       [ErrorCategory.RUNTIME]: {
-        primary: "#F59E0B",
-        secondary: "#EAB308",
-        accent: "#FCD34D",
+        primary: '#F59E0B',
+        secondary: '#EAB308',
+        accent: '#FCD34D',
       }, // Primary Amber
       [ErrorCategory.NETWORK]: {
-        primary: "#EF4444",
-        secondary: "#DC2626",
-        accent: "#F87171",
+        primary: '#EF4444',
+        secondary: '#DC2626',
+        accent: '#F87171',
       }, // Red
       [ErrorCategory.FILE_SYSTEM]: {
-        primary: "#8B5CF6",
-        secondary: "#7C3AED",
-        accent: "#C4B5FD",
+        primary: '#8B5CF6',
+        secondary: '#7C3AED',
+        accent: '#C4B5FD',
       }, // Purple
       [ErrorCategory.VALIDATION]: {
-        primary: "#F59E0B",
-        secondary: "#EAB308",
-        accent: "#FCD34D",
+        primary: '#F59E0B',
+        secondary: '#EAB308',
+        accent: '#FCD34D',
       }, // Amber
       [ErrorCategory.UNKNOWN]: {
-        primary: "#96989D",
-        secondary: "#9CA3AF",
-        accent: "#D1D5DB",
+        primary: '#96989D',
+        secondary: '#9CA3AF',
+        accent: '#D1D5DB',
       }, // Gray
     };
     return (
       engineColors[category] || {
-        primary: "#96989D",
-        secondary: "#9CA3AF",
-        accent: "#D1D5DB",
+        primary: '#96989D',
+        secondary: '#9CA3AF',
+        accent: '#D1D5DB',
       }
     );
   };
@@ -180,7 +189,7 @@ export const ProcessingError: React.FC = () => {
 
   // Get error icon based on category
   const getErrorIcon = (category: ErrorCategory) => {
-    const iconProps = { sx: { fontSize: "3rem", color: colors.primary } };
+    const iconProps = { sx: { fontSize: '3rem', color: colors.primary } };
     switch (category) {
       case ErrorCategory.ENGINE_STARTUP:
       case ErrorCategory.ENGINE_SPAWN:
@@ -198,17 +207,14 @@ export const ProcessingError: React.FC = () => {
   };
 
   // Get error explanation
-  const errorExplanation = errorHandler.getErrorExplanation(
-    new Error(errorMessage),
-    errorCategory
-  );
+  const errorExplanation = errorHandler.getErrorExplanation(new Error(errorMessage), errorCategory);
 
   // Recovery actions
   const handleRetry = () => {
     setRecoveryAttempts((prev) => prev + 1);
     resetStepContent('processing');
     setTimeout(() => {
-      workflowActions.navigateToStep("config");
+      workflowActions.navigateToStep('config');
     }, 500);
   };
 
@@ -223,10 +229,10 @@ export const ProcessingError: React.FC = () => {
       if (window.cantocapAPI?.runEngineSetup) {
         await window.cantocapAPI.runEngineSetup();
         resetStepContent('processing');
-        workflowActions.navigateToStep("config");
+        workflowActions.navigateToStep('config');
       }
     } catch (setupError) {
-      console.error("Engine setup failed:", setupError);
+      console.error('Engine setup failed:', setupError);
     }
   };
 
@@ -252,8 +258,8 @@ export const ProcessingError: React.FC = () => {
 
     navigator.clipboard
       .writeText(JSON.stringify(errorData, null, 2))
-      .then(() => console.log("Error data copied to clipboard"))
-      .catch((err) => console.error("Failed to copy error data:", err));
+      .then(() => logger.info('Error data copied to clipboard'))
+      .catch((err) => console.error('Failed to copy error data:', err));
   };
 
   const handleDownloadError = () => {
@@ -280,17 +286,17 @@ export const ProcessingError: React.FC = () => {
         platform: navigator.platform,
         language: navigator.language,
         online: navigator.onLine,
-        memory: (navigator as any).deviceMemory,
+        memory: (navigator as ExtendedNavigator).deviceMemory,
         hardwareConcurrency: navigator.hardwareConcurrency,
       },
     };
 
     const blob = new Blob([JSON.stringify(errorData, null, 2)], {
-      type: "application/json",
+      type: 'application/json',
     });
 
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
+    const a = document.createElement('a');
     a.href = url;
     a.download = `cantocap-engine-error-${Date.now()}.json`;
     document.body.appendChild(a);
@@ -309,14 +315,14 @@ export const ProcessingError: React.FC = () => {
               p: 4,
               background: `linear-gradient(135deg, ${colors.primary}15 0%, ${colors.primary}05 100%)`,
               borderBottom: `1px solid ${colors.primary}30`,
-              textAlign: "center",
+              textAlign: 'center',
             }}
           >
-            <Stack alignItems="center" spacing={2}>
+            <Stack alignItems='center' spacing={2}>
               {getErrorIcon(errorCategory)}
 
               <Typography
-                variant="h4"
+                variant='h4'
                 sx={{
                   fontWeight: 700,
                   color: colors.primary,
@@ -326,10 +332,10 @@ export const ProcessingError: React.FC = () => {
                 {errorExplanation.title}
               </Typography>
 
-              <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+              <Stack direction='row' spacing={1} sx={{ mb: 2 }}>
                 <Chip
-                  label={errorCategory.replace("_", " ").toUpperCase()}
-                  size="small"
+                  label={errorCategory.replace('_', ' ').toUpperCase()}
+                  size='small'
                   sx={{
                     backgroundColor: `${colors.primary}20`,
                     color: colors.primary,
@@ -337,49 +343,44 @@ export const ProcessingError: React.FC = () => {
                     border: `1px solid ${colors.primary}40`,
                   }}
                 />
-                {errorMessage.includes("Exit Code:") && (
+                {errorMessage.includes('Exit Code:') && (
                   <Chip
-                    label={
-                      errorMessage.match(/Exit Code: (\d+)/)?.[0] ||
-                      "Exit Code: Unknown"
-                    }
-                    size="small"
+                    label={errorMessage.match(/Exit Code: (\d+)/)?.[0] || 'Exit Code: Unknown'}
+                    size='small'
                     sx={{
-                      backgroundColor: "rgba(239, 68, 68, 0.2)",
-                      color: "#EF4444",
+                      backgroundColor: 'rgba(239, 68, 68, 0.2)',
+                      color: '#EF4444',
                       fontWeight: 600,
-                      fontFamily: "monospace",
+                      fontFamily: 'monospace',
                     }}
                   />
                 )}
                 {recoveryAttempts > 0 && (
                   <Chip
                     label={`Attempts: ${recoveryAttempts}`}
-                    size="small"
+                    size='small'
                     sx={{
-                      backgroundColor: "rgba(156, 163, 175, 0.2)",
-                      color: "#9CA3AF",
+                      backgroundColor: 'rgba(156, 163, 175, 0.2)',
+                      color: '#9CA3AF',
                       fontWeight: 600,
                     }}
                   />
                 )}
                 <Chip
-                  label={`${errorMessages.length} Error${
-                    errorMessages.length !== 1 ? "s" : ""
-                  }`}
-                  size="small"
+                  label={`${errorMessages.length} Error${errorMessages.length !== 1 ? 's' : ''}`}
+                  size='small'
                   sx={{
-                    backgroundColor: "rgba(239, 68, 68, 0.2)",
-                    color: "#EF4444",
+                    backgroundColor: 'rgba(239, 68, 68, 0.2)',
+                    color: '#EF4444',
                     fontWeight: 600,
                   }}
                 />
               </Stack>
 
               <Typography
-                variant="body1"
+                variant='body1'
                 sx={{
-                  color: "text.secondary",
+                  color: 'text.secondary',
                   maxWidth: 600,
                   lineHeight: 1.6,
                 }}
@@ -392,23 +393,23 @@ export const ProcessingError: React.FC = () => {
           <Box sx={{ p: 4 }}>
             {/* Error Message */}
             <Alert
-              severity="error"
+              severity='error'
               sx={{
                 mb: 3,
                 backgroundColor: `${colors.primary}10`,
                 border: `1px solid ${colors.primary}30`,
-                "& .MuiAlert-icon": { color: colors.primary },
+                '& .MuiAlert-icon': { color: colors.primary },
               }}
             >
-              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+              <Typography variant='subtitle2' sx={{ fontWeight: 600, mb: 1 }}>
                 Error Details:
               </Typography>
               <Typography
-                variant="body2"
+                variant='body2'
                 sx={{
-                  fontFamily: "monospace",
-                  wordBreak: "break-word",
-                  backgroundColor: "rgba(0, 0, 0, 0.1)",
+                  fontFamily: 'monospace',
+                  wordBreak: 'break-word',
+                  backgroundColor: 'rgba(0, 0, 0, 0.1)',
                   p: 1,
                   borderRadius: 1,
                 }}
@@ -420,41 +421,41 @@ export const ProcessingError: React.FC = () => {
             {/* Additional Error Messages */}
             {errorMessages.length > 1 && (
               <Box sx={{ mb: 3 }}>
-                <Typography variant="h6" sx={{ mb: 2, color: "text.primary" }}>
+                <Typography variant='h6' sx={{ mb: 2, color: 'text.primary' }}>
                   Additional Errors
                 </Typography>
                 <Alert
-                  severity="warning"
+                  severity='warning'
                   sx={{
-                    backgroundColor: "rgba(245, 158, 11, 0.1)",
-                    border: "1px solid rgba(245, 158, 11, 0.3)",
+                    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                    border: '1px solid rgba(245, 158, 11, 0.3)',
                     mb: 2,
                   }}
                 >
-                  <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                  <Typography variant='subtitle2' sx={{ fontWeight: 600 }}>
                     PROCESSING ERROR - {new Date().toLocaleTimeString()}
                   </Typography>
                   <Typography
-                    variant="body2"
+                    variant='body2'
                     sx={{
-                      color: "text.secondary",
-                      fontFamily: "monospace",
-                      fontSize: "0.8rem",
+                      color: 'text.secondary',
+                      fontFamily: 'monospace',
+                      fontSize: '0.8rem',
                     }}
                   >
                     {errorMessages[errorMessages.length - 2]}
                   </Typography>
                 </Alert>
                 <Typography
-                  variant="body2"
+                  variant='body2'
                   sx={{
-                    color: "text.secondary",
-                    fontStyle: "italic",
-                    textAlign: "center",
+                    color: 'text.secondary',
+                    fontStyle: 'italic',
+                    textAlign: 'center',
                   }}
                 >
-                  {errorMessages.length} total error{errorMessages.length !== 1 ? "s" : ""} recorded.{" "}
-                  <strong>See Technical Details below for complete error history.</strong>
+                  {errorMessages.length} total error{errorMessages.length !== 1 ? 's' : ''}{' '}
+                  recorded. <strong>See Technical Details below for complete error history.</strong>
                 </Typography>
               </Box>
             )}
@@ -462,24 +463,18 @@ export const ProcessingError: React.FC = () => {
             {/* Possible Causes */}
             <InfoSection>
               <Typography
-                variant="h6"
-                sx={{ mb: 2, display: "flex", alignItems: "center", gap: 1 }}
+                variant='h6'
+                sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}
               >
                 🔍 Possible Causes
               </Typography>
               <Stack spacing={1}>
                 {errorExplanation.possibleCauses.map((cause: string, index: number) => (
-                  <Box
-                    key={index}
-                    sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}
-                  >
-                    <Typography variant="body2" sx={{ color: colors.primary }}>
+                  <Box key={index} sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                    <Typography variant='body2' sx={{ color: colors.primary }}>
                       •
                     </Typography>
-                    <Typography
-                      variant="body2"
-                      sx={{ color: "text.secondary" }}
-                    >
+                    <Typography variant='body2' sx={{ color: 'text.secondary' }}>
                       {cause}
                     </Typography>
                   </Box>
@@ -490,21 +485,18 @@ export const ProcessingError: React.FC = () => {
             {/* Suggested Actions */}
             <InfoSection>
               <Typography
-                variant="h6"
-                sx={{ mb: 2, display: "flex", alignItems: "center", gap: 1 }}
+                variant='h6'
+                sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}
               >
                 💡 Suggested Actions
               </Typography>
               <Stack spacing={1}>
                 {errorExplanation.suggestedActions.map((action: string, index: number) => (
-                  <Box
-                    key={index}
-                    sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}
-                  >
-                    <Typography variant="body2" sx={{ color: "#F59E0B" }}>
+                  <Box key={index} sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                    <Typography variant='body2' sx={{ color: '#F59E0B' }}>
                       •
                     </Typography>
-                    <Typography variant="body2" sx={{ color: "text.primary" }}>
+                    <Typography variant='body2' sx={{ color: 'text.primary' }}>
                       {action}
                     </Typography>
                   </Box>
@@ -515,14 +507,14 @@ export const ProcessingError: React.FC = () => {
             {/* Recovery Actions */}
             <InfoSection>
               <Typography
-                variant="h6"
-                sx={{ mb: 3, display: "flex", alignItems: "center", gap: 1 }}
+                variant='h6'
+                sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 1 }}
               >
                 🔧 Recovery Options
               </Typography>
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                 <Button
-                  variant="contained"
+                  variant='contained'
                   startIcon={<RestartIcon />}
                   onClick={handleRetry}
                   sx={{
@@ -531,10 +523,10 @@ export const ProcessingError: React.FC = () => {
                     borderRadius: 3,
                     fontWeight: 600,
                     background: `linear-gradient(135deg, ${colors.primary} 0%, ${colors.secondary} 100%)`,
-                    color: "#FFFFFF",
-                    "&:hover": {
+                    color: '#FFFFFF',
+                    '&:hover': {
                       background: `linear-gradient(135deg, ${colors.secondary} 0%, ${colors.accent} 100%)`,
-                      transform: "translateY(-1px)",
+                      transform: 'translateY(-1px)',
                     },
                   }}
                 >
@@ -545,7 +537,7 @@ export const ProcessingError: React.FC = () => {
                   errorCategory === ErrorCategory.ENGINE_SETUP ||
                   errorCategory === ErrorCategory.ENGINE_SPAWN) && (
                   <Button
-                    variant="outlined"
+                    variant='outlined'
                     startIcon={<SettingsIcon />}
                     onClick={handleEngineSetup}
                     sx={{
@@ -555,9 +547,9 @@ export const ProcessingError: React.FC = () => {
                       fontWeight: 600,
                       borderColor: colors.primary,
                       color: colors.primary,
-                      "&:hover": {
+                      '&:hover': {
                         backgroundColor: `${colors.primary}10`,
-                        transform: "translateY(-1px)",
+                        transform: 'translateY(-1px)',
                       },
                     }}
                   >
@@ -566,7 +558,7 @@ export const ProcessingError: React.FC = () => {
                 )}
 
                 <Button
-                  variant="outlined"
+                  variant='outlined'
                   startIcon={<RefreshIcon />}
                   onClick={handleRestart}
                   sx={{
@@ -574,11 +566,11 @@ export const ProcessingError: React.FC = () => {
                     px: 3,
                     borderRadius: 3,
                     fontWeight: 600,
-                    borderColor: "#6B7280",
-                    color: "#6B7280",
-                    "&:hover": {
-                      backgroundColor: "rgba(107, 114, 128, 0.1)",
-                      transform: "translateY(-1px)",
+                    borderColor: '#6B7280',
+                    color: '#6B7280',
+                    '&:hover': {
+                      backgroundColor: 'rgba(107, 114, 128, 0.1)',
+                      transform: 'translateY(-1px)',
                     },
                   }}
                 >
@@ -592,18 +584,15 @@ export const ProcessingError: React.FC = () => {
               expanded={showTechnicalDetails}
               onChange={() => setShowTechnicalDetails(!showTechnicalDetails)}
               sx={{
-                backgroundColor: "rgba(0, 0, 0, 0.2)",
-                border: "1px solid rgba(255, 255, 255, 0.1)",
+                backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
                 borderRadius: 2,
-                color: "text.primary",
-                "&:before": { display: "none" },
+                color: 'text.primary',
+                '&:before': { display: 'none' },
               }}
             >
               <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                <Typography
-                  variant="h6"
-                  sx={{ display: "flex", alignItems: "center", gap: 1 }}
-                >
+                <Typography variant='h6' sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   🔬 Technical Details
                 </Typography>
               </AccordionSummary>
@@ -613,35 +602,32 @@ export const ProcessingError: React.FC = () => {
                   <Box>
                     <Box
                       sx={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
                         mb: 2,
                       }}
                     >
-                      <Typography
-                        variant="subtitle2"
-                        sx={{ color: "text.secondary" }}
-                      >
+                      <Typography variant='subtitle2' sx={{ color: 'text.secondary' }}>
                         Error Information
                       </Typography>
-                      <Stack direction="row" spacing={1}>
-                        <Tooltip title="Copy to clipboard">
+                      <Stack direction='row' spacing={1}>
+                        <Tooltip title='Copy to clipboard'>
                           <IconButton
-                            size="small"
+                            size='small'
                             onClick={handleCopyError}
-                            sx={{ color: "text.secondary" }}
+                            sx={{ color: 'text.secondary' }}
                           >
-                            <CopyIcon fontSize="small" />
+                            <CopyIcon fontSize='small' />
                           </IconButton>
                         </Tooltip>
-                        <Tooltip title="Download error report">
+                        <Tooltip title='Download error report'>
                           <IconButton
-                            size="small"
+                            size='small'
                             onClick={handleDownloadError}
-                            sx={{ color: "text.secondary" }}
+                            sx={{ color: 'text.secondary' }}
                           >
-                            <DownloadIcon fontSize="small" />
+                            <DownloadIcon fontSize='small' />
                           </IconButton>
                         </Tooltip>
                       </Stack>
@@ -649,79 +635,78 @@ export const ProcessingError: React.FC = () => {
                     <Box
                       sx={{
                         p: 2,
-                        backgroundColor: "rgba(0, 0, 0, 0.3)",
+                        backgroundColor: 'rgba(0, 0, 0, 0.3)',
                         borderRadius: 2,
-                        border: "1px solid rgba(255, 255, 255, 0.1)",
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
                       }}
                     >
                       <Stack spacing={1}>
                         <Typography
-                          variant="body2"
-                          sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}
+                          variant='body2'
+                          sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
                         >
                           <strong>Category:</strong> {errorCategory}
                         </Typography>
                         <Typography
-                          variant="body2"
-                          sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}
+                          variant='body2'
+                          sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
                         >
                           <strong>Processing Status:</strong> {processing.status}
                         </Typography>
                         {processing.currentPhase && (
                           <Typography
-                            variant="body2"
-                            sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}
+                            variant='body2'
+                            sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
                           >
                             <strong>Current Phase:</strong> {processing.currentPhase}
                           </Typography>
                         )}
                         {processing.progress > 0 && (
                           <Typography
-                            variant="body2"
-                            sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}
+                            variant='body2'
+                            sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
                           >
                             <strong>Progress:</strong> {Math.round(processing.progress)}%
                           </Typography>
                         )}
                         {timeElapsed > 0 && (
                           <Typography
-                            variant="body2"
-                            sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}
+                            variant='body2'
+                            sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
                           >
                             <strong>Time Elapsed:</strong> {timeElapsed}s
                           </Typography>
                         )}
                         {recoveryAttempts > 0 && (
                           <Typography
-                            variant="body2"
-                            sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}
+                            variant='body2'
+                            sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
                           >
                             <strong>Recovery Attempts:</strong> {recoveryAttempts}
                           </Typography>
                         )}
                         {errorMessages.length > 0 && (
                           <Typography
-                            variant="body2"
-                            sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}
+                            variant='body2'
+                            sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
                           >
                             <strong>Error Count:</strong> {errorMessages.length}
                           </Typography>
                         )}
-                        {errorMessage.includes("Exit Code:") && (
+                        {errorMessage.includes('Exit Code:') && (
                           <Typography
-                            variant="body2"
-                            sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}
+                            variant='body2'
+                            sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
                           >
-                            <strong>Exit Code:</strong>{" "}
-                            {errorMessage.match(/Exit Code: (\d+)/)?.[1] || "Unknown"}
+                            <strong>Exit Code:</strong>{' '}
+                            {errorMessage.match(/Exit Code: (\d+)/)?.[1] || 'Unknown'}
                           </Typography>
                         )}
                         <Typography
-                          variant="body2"
-                          sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}
+                          variant='body2'
+                          sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
                         >
-                          <strong>Error Timestamp:</strong>{" "}
-                          {new Date().toISOString()}
+                          <strong>Error Timestamp:</strong> {new Date().toISOString()}
                         </Typography>
                       </Stack>
                     </Box>
@@ -730,30 +715,27 @@ export const ProcessingError: React.FC = () => {
                   {/* Detailed Error Message */}
                   {error && (
                     <Box>
-                      <Typography
-                        variant="subtitle2"
-                        sx={{ mb: 2, color: "text.secondary" }}
-                      >
+                      <Typography variant='subtitle2' sx={{ mb: 2, color: 'text.secondary' }}>
                         Detailed Error Message
                       </Typography>
                       <Box
                         sx={{
                           p: 2,
-                          backgroundColor: "rgba(255, 107, 107, 0.1)",
+                          backgroundColor: 'rgba(255, 107, 107, 0.1)',
                           borderRadius: 2,
-                          border: "1px solid rgba(255, 107, 107, 0.3)",
+                          border: '1px solid rgba(255, 107, 107, 0.3)',
                           maxHeight: 150,
-                          overflow: "auto",
+                          overflow: 'auto',
                         }}
                       >
                         <Typography
-                          variant="body2"
+                          variant='body2'
                           sx={{
-                            fontFamily: "monospace",
-                            fontSize: "0.8rem",
-                            color: "#FF6B6B",
-                            wordBreak: "break-word",
-                            whiteSpace: "pre-wrap",
+                            fontFamily: 'monospace',
+                            fontSize: '0.8rem',
+                            color: '#FF6B6B',
+                            wordBreak: 'break-word',
+                            whiteSpace: 'pre-wrap',
                           }}
                         >
                           {error}
@@ -765,48 +747,43 @@ export const ProcessingError: React.FC = () => {
                   {/* Recent Debug Messages */}
                   {recentMessages.length > 0 && (
                     <Box>
-                      <Typography
-                        variant="subtitle2"
-                        sx={{ mb: 2, color: "text.secondary" }}
-                      >
+                      <Typography variant='subtitle2' sx={{ mb: 2, color: 'text.secondary' }}>
                         Recent Debug Messages (Last {recentMessages.length})
                       </Typography>
                       <Box
                         sx={{
                           p: 2,
-                          backgroundColor: "rgba(0, 0, 0, 0.3)",
+                          backgroundColor: 'rgba(0, 0, 0, 0.3)',
                           borderRadius: 2,
-                          border: "1px solid rgba(255, 255, 255, 0.1)",
+                          border: '1px solid rgba(255, 255, 255, 0.1)',
                           maxHeight: 200,
-                          overflow: "auto",
+                          overflow: 'auto',
                         }}
                       >
                         <Stack spacing={0.5}>
                           {recentMessages.map((msg, index) => (
                             <Typography
                               key={index}
-                              variant="body2"
+                              variant='body2'
                               sx={{
-                                fontFamily: "monospace",
-                                fontSize: "0.75rem",
-                                color: typeof msg === 'string' && msg.toLowerCase().includes('error')
-                                  ? "#FF6B6B"
-                                  : typeof msg === 'string' && msg.toLowerCase().includes('warning')
-                                  ? "#F59E0B"
-                                  : "#96989D",
-                                wordBreak: "break-word",
+                                fontFamily: 'monospace',
+                                fontSize: '0.75rem',
+                                color:
+                                  typeof msg === 'string' && msg.toLowerCase().includes('error')
+                                    ? '#FF6B6B'
+                                    : typeof msg === 'string' &&
+                                        msg.toLowerCase().includes('warning')
+                                      ? '#F59E0B'
+                                      : '#96989D',
+                                wordBreak: 'break-word',
                               }}
                             >
-                              <span
-                                style={{ color: "#7DD3FC", fontSize: "0.7rem" }}
-                              >
+                              <span style={{ color: '#7DD3FC', fontSize: '0.7rem' }}>
                                 [{new Date().toLocaleTimeString()}]
-                              </span>{" "}
-                              <span
-                                style={{ color: "#A855F7", fontSize: "0.7rem" }}
-                              >
+                              </span>{' '}
+                              <span style={{ color: '#A855F7', fontSize: '0.7rem' }}>
                                 [{processing.currentPhase || processing.status}]
-                              </span>{" "}
+                              </span>{' '}
                               {typeof msg === 'string' ? msg : JSON.stringify(msg)}
                             </Typography>
                           ))}
@@ -818,44 +795,42 @@ export const ProcessingError: React.FC = () => {
                   {/* Error-Specific Messages */}
                   {errorMessages.length > 0 && (
                     <Box>
-                      <Typography
-                        variant="subtitle2"
-                        sx={{ mb: 2, color: "text.secondary" }}
-                      >
+                      <Typography variant='subtitle2' sx={{ mb: 2, color: 'text.secondary' }}>
                         Error Messages ({errorMessages.length})
                       </Typography>
                       <Box
                         sx={{
                           p: 2,
-                          backgroundColor: "rgba(255, 107, 107, 0.1)",
+                          backgroundColor: 'rgba(255, 107, 107, 0.1)',
                           borderRadius: 2,
-                          border: "1px solid rgba(255, 107, 107, 0.3)",
+                          border: '1px solid rgba(255, 107, 107, 0.3)',
                           maxHeight: 200,
-                          overflow: "auto",
+                          overflow: 'auto',
                         }}
                       >
                         <Stack spacing={1}>
                           {errorMessages.map((errorMsg, index) => (
                             <Box key={index}>
                               <Typography
-                                variant="body2"
+                                variant='body2'
                                 sx={{
-                                  fontFamily: "monospace",
-                                  fontSize: "0.8rem",
-                                  color: "#FF6B6B",
+                                  fontFamily: 'monospace',
+                                  fontSize: '0.8rem',
+                                  color: '#FF6B6B',
                                   fontWeight: 600,
                                 }}
                               >
-                                [{new Date().toLocaleTimeString()}] {(processing.currentPhase || processing.status).toUpperCase()}
+                                [{new Date().toLocaleTimeString()}]{' '}
+                                {(processing.currentPhase || processing.status).toUpperCase()}
                               </Typography>
                               <Typography
-                                variant="body2"
+                                variant='body2'
                                 sx={{
-                                  fontFamily: "monospace",
-                                  fontSize: "0.75rem",
-                                  color: "#FF9999",
+                                  fontFamily: 'monospace',
+                                  fontSize: '0.75rem',
+                                  color: '#FF9999',
                                   ml: 1,
-                                  wordBreak: "break-word",
+                                  wordBreak: 'break-word',
                                 }}
                               >
                                 {typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg)}
@@ -870,44 +845,42 @@ export const ProcessingError: React.FC = () => {
                   {/* Last Activity */}
                   {lastActivity && (
                     <Box>
-                      <Typography
-                        variant="subtitle2"
-                        sx={{ mb: 2, color: "text.secondary" }}
-                      >
+                      <Typography variant='subtitle2' sx={{ mb: 2, color: 'text.secondary' }}>
                         Last Processing Activity
                       </Typography>
                       <Box
                         sx={{
                           p: 2,
-                          backgroundColor: "rgba(0, 0, 0, 0.3)",
+                          backgroundColor: 'rgba(0, 0, 0, 0.3)',
                           borderRadius: 2,
-                          border: "1px solid rgba(255, 255, 255, 0.1)",
+                          border: '1px solid rgba(255, 255, 255, 0.1)',
                         }}
                       >
                         <Typography
-                          variant="body2"
+                          variant='body2'
                           sx={{
-                            fontFamily: "monospace",
-                            fontSize: "0.8rem",
-                            color: typeof lastActivity === 'string' && lastActivity.toLowerCase().includes('error')
-                              ? "#FF6B6B"
-                              : typeof lastActivity === 'string' && lastActivity.toLowerCase().includes('warning')
-                              ? "#F59E0B"
-                              : "#96989D",
-                            wordBreak: "break-word",
+                            fontFamily: 'monospace',
+                            fontSize: '0.8rem',
+                            color:
+                              typeof lastActivity === 'string' &&
+                              lastActivity.toLowerCase().includes('error')
+                                ? '#FF6B6B'
+                                : typeof lastActivity === 'string' &&
+                                    lastActivity.toLowerCase().includes('warning')
+                                  ? '#F59E0B'
+                                  : '#96989D',
+                            wordBreak: 'break-word',
                           }}
                         >
-                          <span
-                            style={{ color: "#7DD3FC", fontSize: "0.75rem" }}
-                          >
+                          <span style={{ color: '#7DD3FC', fontSize: '0.75rem' }}>
                             [{new Date().toLocaleTimeString()}]
-                          </span>{" "}
-                          <span
-                            style={{ color: "#A855F7", fontSize: "0.75rem" }}
-                          >
+                          </span>{' '}
+                          <span style={{ color: '#A855F7', fontSize: '0.75rem' }}>
                             [{processing.currentPhase || processing.status}]
-                          </span>{" "}
-                          {typeof lastActivity === 'string' ? lastActivity : JSON.stringify(lastActivity)}
+                          </span>{' '}
+                          {typeof lastActivity === 'string'
+                            ? lastActivity
+                            : JSON.stringify(lastActivity)}
                         </Typography>
                       </Box>
                     </Box>
@@ -915,72 +888,61 @@ export const ProcessingError: React.FC = () => {
 
                   {/* System Information */}
                   <Box>
-                    <Typography
-                      variant="subtitle2"
-                      sx={{ mb: 2, color: "text.secondary" }}
-                    >
+                    <Typography variant='subtitle2' sx={{ mb: 2, color: 'text.secondary' }}>
                       System Information
                     </Typography>
                     <Box
                       sx={{
                         p: 2,
-                        backgroundColor: "rgba(0, 0, 0, 0.2)",
+                        backgroundColor: 'rgba(0, 0, 0, 0.2)',
                         borderRadius: 2,
-                        border: "1px solid rgba(255, 255, 255, 0.1)",
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
                       }}
                     >
                       <Stack spacing={1}>
                         <Typography
-                          variant="body2"
-                          sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}
+                          variant='body2'
+                          sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
                         >
-                          <strong style={{ color: "#DCDDDE" }}>
-                            Platform:
-                          </strong>{" "}
+                          <strong style={{ color: '#DCDDDE' }}>Platform:</strong>{' '}
                           {navigator.platform}
                         </Typography>
                         <Typography
-                          variant="body2"
-                          sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}
+                          variant='body2'
+                          sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
                         >
-                          <strong style={{ color: "#DCDDDE" }}>
-                            User Agent:
-                          </strong>{" "}
+                          <strong style={{ color: '#DCDDDE' }}>User Agent:</strong>{' '}
                           {navigator.userAgent}
                         </Typography>
                         <Typography
-                          variant="body2"
-                          sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}
+                          variant='body2'
+                          sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
                         >
-                          <strong style={{ color: "#DCDDDE" }}>
-                            Language:
-                          </strong>{" "}
+                          <strong style={{ color: '#DCDDDE' }}>Language:</strong>{' '}
                           {navigator.language}
                         </Typography>
                         <Typography
-                          variant="body2"
-                          sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}
+                          variant='body2'
+                          sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
                         >
-                          <strong style={{ color: "#DCDDDE" }}>Online:</strong>{" "}
-                          {navigator.onLine ? "Yes" : "No"}
+                          <strong style={{ color: '#DCDDDE' }}>Online:</strong>{' '}
+                          {navigator.onLine ? 'Yes' : 'No'}
                         </Typography>
                         <Typography
-                          variant="body2"
-                          sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}
+                          variant='body2'
+                          sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
                         >
-                          <strong style={{ color: "#DCDDDE" }}>Memory:</strong>{" "}
-                          {(navigator as any).deviceMemory
-                            ? `${(navigator as any).deviceMemory}GB`
-                            : "Unknown"}
+                          <strong style={{ color: '#DCDDDE' }}>Memory:</strong>{' '}
+                          {(navigator as ExtendedNavigator).deviceMemory
+                            ? `${(navigator as ExtendedNavigator).deviceMemory}GB`
+                            : 'Unknown'}
                         </Typography>
                         <Typography
-                          variant="body2"
-                          sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}
+                          variant='body2'
+                          sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
                         >
-                          <strong style={{ color: "#DCDDDE" }}>
-                            Hardware Concurrency:
-                          </strong>{" "}
-                          {navigator.hardwareConcurrency || "Unknown"}
+                          <strong style={{ color: '#DCDDDE' }}>Hardware Concurrency:</strong>{' '}
+                          {navigator.hardwareConcurrency || 'Unknown'}
                         </Typography>
                       </Stack>
                     </Box>

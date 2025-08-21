@@ -24,8 +24,10 @@ import { SubtitleEditor } from './ReviewStep/SubtitleEditor';
 import { SubtitleListPanel } from './ReviewStep/SubtitleListPanel';
 import { ErrorBoundary } from '../common/ErrorBoundary';
 import { ElectronWindow } from '@/types';
+import { createComponentLogger } from '../../utils/logger';
 
 const ReviewStepComponent: React.FC = () => {
+  const logger = createComponentLogger('ReviewStep');
   const { workspaceId: currentWorkspaceId } = useSubtitleWorkspace();
   const activeWorkspaceId = useActiveWorkspaceId();
   const { loadSubtitlesForWorkspace, clearWorkspace, importFromJson, exportToStep } =
@@ -41,6 +43,48 @@ const ReviewStepComponent: React.FC = () => {
   const processingJsonData = useProcessingJsonData();
   const processingOriginalJsonData = useProcessingOriginalJsonData();
   const processingStatus = useProcessingStatus();
+
+  // Centralized subtitle source logic
+  const getSubtitlesForReview = useCallback((): Subtitle[] => {
+    logger.debug('getSubtitlesForReview: Checking all subtitle sources', {
+      stepSubtitlesCount: stepSubtitles?.length || 0,
+      hasInputStepContent: !!inputStepContent,
+      importedSubtitlesCount: inputStepContent?.importedSubtitles?.length || 0,
+      importedJsonFile: inputStepContent?.importedJsonFile,
+      processingStatus,
+      hasProcessingJsonData: !!processingJsonData,
+      hasProcessingOriginalJsonData: !!processingOriginalJsonData
+    });
+
+    // Priority 1: Step subtitles (already loaded in review/edit store)
+    if (stepSubtitles && stepSubtitles.length > 0) {
+      logger.info('getSubtitlesForReview: Using step subtitles', { count: stepSubtitles.length });
+      return stepSubtitles;
+    }
+
+    // Priority 2: Imported subtitles from Step 1 (already parsed and converted)
+    if (inputStepContent?.importedSubtitles && inputStepContent.importedSubtitles.length > 0) {
+      logger.info('getSubtitlesForReview: Using imported subtitles from Step 1', { 
+        count: inputStepContent.importedSubtitles.length,
+        filePath: inputStepContent.importedJsonFile
+      });
+      return inputStepContent.importedSubtitles;
+    }
+
+    // Priority 3: Processing subtitles from Step 3 (needs conversion)
+    if (processingStatus === 'completed') {
+      const processingData = processingOriginalJsonData || processingJsonData;
+      if (processingData) {
+        logger.info('getSubtitlesForReview: Using processing subtitles from Step 3');
+        // Use centralized converter to handle CantoCap format
+        const { convertToStandardSubtitles } = require('../../utils/subtitleConverter');
+        return convertToStandardSubtitles(processingData);
+      }
+    }
+
+    logger.warn('getSubtitlesForReview: No subtitle data available from any source');
+    return [];
+  }, [stepSubtitles, inputStepContent?.importedSubtitles, processingStatus, processingOriginalJsonData, processingJsonData, logger]);
 
   // Validation state
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -82,19 +126,19 @@ const ReviewStepComponent: React.FC = () => {
           // For audio files, we'll use a more basic validation approach
           // Since there's no direct file existence check, we'll assume the file exists
           // This is a limitation but better than breaking the workflow
-          console.log('Audio file validation - assuming file exists (no direct API available)');
+          logger.info('Audio file validation - assuming file exists (no direct API available)');
         }
 
         return { valid: true };
       } catch (error) {
-        console.error('Error validating media file:', error);
+        logger.error('Error validating media file', { error });
         return {
           valid: false,
           error: 'Unable to verify media file existence. Please ensure the file is accessible.',
         };
       }
     },
-    []
+    [logger]
   );
 
   // Type guard for subtitle validation
@@ -114,7 +158,7 @@ const ReviewStepComponent: React.FC = () => {
         subtitle.startTime < subtitle.endTime
       );
     },
-    []
+    [logger]
   );
 
   // Validation for user-imported JSON subtitles (from step 1)
@@ -149,7 +193,7 @@ const ReviewStepComponent: React.FC = () => {
 
       return startTime !== null && endTime !== null && hasText && startTime < endTime;
     },
-    []
+    [logger]
   );
 
   const validateJsonData = useCallback(
@@ -157,19 +201,17 @@ const ReviewStepComponent: React.FC = () => {
       importedJsonFile: string | null,
       stepSubtitles: unknown[]
     ): { valid: boolean; error?: string } => {
-      console.log(
-        '🔍 JSON Validation - ImportedFile:',
-        importedJsonFile,
-        'StepSubtitles:',
-        stepSubtitles
-      );
+      logger.debug('JSON validation started', { 
+        importedJsonFile, 
+        stepSubtitlesCount: Array.isArray(stepSubtitles) ? stepSubtitles.length : 'not array' 
+      });
 
       // Only validate if this is a JSON import workflow (indicated by importedJsonFile)
       if (importedJsonFile) {
-        console.log('📄 JSON import detected, validating subtitle data...');
+        logger.debug('JSON import detected, validating subtitle data');
 
         if (!stepSubtitles || !Array.isArray(stepSubtitles)) {
-          console.log('❌ Subtitles is not an array:', stepSubtitles);
+          logger.warn('Subtitles is not an array', { stepSubtitlesType: typeof stepSubtitles });
           return {
             valid: false,
             error:
@@ -178,7 +220,7 @@ const ReviewStepComponent: React.FC = () => {
         }
 
         if (stepSubtitles.length === 0) {
-          console.log('❌ Subtitles array is empty');
+          logger.warn('Subtitles array is empty');
           return {
             valid: false,
             error:
@@ -191,18 +233,19 @@ const ReviewStepComponent: React.FC = () => {
         const isImportedData = !!importedJsonFile;
         const validator = isImportedData ? isValidImportedSubtitle : isValidModelSubtitle;
         const validSubtitles = stepSubtitles.filter(validator);
-        console.log(
-          `📊 Subtitle validation (${isImportedData ? 'imported' : 'model-generated'}): ${validSubtitles.length}/${stepSubtitles.length} valid subtitles`
-        );
+        logger.debug('Subtitle validation results', {
+          type: isImportedData ? 'imported' : 'model-generated',
+          validSubtitles: validSubtitles.length,
+          totalSubtitles: stepSubtitles.length
+        });
 
         // Log some sample subtitles for debugging
         if (stepSubtitles.length > 0 && validSubtitles.length === 0) {
-          console.log('🔍 Sample subtitle for debugging:', stepSubtitles[0]);
-          console.log('🔍 Validation type:', isImportedData ? 'imported JSON' : 'model-generated');
+          logger.debug('Sample subtitle for debugging', { sampleSubtitle: stepSubtitles[0] });
 
           // Debug first subtitle structure
           const firstSub = stepSubtitles[0] as Record<string, unknown>;
-          console.log('🔍 First subtitle structure:', {
+          logger.debug('First subtitle structure analysis', {
             hasStartTime: typeof firstSub?.startTime === 'number',
             hasEndTime: typeof firstSub?.endTime === 'number',
             hasText: typeof firstSub?.text === 'string',
@@ -227,7 +270,7 @@ const ReviewStepComponent: React.FC = () => {
           );
 
           if (hasBasicStructure) {
-            console.log('⚠️ Subtitles have basic timing structure but may need normalization');
+            logger.debug('Subtitles have basic timing structure but may need normalization');
             return { valid: true }; // Allow it through - subtitle processing can handle normalization
           }
 
@@ -242,28 +285,28 @@ const ReviewStepComponent: React.FC = () => {
         const validityRatio =
           stepSubtitles.length > 0 ? validSubtitles.length / stepSubtitles.length : 0;
         if (validityRatio < 0.5 && stepSubtitles.length > 10) {
-          console.log(`⚠️ Low validity ratio: ${validityRatio}`);
+          logger.warn('Low subtitle validity ratio', { validityRatio });
           return {
             valid: false,
             error: `Only ${validSubtitles.length} of ${stepSubtitles.length} subtitles from the JSON are in valid format. Please check your JSON file format.`,
           };
         }
 
-        console.log('✅ JSON validation passed');
+        logger.debug('JSON validation passed');
       } else {
-        console.log('ℹ️ No JSON import detected, skipping JSON validation');
+        logger.debug('No JSON import detected, skipping JSON validation');
       }
 
       return { valid: true };
     },
-    [isValidModelSubtitle, isValidImportedSubtitle]
+    [isValidModelSubtitle, isValidImportedSubtitle, logger]
   );
 
   // Effect to automatically import JSON data from processing step
   // FIXED: Removed editStoreSubtitles from dependency to prevent infinite loop
   useEffect(() => {
     const importJsonFromProcessing = async () => {
-      console.log('🔍 ReviewStep: Checking processing data on load/change:', {
+      logger.debug('ReviewStep: Checking processing data on load/change', {
         processingStatus,
         hasJsonData: !!processingJsonData,
         hasOriginalJsonData: !!processingOriginalJsonData,
@@ -286,20 +329,17 @@ const ReviewStepComponent: React.FC = () => {
           (!stepSubtitles || stepSubtitles.length === 0 || !hasProcessedJsonData.current);
 
         if (shouldImportFromProcessing) {
-          console.log(
-            '📡 ReviewStep: Processing completed with JSON data, importing into review step'
-          );
-          console.log(
-            '📡 JSON data source:',
-            processingOriginalJsonData ? 'originalJsonData' : 'jsonSubtitleData'
-          );
-          console.log('📡 Subtitles to import:', jsonDataToImport?.subtitles?.length || 0);
-          console.log(
-            '📡 Reason: stepSubtitles empty?',
-            !stepSubtitles || stepSubtitles.length === 0,
-            'hasProcessed?',
-            hasProcessedJsonData.current
-          );
+          logger.info('ReviewStep: Processing completed with JSON data, importing into review step');
+          logger.debug('JSON data source', {
+            source: processingOriginalJsonData ? 'originalJsonData' : 'jsonSubtitleData',
+          });
+          logger.debug('Subtitles to import', {
+            count: jsonDataToImport?.subtitles?.length || 0,
+          });
+          logger.debug('Import reason analysis', {
+            stepSubtitlesEmpty: !stepSubtitles || stepSubtitles.length === 0,
+            hasProcessed: hasProcessedJsonData.current,
+          });
 
           try {
             // Mark as processed to prevent duplicate imports
@@ -313,38 +353,33 @@ const ReviewStepComponent: React.FC = () => {
             // CRITICAL: Sync the imported processing data to step store for persistence
             // This ensures the data is available after app reload (similar to step 1 JSON import)
             await exportToStep();
-            console.log(
-              '✅ ReviewStep: Successfully synced processing data to step store for persistence'
-            );
+            logger.debug('ReviewStep: Successfully synced processing data to step store for persistence');
 
-            console.log('✅ ReviewStep: Successfully imported JSON data from processing step');
+            logger.info('ReviewStep: Successfully imported JSON data from processing step');
 
             // Clear any previous validation errors since we have new data
             setValidationError(null);
             setHasValidationRun(false);
           } catch (error) {
-            console.error('❌ ReviewStep: Failed to import JSON data from processing step:', error);
+            logger.error('ReviewStep: Failed to import JSON data from processing step', { error });
             hasProcessedJsonData.current = false; // Allow retry
             setValidationError(
               'Failed to import generated subtitles. Please try navigating to Step 4 again.'
             );
           }
         } else if (!jsonDataToImport) {
-          console.log('⚠️ ReviewStep: Processing completed but no JSON data found');
+          logger.warn('ReviewStep: Processing completed but no JSON data found');
           // Try to load from step subtitles if available
           if (stepSubtitles && stepSubtitles.length > 0) {
-            console.log(
-              '📡 ReviewStep: Found step subtitles, loading those instead:',
-              stepSubtitles.length
-            );
+            logger.debug('ReviewStep: Found step subtitles, loading those instead', {
+              stepSubtitlesCount: stepSubtitles.length
+            });
           }
         } else {
-          console.log(
-            'ℹ️ ReviewStep: Processing data available but already imported or step subtitles exist'
-          );
+          logger.debug('ReviewStep: Processing data available but already imported or step subtitles exist');
         }
       } else if (processingStatus !== 'completed') {
-        console.log('ℹ️ ReviewStep: Processing not completed yet, status:', processingStatus);
+        logger.debug('ReviewStep: Processing not completed yet', { status: processingStatus });
       }
     };
 
@@ -359,6 +394,7 @@ const ReviewStepComponent: React.FC = () => {
     updateStepContent,
     inputFile,
     stepSubtitles,
+    logger,
   ]);
 
   // Main validation effect
@@ -374,27 +410,24 @@ const ReviewStepComponent: React.FC = () => {
         reviewStepState === StepStatus.SKIP ||
         (reviewStepState === StepStatus.ERROR && hasValidationRun)
       ) {
-        console.log(
-          '⏸️ Skipping validation - State:',
-          reviewStepState,
-          'IsValidating:',
+        logger.debug('Skipping validation', {
+          state: reviewStepState,
           isValidating,
-          'HasRun:',
-          hasValidationRun
-        );
+          hasRun: hasValidationRun
+        });
         return;
       }
 
-      console.log('🔍 Starting Review Step validation...', { validationKey, reviewStepState });
+      logger.info('Starting Review Step validation', { validationKey, reviewStepState });
       setIsValidating(true);
       setValidationError(null);
 
       try {
         // Validate media file presence
-        console.log('🎬 Validating media file:', inputFile);
+        logger.debug('Validating media file', { inputFile });
         const mediaValidation = await validateMediaFile(inputFile ?? null);
         if (!mediaValidation.valid) {
-          console.log('❌ Media validation failed:', mediaValidation.error);
+          logger.warn('Media validation failed', { error: mediaValidation.error });
           setValidationError(mediaValidation.error || 'Media file validation failed');
           setHasValidationRun(true);
           await setStepState('review', StepStatus.ERROR);
@@ -402,93 +435,47 @@ const ReviewStepComponent: React.FC = () => {
         }
 
         // Validate JSON data integrity (only if JSON was imported)
-        console.log(
-          '📄 Validating JSON data. ImportedFile:',
-          inputStepContent?.importedJsonFile,
-          'Subtitles count:',
-          stepSubtitles?.length
-        );
+        logger.debug('Validating JSON data', {
+          importedFile: inputStepContent?.importedJsonFile,
+          subtitlesCount: stepSubtitles?.length
+        });
 
-        // If we have a JSON import OR processing completed but no subtitles, try to load from the backend sync store
-        let subtitlesToValidate = stepSubtitles;
-        const hasJsonImport = inputStepContent?.importedJsonFile;
-        const hasProcessingCompleted =
-          processingStatus === 'completed' && (processingJsonData || processingOriginalJsonData);
-
-        if (
-          (hasJsonImport || hasProcessingCompleted) &&
-          (!stepSubtitles || stepSubtitles.length === 0)
-        ) {
-          console.log('🔄 No subtitles in step store, attempting to load from sync store...');
-          console.log(
-            '🔄 Reason: hasJsonImport?',
-            !!hasJsonImport,
-            'hasProcessingCompleted?',
-            !!hasProcessingCompleted
+        // Use centralized subtitle source logic
+        const availableSubtitles = getSubtitlesForReview();
+        
+        if (availableSubtitles.length === 0) {
+          logger.warn('No subtitle data available from any source');
+          setValidationError(
+            'No subtitle data found. Please either:\n\n' +
+            '• Import subtitles from Step 1 (JSON file)\n' +
+            '• Complete processing in Step 3 to generate subtitles\n' +
+            '• Check that your imported JSON file contains valid subtitle data'
           );
-          try {
-            const syncResult = await (
-              window as unknown as ElectronWindow
-            ).cantocapAPI.subtitleSyncFromStep(activeWorkspaceId!);
-            if (syncResult && syncResult.subtitles && syncResult.subtitles.length > 0) {
-              console.log(`✅ Found ${syncResult.subtitles.length} subtitles in sync store`);
-              subtitlesToValidate = syncResult.subtitles as Subtitle[];
-
-              // Update the step store with the found subtitles to fix the missing subtitles issue
-              try {
-                await updateStepContent('review', { subtitles: syncResult.subtitles });
-                console.log('✅ Updated step store with synced subtitles');
-              } catch (updateError) {
-                console.log('⚠️ Failed to update step store:', updateError);
-              }
-            } else {
-              console.log('⚠️ No subtitles found in sync store either');
-              // Give a small delay and try again - the export might still be in progress
-              console.log('🔄 Waiting 500ms and trying sync again...');
-              await new Promise((resolve) => setTimeout(resolve, 500));
-              const retryResult = await (
-                window as unknown as ElectronWindow
-              ).cantocapAPI.subtitleSyncFromStep(activeWorkspaceId!);
-              if (retryResult && retryResult.subtitles && retryResult.subtitles.length > 0) {
-                console.log(
-                  `✅ Found ${retryResult.subtitles.length} subtitles in sync store on retry`
-                );
-                subtitlesToValidate = retryResult.subtitles as Subtitle[];
-                try {
-                  await updateStepContent('review', { subtitles: retryResult.subtitles });
-                  console.log('✅ Updated step store with synced subtitles on retry');
-                } catch (updateError) {
-                  console.log('⚠️ Failed to update step store on retry:', updateError);
-                }
-              } else {
-                console.log('❌ Still no subtitles found after retry');
-              }
-            }
-          } catch (syncError) {
-            console.log('⚠️ Failed to load from sync store:', syncError);
-          }
-        }
-
-        const jsonValidation = validateJsonData(
-          inputStepContent?.importedJsonFile ?? null,
-          subtitlesToValidate
-        );
-        if (!jsonValidation.valid) {
-          console.log('❌ JSON validation failed:', jsonValidation.error);
-          setValidationError(jsonValidation.error || 'JSON data validation failed');
           setHasValidationRun(true);
           await setStepState('review', StepStatus.ERROR);
           return;
         }
 
+        logger.info('Found subtitles for review', { count: availableSubtitles.length });
+
+        // If we have subtitles but they're not in the step store, load them
+        if (!stepSubtitles || stepSubtitles.length === 0) {
+          logger.info('Loading subtitles into review step store');
+          try {
+            await updateStepContent('review', { subtitles: availableSubtitles });
+          } catch (updateError) {
+            logger.warn('Failed to update step store with subtitles', { error: updateError });
+          }
+        }
+
         // If we reach here, validation passed
-        console.log('✅ Review Step validation passed');
+        logger.info('Review Step validation passed');
 
         // Clear any previous validation errors
         setValidationError(null);
         setHasValidationRun(true);
       } catch (error) {
-        console.error('💥 Validation error:', error);
+        logger.error('Validation error', { error });
         setValidationError('Unexpected error during validation. Please try again.');
         setHasValidationRun(true);
         await setStepState('review', StepStatus.ERROR);
@@ -519,9 +506,9 @@ const ReviewStepComponent: React.FC = () => {
       setHasValidationRun(false); // Reset validation flag
       await navigateToStep('input');
     } catch (error) {
-      console.error('Failed to navigate to Step 1:', error);
+      logger.error('Failed to navigate to Step 1', { error });
     }
-  }, [navigateToStep]);
+  }, [navigateToStep, logger]);
 
   const handleReimportJson = useCallback(async () => {
     // Navigate back to step 1 where user can re-import JSON
@@ -530,24 +517,24 @@ const ReviewStepComponent: React.FC = () => {
 
   // Add a manual retry function for debugging
   const handleRetryValidation = useCallback(async () => {
-    console.log('🔄 Manual retry validation requested');
+    logger.debug('Manual retry validation requested');
     setValidationError(null);
     setIsValidating(false);
     setHasValidationRun(false); // Reset validation flag
 
     // Reset step state to trigger re-validation
     await setStepState('review', StepStatus.READY);
-  }, [setStepState]);
+  }, [setStepState, logger]);
 
   // NEW: Restore functionality for returning to original processed JSON
   const handleRestoreOriginal = useCallback(async () => {
     if (!processingOriginalJsonData || !activeWorkspaceId) {
-      console.warn('Cannot restore: missing original data or workspace ID');
+      logger.warn('Cannot restore: missing original data or workspace ID');
       return;
     }
 
     try {
-      console.log('🔄 Restoring original JSON data from processing step');
+      logger.info('Restoring original JSON data from processing step');
 
       // Use the new restore method specifically designed for processing step data
       const subtitlesArray = processingOriginalJsonData?.subtitles || [];
@@ -555,16 +542,16 @@ const ReviewStepComponent: React.FC = () => {
         .getState()
         .actions.restoreFromProcessingOriginal(activeWorkspaceId, inputFile || '', subtitlesArray);
 
-      console.log('✅ Successfully restored original JSON data');
+      logger.info('Successfully restored original JSON data');
 
       // Clear validation errors since we have fresh original data
       setValidationError(null);
       setHasValidationRun(false);
     } catch (error) {
-      console.error('❌ Failed to restore original JSON data:', error);
+      logger.error('Failed to restore original JSON data', { error });
       setValidationError('Failed to restore original data. Please try again.');
     }
-  }, [processingOriginalJsonData, activeWorkspaceId, inputFile]);
+  }, [processingOriginalJsonData, activeWorkspaceId, inputFile, logger]);
 
   // Check if current data differs from original (for showing restore button)
   const hasDataChanged = useCallback(() => {
@@ -604,17 +591,16 @@ const ReviewStepComponent: React.FC = () => {
 
     // FIXED: Reset processed JSON flag when workspace changes to allow proper reload
     // This ensures that after app reload, we can properly detect and import processing data
-    console.log(
-      '🔄 ReviewStep: Workspace changed, resetting processed JSON flag for proper reload handling'
-    );
+    logger.debug('ReviewStep: Workspace changed, resetting processed JSON flag for proper reload handling');
     hasProcessedJsonData.current = false;
-  }, [currentWorkspaceId, activeWorkspaceId, inputStepContent?.importedJsonFile]);
+  }, [currentWorkspaceId, activeWorkspaceId, inputStepContent?.importedJsonFile, logger]);
 
   // Initialize subtitles when workspace or step subtitles change
   useEffect(() => {
     const initializeSubtitles = async () => {
       const workspaceId = currentWorkspaceId || activeWorkspaceId;
-      console.log('🔄 ReviewStep: Initializing subtitles for workspace:', workspaceId, {
+      logger.debug('ReviewStep: Initializing subtitles for workspace', {
+        workspaceId,
         stepSubtitlesCount: stepSubtitles?.length || 0,
         hasProcessingJsonData: !!processingJsonData,
         hasProcessingOriginalJsonData: !!processingOriginalJsonData,
@@ -649,12 +635,10 @@ const ReviewStepComponent: React.FC = () => {
             (!hasProcessedJsonData.current || stepSubtitles?.length === 0);
 
           if (shouldAttemptImport) {
-            console.log('🔄 ReviewStep: No step subtitles, importing from processing JSON data');
-            console.log(
-              '🔄 Processing data available:',
-              jsonDataToImport?.subtitles?.length,
-              'subtitles'
-            );
+            logger.debug('ReviewStep: No step subtitles, importing from processing JSON data');
+            logger.debug('Processing data available', {
+              subtitlesCount: jsonDataToImport?.subtitles?.length
+            });
             try {
               hasProcessedJsonData.current = true;
               const subtitlesArray = jsonDataToImport?.subtitles || [];
@@ -662,35 +646,29 @@ const ReviewStepComponent: React.FC = () => {
 
               // CRITICAL: Sync the imported processing data to step store for persistence
               await exportToStep();
-              console.log(
-                '✅ ReviewStep: Successfully synced fallback processing data to step store'
-              );
+              logger.debug('ReviewStep: Successfully synced fallback processing data to step store');
 
               // CRITICAL: Also update the review step content directly
               // Use the imported subtitles directly instead of accessing edit store to prevent loops
               const { useSubtitleEditStore } = await import('../../stores/useSubtitleEditStore');
               const currentSubtitles = useSubtitleEditStore.getState().subtitles;
               await updateStepContent('review', { subtitles: currentSubtitles });
-              console.log(
-                '✅ ReviewStep: Updated review step content with processed subtitles (fallback)'
-              );
+              logger.debug('ReviewStep: Updated review step content with processed subtitles (fallback)');
 
-              console.log('✅ ReviewStep: Successfully imported processing data as fallback');
+              logger.info('ReviewStep: Successfully imported processing data as fallback');
               return; // Exit early since importFromJson handles everything
             } catch (error) {
-              console.error('❌ ReviewStep: Fallback import failed:', error);
+              logger.error('ReviewStep: Fallback import failed', { error });
               hasProcessedJsonData.current = false;
             }
           }
         }
 
         if (subtitlesToLoad.length > 0) {
-          console.log(
-            '🔄 ReviewStep: Loading subtitles from',
+          logger.debug('ReviewStep: Loading subtitles from source', {
             dataSource,
-            ':',
-            subtitlesToLoad.length
-          );
+            count: subtitlesToLoad.length
+          });
           const videoPath = inputFile || '';
 
           // Transform step store subtitles to subtitle edit store format
@@ -709,10 +687,8 @@ const ReviewStepComponent: React.FC = () => {
           const forceReload = hasJsonImport && processedJsonImportRef.current !== currentJsonFile;
 
           if (forceReload && currentJsonFile) {
-            console.log(
-              '🔄 Forcing subtitle workspace reload for JSON import - resetting diff baseline'
-            );
-            console.log(`📄 Processing new JSON import: ${currentJsonFile}`);
+            logger.debug('Forcing subtitle workspace reload for JSON import - resetting diff baseline');
+            logger.debug('Processing new JSON import', { jsonFile: currentJsonFile });
             // For force reload, clear workspace and initialize fresh
             await clearWorkspace();
             // Mark this JSON file as processed to prevent infinite loop
@@ -722,22 +698,22 @@ const ReviewStepComponent: React.FC = () => {
             // This ensures the imported JSON data becomes the "original" for comparison
             try {
               await importFromJson(workspaceId, videoPath, transformedSubtitles);
-              console.log('✅ JSON import processed with fresh baseline for diff comparison');
+              logger.debug('JSON import processed with fresh baseline for diff comparison');
             } catch (error) {
-              console.error('❌ Failed to import JSON data for diff baseline:', error);
+              logger.error('Failed to import JSON data for diff baseline', { error });
               // Fallback to regular load if import fails
               loadSubtitlesForWorkspace(workspaceId, videoPath, transformedSubtitles);
             }
             return;
           } else if (hasJsonImport) {
-            console.log(`ℹ️ JSON import already processed: ${currentJsonFile}`);
+            logger.debug('JSON import already processed', { jsonFile: currentJsonFile });
             // CRITICAL FIX: For processed JSON imports, only force reload for truly fresh processing data
             // Check if processing JUST completed (not from app reload) by verifying it hasn't been processed yet
             const jsonDataToImport = processingOriginalJsonData || processingJsonData;
             const hasFreshProcessingForJson =
               processingStatus === 'completed' && jsonDataToImport && !hasProcessedJsonData.current;
 
-            console.log('🔄 Loading workspace data for processed JSON import', {
+            logger.debug('Loading workspace data for processed JSON import', {
               hasFreshProcessingData: hasFreshProcessingForJson,
               forceReload: hasFreshProcessingForJson,
               processingStatus,
@@ -753,7 +729,7 @@ const ReviewStepComponent: React.FC = () => {
           const hasFreshProcessingForNonJson =
             processingStatus === 'completed' && jsonDataToImport && !hasProcessedJsonData.current;
 
-          console.log('🔄 Loading subtitles for workspace', {
+          logger.debug('Loading subtitles for workspace', {
             hasFreshProcessingData: hasFreshProcessingForNonJson,
             forceReload: hasFreshProcessingForNonJson,
             processingStatus,
@@ -762,7 +738,7 @@ const ReviewStepComponent: React.FC = () => {
 
           loadSubtitlesForWorkspace(workspaceId, videoPath, transformedSubtitles);
         } else {
-          console.log('ℹ️ ReviewStep: No subtitle data available from any source');
+          logger.warn('ReviewStep: No subtitle data available from any source');
         }
       }
     };
@@ -782,6 +758,7 @@ const ReviewStepComponent: React.FC = () => {
     processingJsonData,
     processingOriginalJsonData,
     processingStatus,
+    logger,
   ]);
 
   // Handle SKIP state - show disabled interface

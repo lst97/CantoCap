@@ -99,8 +99,12 @@ export const ExportHistory: React.FC = () => {
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [selectedItem, setSelectedItem] = useState<ExportRecord | null>(null);
   
-  // Check file existence for all export records
-  const fileStatusMap = useExportHistoryFileStatus(history);
+  // Create stable reference that only changes when actual data changes
+  const stableHistory = useMemo(() => {
+    return history || [];
+  }, [JSON.stringify(history || [])]);
+  
+  const fileStatusMap = useExportHistoryFileStatus(stableHistory);
 
   const formatFileSize = useCallback((bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
@@ -110,12 +114,12 @@ export const ExportHistory: React.FC = () => {
 
   const groupedHistory = useMemo(() => {
     // Convert ExportRecord to format expected by groupHistoryByDate
-    const historyWithTimestamp = history.map((item) => ({
+    const historyWithTimestamp = stableHistory.map((item) => ({
       ...item,
       timestamp: new Date(item.exportedAt).getTime(),
     }));
     return groupHistoryByDate(historyWithTimestamp);
-  }, [history]);
+  }, [stableHistory]);
 
   const handleMenuOpen = useCallback((event: React.MouseEvent<HTMLElement>, item: ExportRecord) => {
     event.stopPropagation();
@@ -148,7 +152,7 @@ export const ExportHistory: React.FC = () => {
     if (!selectedItem) return;
 
     // Find the item in history by matching properties since we need the exact item
-    const itemIndex = history.findIndex(
+    const itemIndex = stableHistory.findIndex(
       (item) =>
         item.outputPath === selectedItem.outputPath && item.exportedAt === selectedItem.exportedAt
     );
@@ -156,9 +160,9 @@ export const ExportHistory: React.FC = () => {
       removeFromHistory(itemIndex);
     }
     handleMenuClose();
-  }, [selectedItem, history, removeFromHistory, handleMenuClose]);
+  }, [selectedItem, stableHistory, removeFromHistory, handleMenuClose]);
 
-  if (history.length === 0) {
+  if (stableHistory.length === 0) {
     return (
       <BaseCard variant='subtle' sx={{ padding: 2 }}>
         <Typography variant='h6' sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -192,10 +196,10 @@ export const ExportHistory: React.FC = () => {
         >
           <HistoryIcon color='primary' />
           Export History
-          <Badge badgeContent={history.length} color='primary' />
+          <Badge badgeContent={stableHistory.length} color='primary' />
         </Typography>
 
-        {history.length > 0 && (
+        {stableHistory.length > 0 && (
           <Tooltip title='Clear all history'>
             <IconButton size='small' onClick={clearHistory}>
               <DeleteIcon fontSize='small' />

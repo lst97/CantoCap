@@ -262,6 +262,7 @@ export interface InputStepData {
   selectedFile?: string | null;
   inputFile?: string | null;
   importedJsonFile?: string | null;
+  importedSubtitles?: Subtitle[]; // Parsed and converted subtitles from JSON import
   // Time range selection
   selectedRange?: TimeRange | null;
   startTime?: number | null;

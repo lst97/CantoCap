@@ -1,10 +1,13 @@
 import { create } from 'zustand';
 import { IpcRendererEvent } from 'electron';
 import { WorkspaceState, WorkspaceMetadata, WorkspaceCreatedEvent, WorkspaceUpdatedEvent, WorkspaceDeletedEvent, WorkspaceGroup, WorkspaceGroupColor } from './types/StoreTypes';
+import { createStoreLogger } from '../utils/logger';
 
 // ============================================================================
 // WORKSPACE STORE - WORKSPACE MANAGEMENT
 // ============================================================================
+
+const logger = createStoreLogger('Workspace');
 
 // Helper function to load step content for a workspace
 const loadWorkspaceStepContent = async (workspaceId: string) => {
@@ -13,7 +16,10 @@ const loadWorkspaceStepContent = async (workspaceId: string) => {
     const { useStepStore } = await import('./useStepStore');
     await useStepStore.getState().actions.loadAllStepContent(workspaceId);
   } catch (error) {
-    console.error('❌ Failed to load workspace step content:', error);
+    logger.error('Failed to load workspace step content', {
+      workspaceId,
+      error: error instanceof Error ? error.message : String(error)
+    });
     // Don't throw - allow workspace switching to continue
   }
 };
@@ -105,7 +111,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           const { useStepStore } = await import('./useStepStore');
           useStepStore.setState({ currentWorkspaceId: result.id });
         } catch (error) {
-          console.warn('Could not sync workspace ID to step store:', error);
+          logger.warn('Could not sync workspace ID to step store', {
+            workspaceId: result.id,
+            error: error instanceof Error ? error.message : String(error)
+          });
         }
         
         // Recompute derived state for stable references
@@ -113,7 +122,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         
         return result.id;
       } catch (error) {
-        console.error('Failed to create workspace:', error);
+        logger.error('Failed to create workspace', {
+          name,
+          error: error instanceof Error ? error.message : String(error)
+        });
         set({ 
           isLoading: false, 
           error: error instanceof Error ? error.message : 'Failed to create workspace' 
@@ -156,7 +168,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
                 newActiveWorkspaceId = sortedByAccess[0].id;
               }
             } catch (error) {
-              console.warn('Could not access app store for recent workspaces, using fallback selection:', error);
+              logger.warn('Could not access app store for recent workspaces, using fallback selection', {
+                workspaceId: id,
+                error: error instanceof Error ? error.message : String(error)
+              });
               // Fallback: select the most recently accessed remaining workspace
               const sortedByAccess = remainingWorkspaces.sort((a, b) => 
                 new Date(b.lastAccessed).getTime() - new Date(a.lastAccessed).getTime()
@@ -192,9 +207,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
               try {
                 const { useWorkflowStore } = await import('./useWorkflowStore');
                 await useWorkflowStore.getState().actions.loadWorkflowState(newActiveWorkspaceId);
-                console.log('✅ WorkspaceStore: Loaded workflow state for alternative workspace after deletion:', newActiveWorkspaceId);
+                logger.debug('Loaded workflow state for alternative workspace after deletion', {
+                  workspaceId: newActiveWorkspaceId
+                });
               } catch (workflowError) {
-                console.warn('⚠️ WorkspaceStore: Could not load workflow state for alternative workspace:', workflowError);
+                logger.warn('Could not load workflow state for alternative workspace', {
+                  workspaceId: newActiveWorkspaceId,
+                  error: workflowError instanceof Error ? workflowError.message : String(workflowError)
+                });
                 // Continue with workspace switching even if workflow state loading fails
               }
               
@@ -210,7 +230,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
               useAppStore.setState({ activeWorkspaceId: newActiveWorkspaceId });
               
             } catch (error) {
-              console.error('❌ WorkspaceStore: Failed to switch to alternative workspace after deletion:', error);
+              logger.error('Failed to switch to alternative workspace after deletion', {
+                workspaceId: id,
+                newWorkspaceId: newActiveWorkspaceId,
+                error: error instanceof Error ? error.message : String(error)
+              });
               // Even if switching fails, the deletion was successful, so don't throw
             }
           } else if (isCurrentWorkspace) {
@@ -220,7 +244,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
               useAppStore.setState({ activeWorkspaceId: null });
               await window.electron.ipcRenderer.invoke('app:setActiveWorkspace', null);
             } catch (error) {
-              console.warn('Could not sync null workspace state with app store:', error);
+              logger.warn('Could not sync null workspace state with app store', {
+                workspaceId: id,
+                error: error instanceof Error ? error.message : String(error)
+              });
             }
           }
           
@@ -232,7 +259,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         
         return success;
       } catch (error) {
-        console.error('Failed to delete workspace:', error);
+        logger.error('Failed to delete workspace', {
+          workspaceId: id,
+          error: error instanceof Error ? error.message : String(error)
+        });
         set({ 
           isLoading: false, 
           error: error instanceof Error ? error.message : 'Failed to delete workspace',
@@ -262,9 +292,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         try {
           const { useWorkflowStore } = await import('./useWorkflowStore');
           await useWorkflowStore.getState().actions.loadWorkflowState(id);
-          console.log('✅ WorkspaceStore: Loaded workflow state for workspace:', id);
+          logger.debug('Loaded workflow state for workspace', { workspaceId: id });
         } catch (error) {
-          console.warn('⚠️ WorkspaceStore: Could not load workflow state during workspace switch:', error);
+          logger.warn('Could not load workflow state during workspace switch', {
+            workspaceId: id,
+            error: error instanceof Error ? error.message : String(error)
+          });
           // Don't throw - allow workspace switching to continue even if workflow state loading fails
         }
         
@@ -273,7 +306,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           const { useStepStore } = await import('./useStepStore');
           useStepStore.setState({ currentWorkspaceId: id });
         } catch (error) {
-          console.warn('Could not sync workspace ID to step store:', error);
+          logger.warn('Could not sync workspace ID to step store', {
+            workspaceId: id,
+            error: error instanceof Error ? error.message : String(error)
+          });
         }
         
         // Set as active in app state (this will also update recent workspaces)
@@ -284,11 +320,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           const { useAppStore } = await import('./useAppStore');
           useAppStore.setState({ activeWorkspaceId: id });
         } catch (error) {
-          console.warn('Could not sync activeWorkspaceId to app store:', error);
+          logger.warn('Could not sync activeWorkspaceId to app store', {
+            workspaceId: id,
+            error: error instanceof Error ? error.message : String(error)
+          });
         }
         
       } catch (error) {
-        console.error('Failed to switch workspace:', error);
+        logger.error('Failed to switch workspace', {
+          workspaceId: id,
+          error: error instanceof Error ? error.message : String(error)
+        });
         set({ 
           isLoading: false, 
           error: error instanceof Error ? error.message : 'Failed to switch workspace' 
@@ -299,11 +341,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     loadGroups: async () => {
       try {
         const groups = await window.electron.ipcRenderer.invoke('group:list');
-        console.log('🔄 [GROUP DEBUG] Loaded groups from persistence:', groups);
+        logger.debug('Loaded groups from persistence', { groups });
         set({ _availableGroups: groups });
         return groups;
       } catch (error) {
-        console.error('Failed to load groups:', error);
+        logger.error('Failed to load groups', {
+          error: error instanceof Error ? error.message : String(error)
+        });
         set({ _availableGroups: [] });
         return [];
       }
@@ -322,8 +366,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         
         // Load workspaces and associate with groups
         const workspaceList = await window.electron.ipcRenderer.invoke('workspace:list');
-        console.log('🔄 [GROUP DEBUG] Loaded workspaces from persistence:', workspaceList);
-        console.log('🔄 [GROUP DEBUG] Available groups by ID:', groupsById);
+        logger.debug('Loaded workspaces from persistence', {
+          workspaceCount: workspaceList.length,
+          groupCount: Object.keys(groupsById).length
+        });
         
         const workspaces = workspaceList.reduce((acc: Record<string, WorkspaceMetadata>, ws: WorkspaceMetadata & { groupId?: string }) => {
           // Convert workspace data and associate with group if it exists
@@ -338,7 +384,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           };
           
           if (ws.groupId) {
-            console.log(`🔄 [GROUP DEBUG] Workspace "${ws.name}" associated with group ID: ${ws.groupId}`, groupsById[ws.groupId] ? '✅ Found' : '❌ Group not found');
+            if (!groupsById[ws.groupId]) {
+              logger.warn('Workspace has invalid group reference', {
+                workspaceId: ws.id,
+                workspaceName: ws.name,
+                invalidGroupId: ws.groupId
+              });
+            }
           }
           
           acc[ws.id] = workspace;
@@ -350,7 +402,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         // Recompute derived state for stable references
         get().actions._recomputeDerivedState();
       } catch (error) {
-        console.error('Failed to load workspaces:', error);
+        logger.error('Failed to load workspaces', {
+          error: error instanceof Error ? error.message : String(error)
+        });
         set({ 
           isLoading: false, 
           error: error instanceof Error ? error.message : 'Failed to load workspaces' 
@@ -371,7 +425,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         
         return success;
       } catch (error) {
-        console.error('Failed to rename workspace:', error);
+        logger.error('Failed to rename workspace', {
+          workspaceId: id,
+          newName: newName,
+          error: error instanceof Error ? error.message : String(error)
+        });
         const errorMessage = error instanceof Error ? error.message : 'Failed to rename workspace';
         set({ error: errorMessage });
         return false;
@@ -392,7 +450,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           return null;
         }
       } catch (error) {
-        console.error('Failed to duplicate workspace:', error);
+        logger.error('Failed to duplicate workspace', {
+          sourceId: sourceId,
+          newName: newName,
+          error: error instanceof Error ? error.message : String(error)
+        });
         set({ 
           isLoading: false, 
           error: error instanceof Error ? error.message : 'Failed to duplicate workspace' 
@@ -438,7 +500,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           throw new Error('Failed to create group via IPC');
         }
       } catch (error) {
-        console.error('Failed to create group:', error);
+        logger.error('Failed to create group', {
+          name: name,
+          color: color,
+          error: error instanceof Error ? error.message : String(error)
+        });
         set({ 
           isLoading: false, 
           error: error instanceof Error ? error.message : 'Failed to create group' 
@@ -476,7 +542,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           return false;
         }
       } catch (error) {
-        console.error('Failed to delete group:', error);
+        logger.error('Failed to delete group', {
+          groupId: id,
+          error: error instanceof Error ? error.message : String(error)
+        });
         set({ 
           isLoading: false, 
           error: error instanceof Error ? error.message : 'Failed to delete group' 
@@ -520,7 +589,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           return false;
         }
       } catch (error) {
-        console.error('Failed to update group:', error);
+        logger.error('Failed to update group', {
+          groupId: id,
+          updates: updates,
+          error: error instanceof Error ? error.message : String(error)
+        });
         set({ 
           isLoading: false, 
           error: error instanceof Error ? error.message : 'Failed to update group' 
@@ -571,7 +644,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           throw new Error('Failed to add workspace to group via IPC');
         }
       } catch (error) {
-        console.error('Failed to add workspace to group:', error);
+        logger.error('Failed to add workspace to group', {
+          workspaceId: workspaceId,
+          groupId: groupId,
+          error: error instanceof Error ? error.message : String(error)
+        });
         set({ 
           isLoading: false, 
           error: error instanceof Error ? error.message : 'Failed to add workspace to group' 
@@ -608,7 +685,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           throw new Error('Failed to remove workspace from group via IPC');
         }
       } catch (error) {
-        console.error('Failed to remove workspace from group:', error);
+        logger.error('Failed to remove workspace from group', {
+          workspaceId: workspaceId,
+          error: error instanceof Error ? error.message : String(error)
+        });
         set({ 
           isLoading: false, 
           error: error instanceof Error ? error.message : 'Failed to remove workspace from group' 
@@ -665,7 +745,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           throw new Error('Failed to update group expansion state via IPC');
         }
       } catch (error) {
-        console.error('Failed to toggle group expansion:', error);
+        logger.error('Failed to toggle group expansion', {
+          groupId: id,
+          error: error instanceof Error ? error.message : String(error)
+        });
         set({ 
           error: error instanceof Error ? error.message : 'Failed to toggle group expansion'
         });
