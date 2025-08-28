@@ -429,6 +429,7 @@ export const ConfigStep: React.FC = () => {
     logger,
   ]);
 
+
   // Simple handler to start subtitle generation and navigate to Step 3
   const handleStartTranscription = useCallback(async () => {
     if (!activeWorkspaceId) {

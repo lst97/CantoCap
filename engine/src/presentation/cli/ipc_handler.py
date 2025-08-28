@@ -31,6 +31,7 @@ class IPCHandler:
         self.message_counter = 0
         self.command_line = self._capture_command_line()
         self.start_time = datetime.now(timezone.utc)
+        self.verbose_echo: bool = False
         
         # Store original stdout for direct IPC output (to avoid console interception loops)
         # In test environments, use sys.stdout directly to work with mocking
@@ -38,6 +39,15 @@ class IPCHandler:
             self._original_stdout = sys.stdout
         else:
             self._original_stdout = sys.stdout
+        # Also keep original stderr for optional verbose echo without recursion
+        if hasattr(sys, '_called_from_test') or 'pytest' in sys.modules:
+            self._original_stderr = sys.stderr
+        else:
+            self._original_stderr = sys.stderr
+
+    def set_verbose_echo(self, enabled: bool) -> None:
+        """Enable or disable echoing IPC JSON messages to original stderr for debugging."""
+        self.verbose_echo = bool(enabled)
         
     def _generate_id(self) -> str:
         """Generate unique message ID."""
@@ -189,6 +199,14 @@ class IPCHandler:
             # Use original stdout to avoid console interception loops
             self._original_stdout.write(json_output + '\n')
             self._original_stdout.flush()
+            
+            # Optional echo of IPC JSON to original stderr for verbose debugging
+            if self.verbose_echo:
+                try:
+                    self._original_stderr.write(f"[IPC] {json_output}\n")
+                    self._original_stderr.flush()
+                except Exception:
+                    pass
             
         except (TypeError, ValueError, OverflowError) as e:
             # Enhanced error handling for JSON serialization failures
@@ -400,6 +418,12 @@ def get_handler() -> IPCHandler:
     return _handler
 
 
+def enable_ipc_verbose_echo(enabled: bool = True) -> None:
+    """Enable/disable verbose echo of IPC JSON messages to original stderr."""
+    handler = get_handler()
+    handler.set_verbose_echo(enabled)
+
+
 # Public API functions for ProcessingEvent communication
 def ipc_log_message(message: str, phase: str = None) -> None:
     """Send log message in ProcessingEvent format."""
@@ -448,5 +472,3 @@ def ipc_result(path: str, success: bool = True, **kwargs) -> None:
     """Send result - redirects to completion format."""
     # For results without subtitle data, send a basic completion
     ipc_completion_with_json({}, path, success, **kwargs)
-
-

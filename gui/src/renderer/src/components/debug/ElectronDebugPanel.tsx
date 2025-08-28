@@ -15,6 +15,7 @@
 
 import { StepStatus, StepType, StepStatusType } from '../../stores/types/StoreTypes';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useInputStepContent, useConfigStepContent } from '../../stores/useStepStore';
 import { useStepsWithStates, useCurrentStep } from '../../stores/useWorkflowStore';
 import { ElectronWindow } from '@/types';
 import { createComponentLogger } from '../../utils/logger';
@@ -98,7 +99,7 @@ export const ElectronDebugPanel: React.FC<DebugPanelProps> = ({
   const [ipcCalls, setIpcCalls] = useState<IPCCall[]>([]);
   const [stateChanges] = useState<StateChange[]>([]);
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'performance' | 'ipc' | 'state' | 'system'
+    'overview' | 'performance' | 'ipc' | 'state' | 'system' | 'engine'
   >('overview');
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -107,6 +108,15 @@ export const ElectronDebugPanel: React.FC<DebugPanelProps> = ({
   const currentStep = useCurrentStep();
   const steps = useStepsWithStates();
   const currentStepId = currentStep;
+
+  // Access step stores for command preview
+  const inputStep = useInputStepContent();
+  const configStep = useConfigStepContent();
+
+  // Command preview state
+  const [cmdPreview, setCmdPreview] = useState<string>('');
+  const [cmdError, setCmdError] = useState<string>('');
+  const [cmdLoading, setCmdLoading] = useState<boolean>(false);
 
   // Collect system information
   const collectSystemInfo = useCallback(async (): Promise<void> => {
@@ -188,6 +198,92 @@ export const ElectronDebugPanel: React.FC<DebugPanelProps> = ({
       collectSystemInfo();
     }
   }, [isVisible, collectSystemInfo]);
+
+  // Build live engine command preview whenever config/input changes
+  useEffect(() => {
+    let cancelled = false;
+    const debounce = setTimeout(async () => {
+      try {
+        const inputFile = inputStep?.inputFile || inputStep?.selectedFile;
+        if (!inputFile) {
+          if (!cancelled) {
+            setCmdPreview('');
+            setCmdError('Select an input file to preview the command');
+          }
+          return;
+        }
+        setCmdLoading(true);
+        setCmdError('');
+
+        const conversion = await (window as any).cantocapAPI.processingConvertConfig({
+          inputStep,
+          configStep,
+        });
+        if (!conversion?.success || !conversion.config) {
+          const err = conversion?.error || 'Failed to convert configuration';
+          if (!cancelled) {
+            setCmdPreview('');
+            setCmdError(String(err));
+          }
+          return;
+        }
+
+        const preview = await (window as any).cantocapAPI.processingGetCommandPreview(
+          conversion.config
+        );
+        if (!preview?.success || !preview.command) {
+          const err = preview?.error || 'Failed to build command';
+          if (!cancelled) {
+            setCmdPreview('');
+            setCmdError(String(err));
+          }
+          return;
+        }
+
+        if (!cancelled) {
+          setCmdPreview(preview.command);
+          setCmdError('');
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setCmdPreview('');
+          setCmdError(e instanceof Error ? e.message : 'Unknown error');
+        }
+      } finally {
+        if (!cancelled) setCmdLoading(false);
+      }
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(debounce);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    inputStep?.inputFile,
+    inputStep?.selectedFile,
+    configStep?.outputFile,
+    configStep?.charset,
+    configStep?.language,
+    configStep?.subtitle,
+    configStep?.modelSettings?.whisperModel,
+    configStep?.apiKeys?.gemini,
+    configStep?.apiKeys?.huggingface,
+    configStep?.speakers,
+    configStep?.written,
+    configStep?.music,
+    configStep?.advancedSettings?.chunkDuration,
+    configStep?.advancedSettings?.numWorkers,
+    configStep?.advancedSettings?.enableSpeakerDiarization,
+    configStep?.advancedSettings?.enableMusicDetection,
+    configStep?.priority,
+    configStep?.noGeminiRefinement,
+    configStep?.maxChunkDuration,
+    configStep?.videoQuality,
+    configStep?.terminologyConfig,
+    configStep?.ffmpegPath,
+    configStep?.verbose,
+  ]);
 
   // Generate debug report
   const generateReport = useCallback(async (): Promise<void> => {
@@ -451,7 +547,7 @@ export const ElectronDebugPanel: React.FC<DebugPanelProps> = ({
               backgroundColor: '#2d2d2d',
             }}
           >
-            {['overview', 'performance', 'ipc', 'state', 'system'].map((tab) => (
+            {['overview', 'performance', 'ipc', 'state', 'system', 'engine'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab as typeof activeTab)}
@@ -645,6 +741,75 @@ export const ElectronDebugPanel: React.FC<DebugPanelProps> = ({
                       </div>
                     </div>
                   ))
+                )}
+              </div>
+            )}
+
+            {/* Engine Tab */}
+            {activeTab === 'engine' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>Engine Command</div>
+
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => navigator.clipboard && cmdPreview && navigator.clipboard.writeText(cmdPreview)}
+                    style={{
+                      background: '#2196F3',
+                      border: 'none',
+                      color: 'white',
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      fontSize: '10px',
+                      cursor: cmdPreview ? 'pointer' : 'not-allowed',
+                      opacity: cmdPreview ? 1 : 0.5,
+                    }}
+                  >
+                    Copy Command
+                  </button>
+                  <button
+                    onClick={() => {
+                      // Force refresh by toggling a trivial dependency via state update
+                      setCmdLoading(true);
+                      setTimeout(() => setCmdLoading(false), 200);
+                    }}
+                    style={{
+                      background: '#9C27B0',
+                      border: 'none',
+                      color: 'white',
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      fontSize: '10px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Refresh
+                  </button>
+                </div>
+
+                {cmdLoading ? (
+                  <div style={{ color: '#bbb', fontStyle: 'italic' }}>Generating command…</div>
+                ) : cmdError ? (
+                  <div style={{ color: '#FF9800' }}>{cmdError}</div>
+                ) : cmdPreview ? (
+                  <div
+                    style={{
+                      background: '#333',
+                      padding: '8px',
+                      borderRadius: '4px',
+                      fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                      fontSize: '11px',
+                      whiteSpace: 'nowrap',
+                      overflowX: 'auto',
+                      borderLeft: '3px solid #2196F3',
+                    }}
+                    title={cmdPreview}
+                  >
+                    {cmdPreview}
+                  </div>
+                ) : (
+                  <div style={{ color: '#888', fontStyle: 'italic' }}>
+                    Command will appear here when an input file is selected and configuration is valid.
+                  </div>
                 )}
               </div>
             )}

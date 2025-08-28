@@ -285,8 +285,23 @@ export const InputPanel: React.FC<InputPanelProps> = React.memo(
     const handleFileCleanup = useCallback(
       async (options: CleanupOptions) => {
         await performDataCleanup(options);
+
+        // When media is removed, reset workflow step states and navigate to Step 1
+        if (options.clearInputFile) {
+          try {
+            await setStepState('input', StepStatus.READY);
+            await setStepState('config', StepStatus.BLOCK);
+            await setStepState('processing', StepStatus.BLOCK);
+            await setStepState('review', StepStatus.BLOCK);
+            await setStepState('export', StepStatus.BLOCK);
+            await navigateToStep('input');
+            logger.info('Workflow states reset due to media removal');
+          } catch (error) {
+            logger.error('Failed to reset workflow states after media removal', { error });
+          }
+        }
       },
-      [performDataCleanup]
+      [performDataCleanup, setStepState, navigateToStep, logger]
     );
 
     const handleFileRemovalRequest = useCallback(async () => {
@@ -475,10 +490,17 @@ export const InputPanel: React.FC<InputPanelProps> = React.memo(
           selectedRange: null,
           lastModified: Date.now(),
         });
+        // Also ensure workflow states are reset if removal happens via simple onFileRemoved
+        await setStepState('input', StepStatus.READY);
+        await setStepState('config', StepStatus.BLOCK);
+        await setStepState('processing', StepStatus.BLOCK);
+        await setStepState('review', StepStatus.BLOCK);
+        await setStepState('export', StepStatus.BLOCK);
+        await navigateToStep('input');
       } catch (err) {
         logger.error('Failed to reset time range configuration:', { error: err });
       }
-    }, [stepActions, logger]);
+    }, [stepActions, setStepState, navigateToStep, logger]);
 
     // Helper function to determine if the range represents the full video (i.e., no real selection)
     const isFullRangeSelected = useCallback(

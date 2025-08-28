@@ -413,6 +413,23 @@ def generate_command(
         
         # Display results
         _display_results(result, ipc_mode)
+
+        # When verbose is enabled in non-IPC mode, export logs next to the SRT file
+        if verbose and not ipc_mode and result.success and result.output_file_path and unified_manager:
+            try:
+                out_path = Path(result.output_file_path)
+                log_path = out_path.with_suffix('.txt')
+                # Prefer the dedicated verbose log service if available
+                vsvc = getattr(unified_manager, 'verbose_log_service', None)
+                if vsvc:
+                    vsvc.export(str(log_path))
+                elif getattr(unified_manager, 'status_display', None):
+                    # Backward-compatible fallback
+                    unified_manager.status_display.export_logs_to_file(str(log_path))
+                console.print(f"[dim]Verbose log saved to: {str(log_path)}[/dim]")
+            except Exception:
+                # Do not interrupt flow if logging fails
+                pass
         
         # Handle processing errors
         if not result.success:
@@ -458,9 +475,10 @@ def generate_command(
 class UnifiedProgressManager:
     """Unified progress manager that can output to both IPC and simple status display."""
     
-    def __init__(self, ipc_mode: bool, verbose: bool = False):
+    def __init__(self, ipc_mode: bool, verbose: bool = False, verbose_log_service=None):
         self.ipc_mode = ipc_mode
         self.verbose = verbose
+        self.verbose_log_service = verbose_log_service
         
         # For non-IPC mode, get the status display
         if not ipc_mode:
@@ -471,6 +489,14 @@ class UnifiedProgressManager:
         
     def update_stage(self, stage: ProcessingStage, progress: float, message: str):
         """Update processing stage with unified interface."""
+        # Log into verbose log service
+        if self.verbose_log_service:
+            stage_info = ProgressDisplayManager.STAGES[stage]
+            overall_progress = stage_info.progress_start + (
+                (stage_info.progress_end - stage_info.progress_start) * progress
+            )
+            self.verbose_log_service.log_stage(stage_info.name, message=message, progress=overall_progress)
+
         if self.ipc_mode:
             # Map stage to IPC task name and calculate overall progress
             stage_info = ProgressDisplayManager.STAGES[stage]
@@ -489,6 +515,8 @@ class UnifiedProgressManager:
             
     def add_status_message(self, message: str):
         """Add status message with unified interface."""
+        if self.verbose_log_service:
+            self.verbose_log_service.log_status(message)
         if self.ipc_mode:
             ipc_log_message(message)
         else:
@@ -498,6 +526,8 @@ class UnifiedProgressManager:
             
     def add_technical_message(self, message: str):
         """Add technical message with unified interface."""
+        if self.verbose_log_service:
+            self.verbose_log_service.log_technical(message)
         if self.ipc_mode and self.verbose:
             ipc_log_message(f"Technical: {message}")
         elif not self.ipc_mode:
@@ -507,6 +537,8 @@ class UnifiedProgressManager:
     
     def add_debug_message(self, message: str):
         """Add debug message with unified interface."""
+        if self.verbose_log_service:
+            self.verbose_log_service.log_debug(message)
         if self.ipc_mode and self.verbose:
             ipc_log_message(f"Debug: {message}")
         elif not self.ipc_mode:
@@ -516,6 +548,8 @@ class UnifiedProgressManager:
     
     def add_performance_message(self, message: str):
         """Add performance message with unified interface."""
+        if self.verbose_log_service:
+            self.verbose_log_service.log_performance(message)
         if self.ipc_mode and self.verbose:
             ipc_log_message(f"Performance: {message}")
         elif not self.ipc_mode:
@@ -593,7 +627,16 @@ def _execute_with_enhanced_progress(command, use_case, verbose: bool, model: Opt
     """Execute the subtitle generation with enhanced progress tracking."""
     
     # Create unified progress manager for both IPC and non-IPC modes
-    unified_manager = UnifiedProgressManager(ipc_mode=ipc_mode, verbose=verbose)
+    # Attach a dedicated verbose log service in verbose, non-IPC mode
+    verbose_service = None
+    if verbose and not ipc_mode:
+        try:
+            from ...infrastructure.services.verbose_log_service import VerboseLogService
+            verbose_service = VerboseLogService()
+        except Exception:
+            verbose_service = None
+
+    unified_manager = UnifiedProgressManager(ipc_mode=ipc_mode, verbose=verbose, verbose_log_service=verbose_service)
     result = _execute_processing_steps(command, use_case, verbose, model, priority, unified_manager, ffmpeg_path)
     return result, unified_manager
 

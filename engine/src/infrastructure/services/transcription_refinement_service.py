@@ -106,6 +106,58 @@ class GeminiTranscriptionRefinementService(ITranscriptionRefinementService):
         
         # Initialize config for template access (fixes missing config attribute error)
         self.config = self._load_prompt_config()
+
+    # -------------------------------
+    # Internal helpers for comparison
+    # -------------------------------
+    def _extract_srt_text_signature(self, srt_text: str) -> str:
+        """Create a normalized signature from SRT content focusing on spoken text lines.
+
+        Strips index/timestamp lines and collapses whitespace to allow stable
+        comparison that ignores formatting-only differences.
+        """
+        if not srt_text:
+            return ""
+        lines = []
+        for line in srt_text.split('\n'):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            # Skip SRT structure lines
+            if re.match(r"^\d+$", stripped):
+                continue
+            if re.match(r"^\d{2}:\d{2}:\d{2},\d{3}\s+-->\s+\d{2}:\d{2}:\d{2},\d{3}$", stripped):
+                continue
+            lines.append(stripped)
+        # Collapse whitespace and case
+        signature = ' '.join(lines)
+        signature = re.sub(r"\s+", " ", signature).strip().lower()
+        return signature
+
+    def _force_refinement_retry(self, prompt: str, whisper_srt: str, video_file) -> str:
+        """Force a second refinement attempt instructing Gemini to avoid identical output."""
+        try:
+            stronger_prompt = (
+                prompt
+                + "\n\nIMPORTANT: The refined SRT MUST NOT be identical to the original text. "
+                  "Always improve readability, punctuation, line breaks, and vocabulary according to the style. "
+                  "Preserve all timestamps and indices exactly. Output valid SRT only."
+            )
+            content = [
+                stronger_prompt,
+                f"\n\nOriginal SRT content to refine:\n\n{whisper_srt}",
+                video_file,
+            ]
+            response = self.refinement_model.generate_content(content)
+            if not response.parts:
+                raise RuntimeError("Gemini returned empty response on retry")
+            try:
+                return GeminiResponseCleaner.clean_and_validate_srt(response.text)
+            except ValueError:
+                return GeminiResponseCleaner.clean_gemini_response(response.text, preserve_srt_format=True)
+        except Exception as e:
+            print(f"Warning: Forced refinement retry failed: {e}")
+            return whisper_srt
     
     def _load_prompt_config(self) -> Dict:
         """Load prompt configuration from prompt service (for backward compatibility)."""
@@ -436,20 +488,33 @@ class GeminiTranscriptionRefinementService(ITranscriptionRefinementService):
                 print(f"Warning: Gemini response cleaning failed: {e}")
                 # Fallback to basic cleaning if validation fails
                 refined_srt = GeminiResponseCleaner.clean_gemini_response(response.text, preserve_srt_format=True)
-            
+
             # Verify speaker tags are preserved if they existed
             if has_speaker_tags:
-                original_speaker_count = len(re.findall(r'[SPEAKER_\d+]', whisper_srt))
-                refined_speaker_count = len(re.findall(r'[SPEAKER_\d+]', refined_srt))
+                original_speaker_count = len(re.findall(r'\[SPEAKER_\d+\]', whisper_srt))
+                refined_speaker_count = len(re.findall(r'\[SPEAKER_\d+\]', refined_srt))
                 if refined_speaker_count == 0 and original_speaker_count > 0:
                     # Fallback: If Gemini stripped all speaker tags, use original with basic cleanup
                     print("Warning: Gemini removed speaker tags. Using fallback refinement.")
                     refined_srt = self._fallback_refinement_with_speakers(whisper_srt, language_style)
             
-            # Calculate changes made (simple heuristic)
+            # If the refined text appears identical to original (ignoring structure), try a forced retry
+            orig_sig = self._extract_srt_text_signature(whisper_srt)
+            refined_sig = self._extract_srt_text_signature(refined_srt)
+            if orig_sig == refined_sig:
+                print("Refinement produced no textual changes; forcing retry with stronger instruction...")
+                refined_srt_retry = self._force_refinement_retry(prompt, whisper_srt, video_file)
+                # Accept retry if it changed text signature and is valid
+                retry_sig = self._extract_srt_text_signature(refined_srt_retry)
+                if retry_sig and retry_sig != orig_sig:
+                    refined_srt = refined_srt_retry
+
+            # Calculate changes made (improved heuristic: include text signature change)
             original_lines = len(whisper_srt.split('\n'))
             refined_lines = len(refined_srt.split('\n'))
-            changes_made = abs(original_lines - refined_lines)
+            line_delta = abs(original_lines - refined_lines)
+            text_changed = int(orig_sig != self._extract_srt_text_signature(refined_srt))
+            changes_made = line_delta + text_changed
             
             # Calculate quality score (placeholder - could be enhanced)
             quality_score = min(1.0, len(refined_srt) / max(len(whisper_srt), 1))
@@ -625,12 +690,22 @@ class GeminiTranscriptionRefinementService(ITranscriptionRefinementService):
                         print(f"Warning: Chunk {i+1} response cleaning failed: {e}")
                         # Fallback to basic cleaning if validation fails
                         refined_chunk = GeminiResponseCleaner.clean_gemini_response(response.text, preserve_srt_format=True)
+                    
+                    # If no textual changes, try a forced retry for this chunk
+                    if self._extract_srt_text_signature(refined_chunk) == self._extract_srt_text_signature(chunk):
+                        print(f"Chunk {i+1}: no changes detected; forcing retry...")
+                        refined_retry = self._force_refinement_retry(prompt, chunk, video_file)
+                        if self._extract_srt_text_signature(refined_retry) != self._extract_srt_text_signature(chunk):
+                            refined_chunk = refined_retry
+
                     refined_chunks.append(refined_chunk)
                     
-                    # Count changes (simple heuristic)
+                    # Count changes (include text change heuristic)
                     original_lines = len(chunk.split('\n'))
                     refined_lines = len(refined_chunk.split('\n'))
-                    total_changes += abs(original_lines - refined_lines)
+                    line_delta = abs(original_lines - refined_lines)
+                    text_changed = int(self._extract_srt_text_signature(refined_chunk) != self._extract_srt_text_signature(chunk))
+                    total_changes += line_delta + text_changed
                     
                 except Exception as e:
                     print(f"Warning: Chunk {i+1} processing failed: {e}")

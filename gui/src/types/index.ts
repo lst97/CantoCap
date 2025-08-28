@@ -128,8 +128,13 @@ export interface InitializationResult {
 export interface ElectronWindow extends Window {
   electron: {
     ipcRenderer: {
-      invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
-      on: <T = unknown>(channel: string, callback: (event: T) => void) => void;
+      // Align with preload (electronCompat) surface
+      // Use any for IPC channel payloads to maximize compatibility with Electron typings
+      invoke: (channel: string, ...args: any[]) => Promise<any>;
+      send: (channel: string, ...args: any[]) => void;
+      on: (channel: string, callback: (...args: any[]) => void) => void;
+      removeListener: (channel: string, callback: (...args: any[]) => void) => void;
+      removeAllListeners: (channel: string) => void;
     };
   };
   cantocapAPI: {
@@ -233,6 +238,9 @@ export interface ElectronWindow extends Window {
     processingValidateConfig: (config: unknown) => Promise<{ success: boolean; isValid: boolean; errors?: string[]; error?: string }>;
     processingGetTimeEstimate: (config: unknown) => Promise<{ success: boolean; estimate?: unknown; error?: string }>;
     processingValidateFFmpeg: () => Promise<{ success: boolean; isValid: boolean; ffmpegPath?: string; error?: string }>;
+    processingGetCommandPreview: (
+      config: ProcessingConfig
+    ) => Promise<{ success: boolean; command?: string; parts?: string[]; error?: string }>;
 
     // IPC Event Handlers for processing and workflow events
     onProcessingEvent: (callback: (data: unknown) => void) => (() => void);

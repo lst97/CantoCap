@@ -118,6 +118,21 @@ class GenerateSubtitlesUseCase:
         
         # JSON subtitle service
         self.json_subtitle_service = json_subtitle_service
+
+    def _ensure_refinement_service(self, api_key: Optional[str]) -> None:
+        """Lazily initialize the transcription refinement service if missing.
+
+        This provides a fallback when the DI container couldn't initialize the
+        refinement service (e.g., optional dependency issues)."""
+        if self.transcription_refinement_service is None and api_key:
+            try:
+                from ...infrastructure.services.transcription_refinement_service import (
+                    GeminiTranscriptionRefinementService,
+                )
+                self.transcription_refinement_service = GeminiTranscriptionRefinementService(api_key)
+                print("Initialized Gemini transcription refinement service (lazy).")
+            except Exception as e:
+                print(f"Warning: Could not initialize refinement service: {e}")
     
     def execute(self, command: GenerateSubtitlesCommand) -> SubtitleGenerationResult:
         """
@@ -186,6 +201,10 @@ class GenerateSubtitlesUseCase:
             )
             
             # Step 10: Subtitle Validation and Tagging
+            # Ensure refinement service is available before checking the condition
+            if command.enable_gemini_refinement and not self.transcription_refinement_service:
+                self._ensure_refinement_service(command.gemini_api_key)
+
             if command.enable_gemini_refinement and self.transcription_refinement_service:
                 # Apply validation tags before Gemini refinement
                 ipc_progress(ProcessingStage.SUBTITLE_VALIDATION.value, 76.0, "Applying validation tags")
@@ -196,6 +215,9 @@ class GenerateSubtitlesUseCase:
                 subtitle_document = self._transcription_refinement_with_validation(
                     subtitle_document, validated_srt, media_file, command
                 )
+            elif command.enable_gemini_refinement and not self.transcription_refinement_service:
+                # Log that refinement is being skipped due to unavailable service
+                ipc_progress(ProcessingStage.GEMINI_TRANSCRIPTION_REFINEMENT.value, 80.0, "Refinement service unavailable; skipping")
             
             # Step 11: Apply subtitle translation (if enabled)
             if command.requires_translation() and self.subtitle_translation_service:
@@ -966,7 +988,14 @@ class GenerateSubtitlesUseCase:
         command: GenerateSubtitlesCommand
     ) -> SubtitleDocument:
         """Use transcription refinement service to refine transcription with validation tags."""
+        # Ensure refinement service is available
+        self._ensure_refinement_service(command.gemini_api_key)
         if not self.transcription_refinement_service:
+            # Explicitly report skip in IPC/verbose flows
+            try:
+                ipc_progress(ProcessingStage.GEMINI_TRANSCRIPTION_REFINEMENT.value, 80.0, "Refinement service unavailable; skipping")
+            except Exception:
+                pass
             return subtitle_document
         
         try:
@@ -1034,7 +1063,14 @@ class GenerateSubtitlesUseCase:
         command: GenerateSubtitlesCommand
     ) -> SubtitleDocument:
         """Use Gemini Flash to refine transcription quality."""
+        # Ensure refinement service is available
+        self._ensure_refinement_service(command.gemini_api_key)
         if not self.transcription_refinement_service:
+            # Explicitly report skip in IPC/verbose flows
+            try:
+                ipc_progress(ProcessingStage.GEMINI_TRANSCRIPTION_REFINEMENT.value, 80.0, "Refinement service unavailable; skipping")
+            except Exception:
+                pass
             return subtitle_document
         
         try:

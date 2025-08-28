@@ -141,6 +141,9 @@ class StatusDisplay:
         # Warning capture
         self._original_showwarning = warnings.showwarning
         
+        # Export settings
+        self._last_export_path: Optional[str] = None
+
     def start(self):
         """Start the status display."""
         with self._lock:
@@ -540,6 +543,55 @@ class StatusDisplay:
         
         # Force immediate display
         self.console.file.flush()
+
+    def export_logs_to_file(self, file_path: str) -> None:
+        """Export collected status and technical logs to a text file.
+
+        Args:
+            file_path: Destination path for the exported .txt log
+        """
+        try:
+            # Prepare log content
+            lines = []
+            lines.append("CantoCap Verbose Log")
+            lines.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            lines.append("")
+
+            # Status messages
+            lines.append("=== Status Messages ===")
+            if self.state.status_messages:
+                for msg in self.state.status_messages:
+                    ts = msg.timestamp.strftime('%H:%M:%S') if isinstance(msg.timestamp, datetime) else "--:--:--"
+                    level = msg.level.upper() if getattr(msg, 'level', None) else 'INFO'
+                    lines.append(f"[{ts}] [{level}] {msg.user_friendly}")
+                    if msg.details and msg.details != msg.user_friendly:
+                        lines.append(f"    Details: {msg.details}")
+            else:
+                lines.append("(no status messages)")
+
+            # Technical details
+            lines.append("")
+            lines.append("=== Technical Details ===")
+            if self.state.technical_details:
+                for detail in self.state.technical_details:
+                    lines.append(detail.rstrip())
+            else:
+                lines.append("(no technical details)")
+
+            content = "\n".join(lines) + "\n"
+
+            # Ensure directory exists
+            from pathlib import Path
+            dest = Path(file_path)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+
+            with open(dest, 'w', encoding='utf-8') as f:
+                f.write(content)
+
+            self._last_export_path = str(dest)
+        except Exception:
+            # Best-effort: don't fail the main flow if export fails
+            pass
     
     @contextmanager
     def status_context(self):

@@ -673,6 +673,21 @@ export class ProcessManager {
     return this.activeProcess !== null;
   }
 
+  // Build the full Python command that will be executed for the given config
+  public async getCommandPreview(
+    config: ProcessingConfig
+  ): Promise<{ python: string; args: string[]; full: string }> {
+    // Convert to legacy CLI args
+    const legacyConfig = await this.convertToLegacyConfig(config);
+    const pythonCmd = await this.findPythonExecutable();
+    const cliArgs = ['-m', 'src.presentation.cli.main', '--ipc-mode', ...this.buildCliArguments(legacyConfig)];
+    const full = [pythonCmd, ...cliArgs]
+      .map((part) => (/(\s|"|')/.test(part) ? `'${part.replace(/'/g, "'\\''")}'` : part))
+      .join(' ');
+
+    return { python: pythonCmd, args: cliArgs, full };
+  }
+
   // Get estimated processing time for UI display (without starting process)
   public getProcessingTimeEstimate(config: ProcessingConfig): {
     timeoutMs: number;

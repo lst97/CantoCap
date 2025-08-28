@@ -26,7 +26,9 @@ class SubtitleValidationService:
     REPEAT_PATTERN_MIN = 2    # Minimum pattern length to consider
     
     # Symbol filtering patterns
-    VALID_PUNCTUATION = r'[。，！？：；""''「」『』（）【】〔〕《》〈〉…、·—–-]'
+    # Build valid punctuation class safely using re.escape to avoid bad ranges
+    _PUNCT_CHARS = "。，！？：；「」『』（）【】〔〕《》〈〉…、·—–-\"'"
+    VALID_PUNCTUATION = f"[{re.escape(_PUNCT_CHARS)}]"
     VALID_TAGS = r'\[(?:SPEAKER_\d+|TRIM|REPEAT|MUSIC|[A-Z_]+)\]'
     INVALID_SYMBOLS = r'[^\u4e00-\u9fff\u3400-\u4dbf\u20000-\u2a6df\u2a700-\u2b73f\u2b740-\u2b81f\u2b820-\u2ceaf\u2ceb0-\u2ebef\u30a0-\u30ff\u3040-\u309f\ua000-\ua48f\uff00-\uffef\u0020-\u007E`]'
     
@@ -120,21 +122,24 @@ class SubtitleValidationService:
         lines = srt_content.split('\n')
         processed_lines = []
         
-        for line in lines:
-            line = line.strip()
+        for raw_line in lines:
+            line = raw_line.strip()
             
-            # Skip empty lines, numbers, and timestamps
+            # Keep structure lines intact
             if not line or line.isdigit() or '-->' in line:
                 processed_lines.append(line)
                 continue
             
-            # Process subtitle text lines
-            if line and not self._is_subtitle_metadata(line):
-                validation_result = self.validate_subtitle_line(line)
-                processed_lines.append(validation_result.processed_text)
+            # Extract and preserve leading tags (e.g., [SPEAKER_1], [MUSIC]) but still validate content
+            leading_tags, content = self._extract_leading_tags(line)
+            
+            if content:
+                validation_result = self.validate_subtitle_line(content)
+                processed_lines.append(f"{leading_tags}{validation_result.processed_text}".strip())
             else:
-                processed_lines.append(line)
-        
+                # Line was tags only
+                processed_lines.append(leading_tags.strip())
+
         return '\n'.join(processed_lines)
     
     def _apply_trim_tag(self, text: str) -> str:
@@ -178,25 +183,22 @@ class SubtitleValidationService:
         # Look for word/phrase repeats (e.g., "係呀係呀係呀")
         word_repeats = self._find_word_repeats(clean_text)
         
-        if char_repeats or word_repeats:
+        # CJK fallback: repeated CJK sequence (1-3 chars) repeated >= threshold
+        cjk_repeats = self._find_cjk_repeats(clean_text)
+        
+        if char_repeats or word_repeats or cjk_repeats:
             # Replace the longest repeat pattern with [REPEAT]
-            if char_repeats and word_repeats:
-                # Choose the longer pattern
-                if len(char_repeats["pattern"]) >= len(word_repeats["pattern"]):
-                    processed_text = self._replace_repeat_pattern(text, char_repeats)
-                else:
-                    processed_text = self._replace_repeat_pattern(text, word_repeats)
-            elif char_repeats:
-                processed_text = self._replace_repeat_pattern(text, char_repeats)
-            else:
-                processed_text = self._replace_repeat_pattern(text, word_repeats)
+            candidates = [p for p in [char_repeats, word_repeats, cjk_repeats] if p]
+            longest = max(candidates, key=lambda p: len(p["pattern"]))
+            processed_text = self._replace_repeat_pattern(text, longest)
             
             return {
                 "has_repeats": True,
                 "processed_text": processed_text,
                 "patterns_found": {
                     "character_repeats": char_repeats,
-                    "word_repeats": word_repeats
+                    "word_repeats": word_repeats,
+                    "cjk_repeats": cjk_repeats
                 }
             }
         
@@ -227,6 +229,20 @@ class SubtitleValidationService:
     
     def _find_word_repeats(self, text: str) -> Dict[str, Any]:
         """Find repeated words or short phrases."""
+        # Quick regex for single-token repeats with separators (handles CJK with spaces)
+        sep = r'(?:\s+|[，。！？、])'
+        quick = re.search(fr'([^\s，。！？、]+)(?:{sep}\1){{{self.REPEAT_THRESHOLD - 1},}}', text)
+        if quick:
+            unit = quick.group(1)
+            pattern_text = quick.group(0)
+            return {
+                "pattern": pattern_text,
+                "unit": unit,
+                "count": max(3, pattern_text.count(unit)),
+                "start_word": None,
+                "end_word": None
+            }
+
         # Split by common separators but keep them
         words = re.split(r'(\s+|[，。！？、])', text)
         words = [w for w in words if w.strip()]
@@ -260,6 +276,30 @@ class SubtitleValidationService:
                     }
         
         return None
+
+    def _find_cjk_repeats(self, text: str) -> Dict[str, Any]:
+        """Find repeated CJK character sequences (no spaces) like 係呀 repeated 3+ times.
+        Detects n-gram (1-3) repeated at least REPEAT_THRESHOLD times.
+        """
+        # Quick check: if text has whitespace/punctuation splits, leave to word finder
+        if re.search(r'(\s|[，。！？、])', text):
+            return None
+        cjk_class = r'[\u4e00-\u9fff\u3400-\u4dbf\u30a0-\u30ff\u3040-\u309f]'
+        for n in range(1, 4):
+            # Build regex like: (..)(\1){2,}
+            pattern = re.compile(fr'({cjk_class}{{{n}}})(?:\1){{{self.REPEAT_THRESHOLD - 1},}}')
+            m = pattern.search(text)
+            if m:
+                unit = m.group(1)
+                full = m.group(0)
+                return {
+                    "pattern": full,
+                    "unit": unit,
+                    "count": len(full) // len(unit),
+                    "start": m.start(),
+                    "end": m.end()
+                }
+        return None
     
     def _replace_repeat_pattern(self, text: str, repeat_info: Dict[str, Any]) -> str:
         """Replace identified repeat pattern with [REPEAT] tag."""
@@ -277,8 +317,21 @@ class SubtitleValidationService:
         return text.replace(pattern, replacement, 1)
     
     def _is_subtitle_metadata(self, line: str) -> bool:
-        """Check if line is subtitle metadata (speaker tags, etc.)."""
-        return bool(re.match(r'^\[SPEAKER_\d+\]', line.strip()))
+        """Check if line is metadata-only (e.g., only tags)."""
+        stripped = line.strip()
+        # One or more tags and nothing else
+        return bool(re.fullmatch(r'(?:' + self.VALID_TAGS + r'\s*)+', stripped))
+
+    def _extract_leading_tags(self, line: str) -> (str, str):
+        """Extract leading tags like [SPEAKER_1] while returning remaining content.
+        Returns tuple (leading_tags_with_space, remaining_content)
+        """
+        m = re.match(r'^((' + self.VALID_TAGS + r'\s*)+)', line)
+        if m:
+            leading = m.group(1)
+            content = line[m.end():].lstrip()
+            return leading, content
+        return "", line
     
     def _filter_invalid_symbols(self, text: str) -> str:
         """

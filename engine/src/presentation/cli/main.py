@@ -232,11 +232,14 @@ def main(
     # Enable console capture for IPC mode
     if ipc_mode:
         from .console_interceptor import start_console_capture
-        from .ipc_handler import get_handler
+        from .ipc_handler import get_handler, enable_ipc_verbose_echo
         
         # Initialize progress tracking
         handler = get_handler()
         handler.progress_manager.start_overall_progress()
+        # If verbose, also echo IPC JSON messages to original stderr for debugging
+        if verbose:
+            enable_ipc_verbose_echo(True)
         
         # Start capturing all console output
         start_console_capture(handler)

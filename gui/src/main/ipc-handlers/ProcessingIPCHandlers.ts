@@ -340,6 +340,26 @@ export class ProcessingIPCHandlers {
       }
     });
 
+    // Get full command preview for given ProcessingConfig (no execution)
+    ipcMain.handle('processing:getCommandPreview', async (_, config: ProcessingConfig) => {
+      try {
+        const preview = await this.processManager.getCommandPreview(config);
+        return {
+          success: true,
+          command: preview.full,
+          parts: [preview.python, ...preview.args],
+        };
+      } catch (error) {
+        this.logger.error('Failed to build command preview', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        };
+      }
+    });
+
     // Validate FFmpeg availability
     ipcMain.handle('processing:validateFFmpeg', async () => {
       try {

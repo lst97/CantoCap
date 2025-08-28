@@ -185,6 +185,11 @@ const api: ElectronAPI = {
   ): Promise<{ success: boolean; estimate?: any; error?: string }> =>
     ipcRenderer.invoke('processing:getTimeEstimate', config),
 
+  processingGetCommandPreview: (
+    config: any
+  ): Promise<{ success: boolean; command?: string; parts?: string[]; error?: string }> =>
+    ipcRenderer.invoke('processing:getCommandPreview', config),
+
   processingValidateFFmpeg: (): Promise<{
     success: boolean;
     isValid: boolean;
