@@ -10,12 +10,15 @@ import {
 
 // Dependency checking types
 export interface DependencyStatus {
-  status: 'checking' | 'available' | 'missing' | 'error';
-  available: boolean;
-  version?: string;
-  name?: string;
-  helpText?: string;
-  downloadUrl?: string;
+  status: 'checking' | 'available' | 'missing' | 'error'
+  available: boolean
+  version?: string
+  name?: string
+  helpText?: string
+  downloadUrl?: string
+  path?: string
+  error?: string | null
+  autoInstallUrls?: Record<string, string>
 }
 
 // Legacy application configuration types (deprecated - use ProcessingConfig instead)
@@ -150,6 +153,12 @@ export interface ElectronWindow extends Window {
 
     // External URLs
     openExternalUrl: (url: string) => Promise<void>;
+
+    // App Settings (global)
+    settingsGet: () => Promise<{ success: boolean; settings?: { apiKeys: { gemini?: string; openai?: string; huggingface?: string } }; error?: string }>;
+    settingsUpdate: (
+      partial: { apiKeys?: { gemini?: string; openai?: string; huggingface?: string } }
+    ) => Promise<{ success: boolean; settings?: { apiKeys: { gemini?: string; openai?: string; huggingface?: string } }; error?: string }>;
 
     // Application Info
     getAppVersion: () => Promise<string>;

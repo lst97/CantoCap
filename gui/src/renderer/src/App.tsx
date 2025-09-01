@@ -170,6 +170,10 @@ function App(): JSX.Element {
   }, [appActions, workspaceActions, workflowActions, logger]); // Include all dependencies
 
   // Global settings dialog state
+  const handleOpenGlobalSettings = () => {
+    setGlobalSettingsOpen(true);
+  };
+
   const handleCloseGlobalSettings = () => {
     setGlobalSettingsOpen(false);
   };
@@ -211,6 +215,7 @@ function App(): JSX.Element {
         <CssBaseline />
         <AppContent
           globalSettingsOpen={globalSettingsOpen}
+          handleOpenGlobalSettings={handleOpenGlobalSettings}
           handleCloseGlobalSettings={handleCloseGlobalSettings}
           isWorkspaceInitialized={isWorkspaceInitialized}
         />

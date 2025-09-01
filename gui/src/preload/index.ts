@@ -32,6 +32,12 @@ const api: ElectronAPI = {
 
   openExternalUrl: (url: string): Promise<void> => ipcRenderer.invoke('open-external-url', url),
 
+  // App Settings (global)
+  settingsGet: (): Promise<{ success: boolean; settings?: { apiKeys: { gemini?: string; openai?: string; huggingface?: string } }; error?: string }> =>
+    ipcRenderer.invoke('settings:get'),
+  settingsUpdate: (partial: { apiKeys?: { gemini?: string; openai?: string; huggingface?: string } }): Promise<{ success: boolean; settings?: { apiKeys: { gemini?: string; openai?: string; huggingface?: string } }; error?: string }> =>
+    ipcRenderer.invoke('settings:update', partial),
+
   // Window Controls
   getPlatform: (): Promise<string> => ipcRenderer.invoke('get-platform'),
 

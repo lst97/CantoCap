@@ -1,6 +1,6 @@
-import React from 'react'
-import { Box, CircularProgress, Typography, Fade } from '@mui/material'
-import { styled } from '@mui/material/styles'
+import React from 'react';
+import { Box, CircularProgress, Typography, Fade } from '@mui/material';
+import { styled } from '@mui/material/styles';
 
 const StyledOverlay = styled(Box)(({ theme }) => ({
   position: 'absolute',
@@ -18,7 +18,7 @@ const StyledOverlay = styled(Box)(({ theme }) => ({
   ...theme.applyStyles('dark', {
     backgroundColor: 'rgba(0, 0, 0, 0.85)',
   }),
-}))
+}));
 
 const LoadingContainer = styled(Box)(({ theme }) => ({
   display: 'flex',
@@ -27,39 +27,39 @@ const LoadingContainer = styled(Box)(({ theme }) => ({
   gap: theme.spacing(2),
   padding: theme.spacing(3),
   backgroundColor: theme.palette.background.paper,
-  borderRadius: theme.shape.borderRadius * 1.5,
+  borderRadius: Number(theme.shape.borderRadius) * 1.5,
   boxShadow: theme.shadows[4],
   border: `1px solid ${theme.palette.divider}`,
   minWidth: 240,
   maxWidth: 320,
-}))
+}));
 
 interface StepLoadingOverlayProps {
   /** Whether the overlay is visible */
-  open: boolean
+  open: boolean;
   /** Loading message to display */
-  message?: string
+  message?: string;
   /** Secondary message for additional details */
-  subtitle?: string
+  subtitle?: string;
   /** Show spinning progress indicator */
-  showProgress?: boolean
+  showProgress?: boolean;
   /** Custom progress size */
-  progressSize?: number
+  progressSize?: number;
   /** Transition timeout in milliseconds */
-  timeout?: number
+  timeout?: number;
   /** Whether the overlay is transitioning */
-  isTransitioning?: boolean
+  isTransitioning?: boolean;
   /** Additional CSS class name */
-  className?: string
+  className?: string;
 }
 
 /**
  * StepLoadingOverlay component for displaying loading states within step content area
- * 
+ *
  * This overlay is specifically designed for WORKSPACE OPERATIONS ONLY:
  * - Initial workspace system loading
  * - Workspace switching/loading
- * 
+ *
  * IMPORTANT: Should NOT be used for normal step configuration changes to avoid
  * disruptive UX during regular user interactions.
  */
@@ -70,19 +70,18 @@ export const StepLoadingOverlay: React.FC<StepLoadingOverlayProps> = ({
   showProgress = true,
   progressSize = 40,
   timeout = 400,
-  isTransitioning = false,
-  className
+  className,
 }) => {
   return (
     <Fade in={open} timeout={timeout} unmountOnExit>
       <StyledOverlay className={className}>
         <LoadingContainer>
           {showProgress && (
-            <CircularProgress 
-              variant="indeterminate"
-              size={progressSize} 
+            <CircularProgress
+              variant='indeterminate'
+              size={progressSize}
               thickness={4}
-              sx={{ 
+              sx={{
                 color: 'primary.main',
                 animation: 'spin 1.4s linear infinite',
                 '& .MuiCircularProgress-circle': {
@@ -111,29 +110,25 @@ export const StepLoadingOverlay: React.FC<StepLoadingOverlayProps> = ({
                     strokeDashoffset: '-125px',
                   },
                 },
-              }} 
+              }}
             />
           )}
-          
-          <Box textAlign="center">
-            <Typography 
-              variant="subtitle1" 
-              component="div" 
-              sx={{ 
+
+          <Box textAlign='center'>
+            <Typography
+              variant='subtitle1'
+              component='div'
+              sx={{
                 fontWeight: 500,
                 color: 'text.primary',
-                mb: subtitle ? 0.5 : 0
+                mb: subtitle ? 0.5 : 0,
               }}
             >
               {message}
             </Typography>
-            
+
             {subtitle && (
-              <Typography 
-                variant="body2" 
-                color="text.secondary"
-                sx={{ opacity: 0.8 }}
-              >
+              <Typography variant='body2' color='text.secondary' sx={{ opacity: 0.8 }}>
                 {subtitle}
               </Typography>
             )}
@@ -141,14 +136,14 @@ export const StepLoadingOverlay: React.FC<StepLoadingOverlayProps> = ({
         </LoadingContainer>
       </StyledOverlay>
     </Fade>
-  )
-}
+  );
+};
 
 // Specialized variants for common use cases
 
 interface WorkspaceStepLoadingOverlayProps {
-  open: boolean
-  workspaceName?: string
+  open: boolean;
+  workspaceName?: string;
 }
 
 /**
@@ -157,23 +152,23 @@ interface WorkspaceStepLoadingOverlayProps {
  */
 export const WorkspaceStepLoadingOverlay: React.FC<WorkspaceStepLoadingOverlayProps> = ({
   open,
-  workspaceName
+  workspaceName,
 }) => {
   // Determine the appropriate message based on context
   const getMessage = () => {
     if (workspaceName) {
-      return "Switching Workspace"
+      return 'Switching Workspace';
     }
-    return "Loading Configuration"
-  }
-  
+    return 'Loading Configuration';
+  };
+
   const getSubtitle = () => {
     if (workspaceName) {
-      return `Loading "${workspaceName}"...`
+      return `Loading "${workspaceName}"...`;
     }
-    return "Initializing workspace settings..."
-  }
-  
+    return 'Initializing workspace settings...';
+  };
+
   return (
     <StepLoadingOverlay
       open={open}
@@ -181,12 +176,12 @@ export const WorkspaceStepLoadingOverlay: React.FC<WorkspaceStepLoadingOverlayPr
       subtitle={getSubtitle()}
       progressSize={36}
     />
-  )
-}
+  );
+};
 
 interface ConfigStepLoadingOverlayProps {
-  open: boolean
-  stepName?: string
+  open: boolean;
+  stepName?: string;
 }
 
 /**
@@ -196,14 +191,14 @@ interface ConfigStepLoadingOverlayProps {
  */
 export const ConfigStepLoadingOverlay: React.FC<ConfigStepLoadingOverlayProps> = ({
   open,
-  stepName
+  stepName,
 }) => (
   <StepLoadingOverlay
     open={open}
-    message="Loading Configuration"
+    message='Loading Configuration'
     subtitle={stepName ? `Preparing ${stepName} settings...` : 'Loading step configuration...'}
     progressSize={32}
   />
-)
+);
 
-export default StepLoadingOverlay
+export default StepLoadingOverlay;

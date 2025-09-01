@@ -37,14 +37,13 @@ const defaultConfigStepData: ConfigStepData = {
   // Additional CLI args fields
   priority: 'balanced',
   noGeminiRefinement: false,
-  maxChunkDuration: 15, // Legacy large file chunking (minutes)
   videoQuality: '360p',
   terminologyConfig: undefined,
   ffmpegPath: undefined,
   verbose: false,
 
-  // New adaptive chunking fields
-  enableAdaptiveChunking: true, // Enable by default
+  // Adaptive chunking fields
+  enableAdaptiveChunking: true,
   whisperChunkDuration: 30, // seconds
   geminiChunkDuration: 900, // seconds (15 minutes)
 
@@ -56,11 +55,10 @@ const defaultConfigStepData: ConfigStepData = {
   },
   apiKeys: {},
   advancedSettings: {
-    chunkDuration: 30, // Legacy field for backward compatibility
+    chunkDuration: 30,
     numWorkers: 4,
     enableSpeakerDiarization: false,
     enableMusicDetection: false,
-    // New adaptive chunking strategy
     chunkingStrategy: {
       whisperChunkDuration: 30,
       whisperOverlap: 5,
@@ -70,6 +68,7 @@ const defaultConfigStepData: ConfigStepData = {
   },
   isValid: false,
   validationErrors: [],
+  initializedWithDefaults: false,
 };
 
 const logger = createStoreLogger('Config');
@@ -81,43 +80,13 @@ export const useConfigStepStore = create<ConfigStepState>((set, get) => ({
     updateConfigStep: async (content: Partial<ConfigStepData>) => {
       logger.debug('Updating config step', { content });
 
-      // Migrate legacy data: if 'model' field exists, move it to modelSettings.whisperModel
-      const migratedContent = { ...content };
-      if ('model' in migratedContent && (migratedContent as any).model) {
-        const legacyModel = (migratedContent as any).model;
-        logger.info('Migrating legacy model field', { legacyModel });
-
-        if (!migratedContent.modelSettings) {
-          migratedContent.modelSettings = {
-            whisperModel: legacyModel,
-            enableGemini: false,
-            temperature: 0.1,
-          };
-        } else {
-          migratedContent.modelSettings = {
-            ...migratedContent.modelSettings,
-            whisperModel: legacyModel,
-          };
-        }
-
-        // Remove the legacy field
-        delete (migratedContent as any).model;
-        logger.debug('Migration completed successfully', {
-          whisperModel: migratedContent.modelSettings.whisperModel,
-        });
-      }
-
-      // Update the store only - persistence is handled by useStepStore
       set((state) => ({
         data: {
           ...state.data,
-          ...migratedContent,
+          ...content,
           lastModified: Date.now(),
         },
       }));
-
-      // NOTE: Persistence is handled by useStepStore.updateStepContent()
-      // No need to persist here to avoid double persistence and infinite loops
     },
 
     resetConfigStep: () => {
@@ -138,8 +107,15 @@ export const useConfigStepStore = create<ConfigStepState>((set, get) => ({
             numWorkers: 4,
             enableSpeakerDiarization: false,
             enableMusicDetection: false,
+            chunkingStrategy: {
+              whisperChunkDuration: 30,
+              whisperOverlap: 5,
+              geminiChunkDuration: 900,
+              geminiOverlap: 30,
+            },
           },
           validationErrors: [],
+          initializedWithDefaults: false,
         },
       });
       logger.debug('Config step reset completed');

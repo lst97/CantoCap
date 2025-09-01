@@ -15,12 +15,18 @@ import { createComponentLogger } from '../utils/logger';
 
 interface AppContentProps {
   globalSettingsOpen: boolean;
+  handleOpenGlobalSettings: () => void;
   handleCloseGlobalSettings: () => void;
   isWorkspaceInitialized?: boolean;
 }
 
 export const AppContent: React.FC<AppContentProps> = memo(
-  ({ globalSettingsOpen, handleCloseGlobalSettings, isWorkspaceInitialized = false }) => {
+  ({
+    globalSettingsOpen,
+    handleOpenGlobalSettings,
+    handleCloseGlobalSettings,
+    isWorkspaceInitialized = false
+  }) => {
     const isInitialized = useRef(false);
 
     const logger = createComponentLogger('AppContent');
@@ -84,7 +90,7 @@ export const AppContent: React.FC<AppContentProps> = memo(
           }}
         >
           {/* Always show workspace panel (Discord-style sidebar) */}
-          {isWorkspaceStoreReady && <WorkspacePanel onSettings={() => {}} />}
+          {isWorkspaceStoreReady && <WorkspacePanel onSettings={handleOpenGlobalSettings} />}
 
           {/* Show empty workspace state when no workspaces exist */}
           {isWorkspaceStoreReady && workspaceCount === 0 ? (

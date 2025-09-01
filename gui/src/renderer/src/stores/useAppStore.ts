@@ -1,11 +1,14 @@
 import { create } from 'zustand';
-import { AppState, WindowState, AppStateUpdateEvent, ElectronWindow } from './types/StoreTypes';
+import { AppState, WindowState, AppStateUpdateEvent, ElectronWindow, SystemDependencies } from './types/StoreTypes';
+import type { DependencyStatus } from '../../../types';
 import { createStoreLogger } from '../utils/logger';
 // ============================================================================
 // APP STORE - GLOBAL APPLICATION STATE
 // ============================================================================
 
 const logger = createStoreLogger('AppStore');
+// Prevent concurrent or duplicate dependency checks (e.g., StrictMode double invoke)
+let depsCheckInFlight = false;
 
 export const useAppStore = create<AppState>((set, get) => ({
   // State
@@ -142,20 +145,43 @@ export const useAppStore = create<AppState>((set, get) => ({
     },
 
     checkDependencies: async () => {
-      logger.debug('Checking system dependencies');
-      // TODO: Replace with real IPC call to check system dependencies
-      setTimeout(() => {
+      if (depsCheckInFlight) {
+        logger.debug('Skipping dependency check: already in-flight');
+        return;
+      }
+      depsCheckInFlight = true;
+      logger.debug('Checking system dependencies via IPC');
+      // Immediately reflect checking state in UI
+      set(() => ({
+        dependencies: {
+          python: { status: 'checking', available: false },
+          ffmpeg: { status: 'checking', available: false },
+        },
+      }));
+
+      try {
+        const raw = await (window as unknown as ElectronWindow).electron.ipcRenderer.invoke(
+          'check-dependencies'
+        );
+        const deps = raw as Record<string, DependencyStatus>;
+        const normalized: SystemDependencies = {
+          python: deps.python ?? { status: 'missing', available: false },
+          ffmpeg: deps.ffmpeg ?? { status: 'missing', available: false },
+        };
+        set(() => ({ dependencies: normalized }));
+        logger.info('Dependencies check completed', { deps });
+      } catch (error) {
+        logger.error('Failed to check dependencies', { error });
+        // Set error state conservatively
         set(() => ({
           dependencies: {
-            python: { status: 'available', available: true, version: 'Python 3.12.0' },
-            ffmpeg: { status: 'available', available: true, version: 'FFmpeg 6.0' },
+            python: { status: 'error', available: false, error: 'Check failed' },
+            ffmpeg: { status: 'error', available: false, error: 'Check failed' },
           },
         }));
-        logger.info('Dependencies check completed', {
-          python: 'available',
-          ffmpeg: 'available'
-        });
-      }, 1000);
+      } finally {
+        depsCheckInFlight = false;
+      }
     },
 
     checkHardware: async () => {
@@ -198,7 +224,7 @@ if (typeof window !== 'undefined' && (window as unknown as ElectronWindow).elect
         // and preserve the current renderer state (this is expected behavior during certain state transitions)
         if (state.activeWorkspaceId === undefined) {
           logger.warn('Rejecting state update with undefined activeWorkspaceId', {
-            reason: 'expected during transitions'
+            reason: 'expected during transitions',
           });
 
           // Only update non-activeWorkspaceId fields if they are valid
@@ -238,7 +264,7 @@ if (typeof window !== 'undefined' && (window as unknown as ElectronWindow).elect
         if (hasActiveWorkspaceChanged) {
           logger.info('Active workspace changed via IPC', {
             from: currentState.activeWorkspaceId,
-            to: normalizedActiveWorkspaceId
+            to: normalizedActiveWorkspaceId,
           });
         }
 

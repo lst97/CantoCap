@@ -26,6 +26,8 @@ import { SubtitleIPCHandlers } from './ipc-handlers/SubtitleIPCHandlers';
 import { WorkflowIPCHandlers } from './ipc-handlers/WorkflowIPCHandlers';
 import { ProcessingIPCHandlers } from './ipc-handlers/ProcessingIPCHandlers';
 import { ExportIPCHandlers } from './ipc-handlers/ExportIPCHandlers';
+import { SettingsIPCHandlers } from './ipc-handlers/SettingsIPCHandlers';
+import { AppSettingsService } from './config/AppSettingsService';
 import type {
   DependencyStatus,
   AppConfig,
@@ -286,12 +288,16 @@ class CantoCap {
     // Initialize export handlers
     this.exportIPCHandlers = new ExportIPCHandlers(this.mainWindow.webContents);
 
+    // Initialize app settings handlers
+    new SettingsIPCHandlers(new AppSettingsService(), this.mainWindow.webContents);
+
     logger.system('✅ IPC config handlers initialized');
     logger.system('✅ Video processing handlers initialized');
     logger.system('✅ Subtitle processing handlers initialized');
     logger.system('✅ Workflow state handlers initialized');
     logger.system('✅ Processing IPC handlers initialized');
     logger.system('✅ Export IPC handlers initialized');
+    logger.system('✅ Settings IPC handlers initialized');
 
     // System Operations
     ipcMain.handle('check-dependencies', async (): Promise<Record<string, DependencyStatus>> => {

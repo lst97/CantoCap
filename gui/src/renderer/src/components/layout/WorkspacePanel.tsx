@@ -1043,7 +1043,7 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({ onSettings }) =>
 
       {/* Settings button at bottom */}
       <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
-        <Tooltip title='Workspace settings' placement='right'>
+        <Tooltip title='App settings' placement='right'>
           <IconButton
             onClick={onSettings}
             disabled={isLoading}

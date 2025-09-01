@@ -33,6 +33,7 @@ import type {
   WhisperModel,
   ConfigStepData,
 } from '../../stores/types/StoreTypes';
+import type { ElectronWindow } from '../../../../types';
 import { StepStatus, StepStatusType } from '../../stores/types/StoreTypes';
 import { createComponentLogger } from '../../utils/logger';
 
@@ -344,6 +345,9 @@ export const ConfigStep: React.FC = () => {
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [userErrorMessage, setUserErrorMessage] = useState<string>('');
   const [showUserError, setShowUserError] = useState(false);
+  const [appliedDefaultsForWorkspace, setAppliedDefaultsForWorkspace] = useState<string | null>(
+    null
+  );
 
   const isReady = !isLoading;
 
@@ -377,6 +381,68 @@ export const ConfigStep: React.FC = () => {
     },
     [config, updateStepContent, logger]
   );
+
+  // Prefill API keys for newly created workspaces from the most recent workspace settings
+  useEffect(() => {
+    const prefillFromRecent = async () => {
+      try {
+        // Only attempt once per workspace
+        if (!activeWorkspaceId || appliedDefaultsForWorkspace === activeWorkspaceId) return;
+
+        // Do not apply defaults if this workspace has already been initialized with defaults
+        if (config?.initializedWithDefaults) {
+          setAppliedDefaultsForWorkspace(activeWorkspaceId);
+          return;
+        }
+
+        // Skip if current config already has keys
+        const hasHF = Boolean(config?.apiKeys?.huggingface && config.apiKeys.huggingface.trim());
+        const hasGemini = Boolean(
+          (config?.apiKeys?.gemini && config.apiKeys.gemini.trim()) ||
+            (config?.geminiKey && String(config.geminiKey).trim())
+        );
+        if (hasHF && hasGemini) return;
+
+        // Load global app settings (defaults)
+        const res = await (window as unknown as ElectronWindow).cantocapAPI.settingsGet();
+        const appApiKeys = res?.success && res.settings ? res.settings.apiKeys || {} : {};
+
+        const updates: Partial<ConfigStepData> = {};
+        let needsUpdate = false;
+
+        if (!hasHF && appApiKeys?.huggingface) {
+          const newApiKeys: ConfigStepData['apiKeys'] = {
+            ...config.apiKeys,
+            huggingface: appApiKeys.huggingface,
+          };
+          updates.apiKeys = newApiKeys;
+          needsUpdate = true;
+        }
+        if (!hasGemini && appApiKeys?.gemini) {
+          updates.geminiKey = appApiKeys.gemini;
+          const mergedApiKeys: ConfigStepData['apiKeys'] = {
+            ...(updates.apiKeys || config.apiKeys),
+            gemini: appApiKeys.gemini,
+          };
+          updates.apiKeys = mergedApiKeys;
+          needsUpdate = true;
+        }
+
+        if (needsUpdate) {
+          await updateConfigWithValidation({ ...updates, initializedWithDefaults: true });
+        }
+      } catch (e) {
+        logger.warn('Failed to prefill API keys from recent workspace', {
+          error: e instanceof Error ? e.message : String(e),
+        });
+      } finally {
+        if (activeWorkspaceId) setAppliedDefaultsForWorkspace(activeWorkspaceId);
+      }
+    };
+
+    prefillFromRecent();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeWorkspaceId]);
 
   // Handle errors
   useEffect(() => {
@@ -428,7 +494,6 @@ export const ConfigStep: React.FC = () => {
     setStepState,
     logger,
   ]);
-
 
   // Simple handler to start subtitle generation and navigate to Step 3
   const handleStartTranscription = useCallback(async () => {

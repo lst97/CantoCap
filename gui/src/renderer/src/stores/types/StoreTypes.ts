@@ -9,9 +9,11 @@ import type { HardwareInfo, DependencyStatus } from '../../../../types';
 export interface ElectronWindow extends Window {
   electron: {
     ipcRenderer: {
-      invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
-      on: (channel: string, callback: (event: unknown, ...args: unknown[]) => void) => void;
-      removeListener: (channel: string, callback: (event: unknown, ...args: unknown[]) => void) => void;
+      invoke: (channel: string, ...args: any[]) => Promise<any>;
+      send: (channel: string, ...args: any[]) => void;
+      on: (channel: string, callback: (...args: any[]) => void) => void;
+      removeListener: (channel: string, callback: (...args: unknown[]) => void) => void;
+      removeAllListeners: (channel: string) => void;
     };
   };
 }
@@ -20,11 +22,11 @@ export type StepType = 'input' | 'config' | 'processing' | 'review' | 'export';
 
 export enum StepStatus {
   READY = 'ready',
-  COMPLETE = 'complete', 
+  COMPLETE = 'complete',
   WARNING = 'warning',
   ERROR = 'error',
   SKIP = 'skip',
-  BLOCK = 'block'
+  BLOCK = 'block',
 }
 
 export type StepStatusType = StepStatus;
@@ -45,12 +47,10 @@ export interface UIState {
   showAdvanced: boolean;
 }
 
-
 export interface SystemDependencies {
   python: DependencyStatus;
   ffmpeg: DependencyStatus;
 }
-
 
 export interface AppState {
   // State
@@ -67,7 +67,11 @@ export interface AppState {
   actions: {
     setActiveWorkspace: (id: string) => Promise<void>;
     addRecentWorkspace: (id: string) => void;
-    loadAppState: () => Promise<{ activeWorkspaceId: string | null; recentWorkspaces: string[]; windowState: WindowState; }>;
+    loadAppState: () => Promise<{
+      activeWorkspaceId: string | null;
+      recentWorkspaces: string[];
+      windowState: WindowState;
+    }>;
     updateWindowState: (state: Partial<WindowState>) => Promise<void>;
     clearRecentWorkspaces: () => Promise<void>;
     setLoading: (loading: boolean) => void;
@@ -100,12 +104,15 @@ export interface WorkspaceState {
   isLoading: boolean;
   error: string | null;
   _initialized: boolean;
-  
+
   // Pre-computed derived state for stable references
   _workspaceList: WorkspaceMetadata[];
-  _groupedWorkspaces: Record<string, { group: WorkspaceGroup | null, workspaces: WorkspaceMetadata[] }>;
+  _groupedWorkspaces: Record<
+    string,
+    { group: WorkspaceGroup | null; workspaces: WorkspaceMetadata[] }
+  >;
   _availableGroups: WorkspaceGroup[];
-  
+
   // Flag to track when deletion is being handled by action (to prevent IPC override)
   _deletingWorkspaceId: string | null;
 
@@ -120,16 +127,19 @@ export interface WorkspaceState {
     setLoading: (loading: boolean) => void;
     setError: (error: string | null) => void;
     clearError: () => void;
-    
+
     // Group management methods
     loadGroups: () => Promise<WorkspaceGroup[]>;
     createGroup: (name: string, color?: WorkspaceGroupColor) => Promise<string>;
     deleteGroup: (groupId: string) => Promise<boolean>;
-    updateGroup: (groupId: string, updates: Partial<Omit<WorkspaceGroup, 'id' | 'metadata'>>) => Promise<boolean>;
+    updateGroup: (
+      groupId: string,
+      updates: Partial<Omit<WorkspaceGroup, 'id' | 'metadata'>>
+    ) => Promise<boolean>;
     addWorkspaceToGroup: (workspaceId: string, groupId: string) => Promise<void>;
     removeWorkspaceFromGroup: (workspaceId: string) => Promise<void>;
     toggleGroupExpansion: (groupId: string) => Promise<void>;
-    
+
     // Internal helper to recompute derived state
     _recomputeDerivedState: () => void;
   };
@@ -139,7 +149,15 @@ export interface WorkspaceState {
 // WORKSPACE UI TYPES - GROUPING AND PANEL MANAGEMENT
 // ============================================================================
 
-export type WorkspaceGroupColor = 'default' | 'blue' | 'green' | 'yellow' | 'red' | 'purple' | 'pink' | 'indigo';
+export type WorkspaceGroupColor =
+  | 'default'
+  | 'blue'
+  | 'green'
+  | 'yellow'
+  | 'red'
+  | 'purple'
+  | 'pink'
+  | 'indigo';
 
 export interface WorkspaceGroup {
   id: string;
@@ -198,7 +216,7 @@ export interface WorkspacePanelState {
 export interface ExtendedWorkspaceState extends WorkspaceState {
   // UI state for panels
   panelState: WorkspacePanelState;
-  
+
   // Extended actions
   actions: WorkspaceState['actions'] & {
     // Group management via context menu
@@ -278,7 +296,7 @@ export interface InputStepData {
 }
 
 // Config Step Types
-export type WhisperModel = 
+export type WhisperModel =
   | 'openai/whisper-small'
   | 'openai/whisper-medium'
   | 'openai/whisper-large-v2'
@@ -286,22 +304,72 @@ export type WhisperModel =
   | 'openai/whisper-large-v3-turbo'
   | 'whisperx/large-v3';
 
-export type ProcessingLanguage = 
-  | 'en' | 'zh' | 'ja' | 'ko' | 'es' | 'fr' | 'de' | 'it' | 'pt' | 'ru' 
-  | 'ar' | 'hi' | 'vi' | 'uk' | 'pl' | 'hu' | 'fi' | 'fa' | 'el' | 'tr' 
-  | 'da' | 'he' | 'ur' | 'te' | 'ca' | 'ml' | 'no' | 'nn' | 'sk' | 'sl' 
-  | 'hr' | 'ro' | 'eu' | 'gl' | 'ka' | 'lv' | 'tl' | 'nl' | 'cs';
+export type ProcessingLanguage =
+  | 'en'
+  | 'zh'
+  | 'ja'
+  | 'ko'
+  | 'es'
+  | 'fr'
+  | 'de'
+  | 'it'
+  | 'pt'
+  | 'ru'
+  | 'ar'
+  | 'hi'
+  | 'vi'
+  | 'uk'
+  | 'pl'
+  | 'hu'
+  | 'fi'
+  | 'fa'
+  | 'el'
+  | 'tr'
+  | 'da'
+  | 'he'
+  | 'ur'
+  | 'te'
+  | 'ca'
+  | 'ml'
+  | 'no'
+  | 'nn'
+  | 'sk'
+  | 'sl'
+  | 'hr'
+  | 'ro'
+  | 'eu'
+  | 'gl'
+  | 'ka'
+  | 'lv'
+  | 'tl'
+  | 'nl'
+  | 'cs';
 
-export type TranslationLanguage = 
-  | 'en_us' | 'en_uk' | 'en_au' | 'en_ca'
-  | 'zh_cn' | 'zh_tw'
-  | 'ja_jp' | 'ko_kr'
-  | 'es_es' | 'es_mx'
-  | 'fr_fr' | 'fr_ca'
-  | 'de_de' | 'it_it'
-  | 'pt_br' | 'pt_pt'
-  | 'ru_ru' | 'ar_sa' | 'hi_in'
-  | 'th_th' | 'vi_vn' | 'id_id' | 'ms_my' | 'tl_ph';
+export type TranslationLanguage =
+  | 'en_us'
+  | 'en_uk'
+  | 'en_au'
+  | 'en_ca'
+  | 'zh_cn'
+  | 'zh_tw'
+  | 'ja_jp'
+  | 'ko_kr'
+  | 'es_es'
+  | 'es_mx'
+  | 'fr_fr'
+  | 'fr_ca'
+  | 'de_de'
+  | 'it_it'
+  | 'pt_br'
+  | 'pt_pt'
+  | 'ru_ru'
+  | 'ar_sa'
+  | 'hi_in'
+  | 'th_th'
+  | 'vi_vn'
+  | 'id_id'
+  | 'ms_my'
+  | 'tl_ph';
 
 export interface ModelSettings {
   whisperModel: WhisperModel;
@@ -368,6 +436,8 @@ export interface ConfigStepData {
   isValid: boolean;
   validationErrors: string[];
   lastModified?: number;
+  // Marks that initial defaults (e.g., global/app API keys) were applied once on creation
+  initializedWithDefaults?: boolean;
 }
 
 // Processing Step Types
@@ -466,7 +536,7 @@ export interface MergeEditData {
 }
 
 // Discriminated union type for type-safe edit actions
-export type EditActionData = 
+export type EditActionData =
   | AddEditData
   | DeleteEditData
   | UpdateEditData
@@ -501,59 +571,67 @@ export interface SubtitleEditState {
   // Subtitle data
   subtitles: Subtitle[];
   originalSubtitles: Subtitle[];
-  
+
   // Workspace context
   workspaceId: string | null;
   videoPath: string | null;
-  
+
   // Selection and playback state
   selectedSubtitleId: string | null;
   currentTime: number;
   isVideoPlaying: boolean;
   videoDuration: number;
-  
+
   // Edit history
   undoStack: EditAction[];
   redoStack: EditAction[];
-  
+
   // Save state
   isDirty: boolean;
   isSaving: boolean;
   saveError: string | null;
   lastSaved: Date | null;
-  
+
   // Actions
   actions: {
     // Workspace management
-    loadSubtitlesForWorkspace: (workspaceId: string, videoPath: string, subtitles: Subtitle[]) => Promise<void>;
+    loadSubtitlesForWorkspace: (
+      workspaceId: string,
+      videoPath: string,
+      subtitles: Subtitle[]
+    ) => Promise<void>;
     clearWorkspace: () => void;
-    
+
     // Subtitle editing
     updateSubtitle: (id: string, updates: Partial<Subtitle>) => void;
     addSubtitle: (subtitle: Omit<Subtitle, 'id'>) => void;
     deleteSubtitle: (id: string) => void;
     splitSubtitle: (id: string, splitTime: number) => void;
     mergeSubtitles: (id1: string, id2: string) => void;
-    
+
     // Selection and playback
     setSelectedSubtitle: (id: string | null) => void;
     setCurrentTime: (time: number) => void;
     setVideoPlaying: (playing: boolean) => void;
     setVideoDuration: (duration: number) => void;
     jumpToSubtitle: (id: string) => void;
-    
+
     // Edit history
     undo: () => void;
     redo: () => void;
-    
+
     // Import/Export
     importFromJson: (workspaceId: string, videoPath: string, jsonData: unknown[]) => Promise<void>;
     exportToStep: () => Promise<void>;
-    
+
     // Persistence
     saveToWorkspace: () => Promise<void>;
     restoreFromOriginal: () => void;
-    restoreFromProcessingOriginal: (workspaceId: string, videoPath: string, originalJsonData: unknown[]) => Promise<void>;
+    restoreFromProcessingOriginal: (
+      workspaceId: string,
+      videoPath: string,
+      originalJsonData: unknown[]
+    ) => Promise<void>;
   };
 }
 
@@ -641,18 +719,18 @@ export interface ExportStepData {
   isExporting: boolean;
   exportProgress?: number;
   lastExportError?: string;
-  
+
   // UI State Management
   previewState: ExportPreviewState;
   actionsState: ExportActionsState;
   highlightConfig: HighlightConfig;
   validationIssues: ValidationIssues;
   historyGrouping: HistoryGrouping;
-  
+
   // Generated Content
   previewContent?: string;
   lastGenerated?: number;
-  
+
   // Persistent User Selections
   selectedLanguages: string[];
   includeMetadata: boolean;
@@ -761,7 +839,11 @@ export interface StepContentState {
 
   // Actions
   actions: {
-    updateStepContent: <T>(step: StepType, content: Partial<T>, workspaceId?: string) => Promise<void>;
+    updateStepContent: <T>(
+      step: StepType,
+      content: Partial<T>,
+      workspaceId?: string
+    ) => Promise<void>;
     getStepContent: (step: StepType) => unknown;
     resetStepContent: (step: StepType, workspaceId?: string) => Promise<void>;
     loadStepContent: (workspaceId: string, step: StepType) => Promise<void>;
@@ -774,7 +856,7 @@ export interface StepContentState {
     discardChanges: () => Promise<void>;
     getConfigAsCliArgs: () => string[];
     cancelTranscription: () => Promise<void>;
-    
+
     // Export-specific actions
     updateExportFormat: (format: string) => void;
     updateExportSettings: (settings: Partial<ExportStepData['exportSettings']>) => void;
@@ -794,21 +876,27 @@ export interface StepContentState {
     clearHistory: () => void;
     setExportingState: (isExporting: boolean, progress?: number, error?: string) => void;
     generatePreviewContent: () => Promise<void>;
-    
+
     // Enhanced persistence actions (similar to step 2's pattern)
     loadExportPreferences: (workspaceId: string) => Promise<ExportWorkspacePreferences | null>;
-    saveExportPreferences: (workspaceId: string, preferences: Partial<ExportWorkspacePreferences>) => Promise<void>;
+    saveExportPreferences: (
+      workspaceId: string,
+      preferences: Partial<ExportWorkspacePreferences>
+    ) => Promise<void>;
     loadExportSession: (workspaceId: string) => Promise<ExportSessionState | null>;
     saveExportSession: (workspaceId: string, session: Partial<ExportSessionState>) => Promise<void>;
     clearExportPreferences: (workspaceId: string) => Promise<void>;
-    
+
     // Modified subtitle data preservation (from step 4)
     loadModifiedSubtitles: (workspaceId: string) => Promise<ModifiedSubtitleData | null>;
     saveModifiedSubtitles: (workspaceId: string, data: ModifiedSubtitleData) => Promise<void>;
-    
+
     // Workspace export history management
     loadWorkspaceExportHistory: (workspaceId: string) => Promise<WorkspaceExportHistory | null>;
-    saveWorkspaceExportHistory: (workspaceId: string, history: WorkspaceExportHistory) => Promise<void>;
+    saveWorkspaceExportHistory: (
+      workspaceId: string,
+      history: WorkspaceExportHistory
+    ) => Promise<void>;
   };
 }
 

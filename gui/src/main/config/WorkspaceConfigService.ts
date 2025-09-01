@@ -214,6 +214,7 @@ export class WorkspaceConfigService {
           isValid: false,
           validationErrors: [],
           lastModified: Date.now(),
+          initializedWithDefaults: false,
         },
         processing: {
           status: 'idle',
