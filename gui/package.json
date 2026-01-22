@@ -79,7 +79,7 @@
     "electron-log": "^5.4.3",
     "electron-store": "^10.1.0",
     "highlight.js": "^11.11.1",
-    "lodash-es": "^4.17.21",
+    "lodash-es": "^4.17.23",
     "react": "^19.1.1",
     "react-diff-view": "^3.3.2",
     "react-dom": "^19.1.1",
